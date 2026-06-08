@@ -30,7 +30,7 @@ BiliMusic 是一个使用 Godot 引擎开发的桌面应用程序，提供直接
 ### 安装
 
 #### 从源代码安装
-
+!调试项目一定要更改项目中C:\Users\By.chi\Documents\bili-music\CSharp\Play\AudioConverter.cs里的ffmpeg换成你自己的
 1. 克隆仓库：
 ```bash
 git clone https://github.com/By-chi/BiliMusic.git
