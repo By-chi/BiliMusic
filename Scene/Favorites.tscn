@@ -1,0 +1,1076 @@
+[gd_scene format=3 uid="uid://c00vteu0bh0vl"]
+
+[ext_resource type="Texture2D" uid="uid://bq8p42egv625x" path="res://UI/Icon/add.svg" id="1_wkvp8"]
+[ext_resource type="Texture2D" uid="uid://dc0cbuam7rj1c" path="res://UI/Icon/Cutting.svg" id="2_70l1a"]
+[ext_resource type="Texture2D" uid="uid://bqfvgqac6s1yr" path="res://UI/Icon/remove.svg" id="2_a53u4"]
+[ext_resource type="Texture2D" uid="uid://c3ngkfm08fh1l" path="res://UI/Icon/copy.svg" id="3_3pacr"]
+[ext_resource type="Texture2D" uid="uid://c627o3sd15geu" path="res://UI/Icon/Download.svg" id="3_au07f"]
+[ext_resource type="Texture2D" uid="uid://cwsqs86au2fvw" path="res://UI/Icon/back.svg" id="3_gvq1e"]
+[ext_resource type="Texture2D" uid="uid://ds32xxqem2p28" path="res://UI/Icon/Paste.svg" id="4_o8iwe"]
+
+[sub_resource type="GDScript" id="GDScript_1siev"]
+script/source = "extends Control
+
+@export var grid_container: GridContainer
+@export var back_button: Button
+@export var scroll_container: ScrollContainer
+@export var ok_button: Button
+@export var remove_button: Button
+@export var download_button: Button
+@export var cut_button: Button
+@export var copy_button: Button
+@export var paste_button: Button
+@export var add_button: Button
+
+# 视图状态
+var _is_showing_favorites: bool = true
+var _current_fav_dir: String = \"\"
+var _last_showing_favorites: bool = true
+
+# 多选支持
+var selected_items: Array = []
+
+# 下载队列
+var _download_queue: Array = []
+var _is_downloading: bool = false
+
+# 双击检测（无定时器，即时响应）
+var _last_clicked_node: Node = null
+var _last_click_time: int = 0
+const DOUBLE_CLICK_THRESHOLD = 400  # 毫秒
+
+# 剪贴板
+var _clipboard_type: String = \"\"   # \"\" | \"cut\" | \"copy\"
+var _clipboard_data = []
+
+# 选择模式（外部控制 OK 按钮显示）
+var is_select_mode: bool = false
+
+signal favorites_selected(selected_favs: Array[String])
+
+# ------------------------------------------------------------
+# 初始化
+# ------------------------------------------------------------
+func _ready() -> void:
+	if ok_button and ok_button.text.is_empty():
+		ok_button.text = \"确定\"
+	call_deferred(\"_on_scroll_container_resized\")
+	update()
+	_update_buttons_state()
+
+# ------------------------------------------------------------
+# 外部调用：开启/关闭选择模式
+# ------------------------------------------------------------
+func set_select_mode(enable: bool) -> void:
+	is_select_mode = enable
+	_update_buttons_state()
+
+# ------------------------------------------------------------
+# 按钮状态更新
+# ------------------------------------------------------------
+func _update_buttons_state() -> void:
+	var has_selection = not selected_items.is_empty()
+	var clipboard_valid = not _clipboard_type.is_empty() and not _clipboard_data.is_empty()
+
+	# ---------- 添加按钮 ----------
+	# 只在收藏夹列表视图（文件夹层面）时可用
+	_set_button_disabled(add_button, not _is_showing_favorites)
+
+	# ---------- 下载按钮 ----------
+	var download_enabled = false
+	if not _is_showing_favorites and has_selection:
+		# 文件视图：检查选中项中是否有网络视频
+		for node in selected_items:
+			if \"link\" in node and node.video_info.get(\"is_network\", true):
+				download_enabled = true
+				break
+	_set_button_disabled(download_button, not download_enabled)
+
+	# ---------- 粘贴按钮 ----------
+	# 剪贴板有数据即可，视图层面会在点击时做引导，按钮保持可用
+	_set_button_disabled(paste_button, not clipboard_valid)
+
+	# ---------- 其他操作按钮：有选中项时可用 ----------
+	_set_button_disabled(remove_button, not has_selection)
+	_set_button_disabled(cut_button, not has_selection)
+	_set_button_disabled(copy_button, not has_selection)
+
+	# ---------- OK 按钮 ----------
+	# 仅在【选择模式 + 文件夹视图】时可见，并根据是否选中文件夹决定禁用
+	if ok_button:
+		if is_select_mode and _is_showing_favorites:
+			ok_button.visible = true
+			var has_folder = false
+			for node in selected_items:
+				if \"directory_name\" in node:
+					has_folder = true
+					break
+			_set_button_disabled(ok_button, not has_folder)
+		else:
+			ok_button.visible = false
+
+func _set_button_disabled(button: Button, disabled: bool) -> void:
+	if button == null:
+		return
+	button.disabled = disabled
+
+# ------------------------------------------------------------
+# 视图更新
+# ------------------------------------------------------------
+func update() -> void:
+	if _is_showing_favorites != _last_showing_favorites:
+		_rebuild_current_view()
+		_last_showing_favorites = _is_showing_favorites
+	else:
+		if _is_showing_favorites:
+			_lazy_update_decks()
+		else:
+			if not _current_fav_dir.is_empty():
+				_lazy_update_video_cards()
+	_update_buttons_state()
+
+func _rebuild_current_view() -> void:
+	_clear_grid()
+	if _is_showing_favorites:
+		_load_all_decks()
+	else:
+		if not _current_fav_dir.is_empty():
+			_load_all_video_cards()
+
+func _clear_grid() -> void:
+	for child in grid_container.get_children():
+		child.queue_free()
+	selected_items.clear()
+
+# ------------------------------------------------------------
+# 节点创建与懒更新
+# ------------------------------------------------------------
+func _lazy_update_decks() -> void:
+	var new_decks: Array = GdScriptFunc.get_keys(\"Favorites\")
+	if new_decks == null:
+		new_decks = []
+
+	var existing = {}
+	for child in grid_container.get_children():
+		if child.has_method(\"queue_free\"):
+			existing[child.directory_name] = child
+
+	for dir_name in new_decks:
+		if existing.has(dir_name):
+			var deck = existing[dir_name]
+			deck.videos = GdScriptFunc.get_data(\"Favorites\", dir_name)
+			deck.refresh_covers()
+		else:
+			var deck = _create_deck_node(dir_name)
+			grid_container.add_child(deck)
+
+	for dir_name in existing.keys():
+		if not new_decks.has(dir_name):
+			existing[dir_name].queue_free()
+
+func _create_deck_node(dir_name: String) -> Node:
+	var deck = preload(\"res://Scene/Deck.tscn\").instantiate()
+	deck.directory_name = dir_name
+	deck.videos = GdScriptFunc.get_data(\"Favorites\", dir_name)
+	deck.pressed.connect(_on_deck_pressed.bind(deck))
+	# 连接右键菜单
+	deck.gui_input.connect(_on_child_gui_input.bind(deck))
+	return deck
+
+func _lazy_update_video_cards() -> void:
+	var new_videos: Array = GdScriptFunc.get_data(\"Favorites\", _current_fav_dir, [])
+
+	var existing = {}
+	for child in grid_container.get_children():
+		if child.get(\"link\") != null:
+			existing[child.link] = child
+
+	for video_data in new_videos:
+		var link = video_data[\"link\"]
+		if existing.has(link):
+			var card = existing[link]
+			card.video_info = video_data
+			card.title = video_data.get(\"title\", \"\")
+			card.author = video_data.get(\"author\", \"\")
+			card.description = video_data.get(\"description\", \"\")
+			card.block_play = true
+			var old_is_network = card.video_info.get(\"is_network\", true)
+			var new_is_network = video_data.get(\"is_network\", true)
+			if old_is_network != new_is_network:
+				card.reset()
+				if new_is_network:
+					BilibiliIc.fetch_cover(card.link, set_cover.bind(card), 583, 364)
+				elif FileAccess.file_exists(card.link.get_basename() + \".jpg\"):
+					var image = Image.load_from_file(card.link.get_basename() + \".jpg\")
+					_set_cover(ImageTexture.create_from_image(image), card)
+				else:
+					_load_local_cover(card)
+				card.custom_minimum_size = Vector2(582.4, 364.0)
+		else:
+			var card = _create_video_card_node(video_data)
+			grid_container.add_child(card)
+
+	for link in existing.keys():
+		var still_exists = false
+		for v in new_videos:
+			if v[\"link\"] == link:
+				still_exists = true
+				break
+		if not still_exists:
+			existing[link].queue_free()
+
+func _create_video_card_node(video_data: Dictionary) -> Node:
+	var video_card = preload(\"res://Scene/VideoCard.tscn\").instantiate()
+	video_card.video_info = video_data
+	video_card.title = video_data.get(\"title\", \"\")
+	video_card.author = video_data.get(\"author\", \"\")
+	video_card.description = video_data.get(\"description\", \"\")
+	video_card.link = video_data.get(\"link\", \"\")
+	video_card.list_name = _current_fav_dir
+	video_card.pressed.connect(_on_video_card_pressed.bind(video_card))
+	# 连接右键菜单
+	video_card.gui_input.connect(_on_child_gui_input.bind(video_card))
+	video_card.block_play = true
+	video_card.reset()
+	if video_data.get(\"is_network\", true):
+		BilibiliIc.fetch_cover(video_card.link, set_cover.bind(video_card), 583, 364)
+	elif FileAccess.file_exists(video_card.link.get_basename() + \".jpg\"):
+		var image = Image.load_from_file(video_card.link.get_basename() + \".jpg\")
+		_set_cover(ImageTexture.create_from_image(image), video_card)
+	else:
+		_load_local_cover(video_card)
+
+	video_card.custom_minimum_size = Vector2(582.4, 364.0)
+	return video_card
+
+func _load_local_cover(video_card: Control) -> void:
+	var audio_path = video_card.link
+	var dir = audio_path.get_base_dir()
+	var base_name = audio_path.get_file().get_basename()
+	var cover_path = dir.path_join(base_name + \".jpg\")
+	var img = Image.new()
+	if FileAccess.file_exists(cover_path) and img.load(cover_path) == OK:
+		video_card.cover = ImageTexture.create_from_image(img)
+	else:
+		GdScriptFunc.generate_label_texture(Color.WHITE, video_card.title, _set_cover.bind(video_card), null, 50)
+
+func _load_all_decks() -> void:
+	var dir_names = GdScriptFunc.get_keys(\"Favorites\")
+	if dir_names.is_empty():
+		return
+	for dir_name in dir_names:
+		var deck = _create_deck_node(dir_name)
+		grid_container.add_child(deck)
+
+func _load_all_video_cards() -> void:
+	var videos: Array = GdScriptFunc.get_data(\"Favorites\", _current_fav_dir, [])
+	for v in videos:
+		var video_card = _create_video_card_node(v)
+		grid_container.add_child(video_card)
+
+func _set_cover(texture: Texture2D, video_card: Control) -> void:
+	set_cover(\"\", texture, video_card)
+
+func set_cover(_bvid: String, texture: Texture2D, video_card) -> void:
+	if is_instance_valid(video_card):
+		video_card.cover = texture
+
+# ------------------------------------------------------------
+# 即时选择 + 双击检测（无定时器）
+# ------------------------------------------------------------
+func _handle_node_click(node: Node) -> void:
+	var now = Time.get_ticks_msec()
+	if _last_clicked_node == node and (now - _last_click_time) < DOUBLE_CLICK_THRESHOLD:
+		_double_click_node(node)
+		_last_clicked_node = null
+		_last_click_time = 0
+	else:
+		_select_node(node, Input.is_key_pressed(KEY_CTRL))
+		_last_clicked_node = node
+		_last_click_time = now
+
+func _select_node(node: Node, ctrl_pressed: bool) -> void:
+	if ctrl_pressed:
+		var idx = selected_items.find(node)
+		if idx != -1:
+			selected_items.remove_at(idx)
+		else:
+			selected_items.append(node)
+	else:
+		selected_items.clear()
+		selected_items.append(node)
+	_update_selection_visual()
+
+func _double_click_node(node: Node) -> void:
+	if \"directory_name\" in node:
+		_current_fav_dir = node.directory_name
+		_is_showing_favorites = false
+		back_button.show()
+		update()
+	else:
+		node.play_card()
+
+func _update_selection_visual() -> void:
+	for child in grid_container.get_children():
+		if \"directory_name\" in child:
+			if selected_items.has(child):
+				child.self_modulate = Color(0.753, 0.949, 1.0)
+			else:
+				child.self_modulate = Color(1, 1, 1)
+		else:
+			if selected_items.has(child):
+				if child.get(\"title_label\"):
+					child.title_label.add_theme_color_override(\"font_color\", Color(0.0, 0.352, 0.47, 1.0))
+			else:
+				if child.get(\"title_label\"):
+					child.title_label.add_theme_color_override(\"font_color\", Color(0.0, 0.0, 0.0, 1.0))
+	_update_buttons_state()
+
+# ------------------------------------------------------------
+# 点击回调
+# ------------------------------------------------------------
+func _on_deck_pressed(deck: Node) -> void:
+	_handle_node_click(deck)
+
+func _on_video_card_pressed(video_card: Control) -> void:
+	_handle_node_click(video_card)
+
+# ------------------------------------------------------------
+# 右键菜单处理
+# ------------------------------------------------------------
+func _on_child_gui_input(event: InputEvent, node: Node) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+		_show_context_menu_for_node(node)
+
+func _show_context_menu_for_node(node: Node) -> void:
+	# 如果右击的项不在选中列表，则先单选它
+	if not selected_items.has(node):
+		_select_node(node, false)
+
+	var menu_data: Array[Dictionary] = []
+
+	# 全选 / 取消全选
+	menu_data.append({\"label\": \"全选\", \"action\": func(d): _select_all(), \"enabled\": true})
+	menu_data.append({\"label\": \"取消全选\", \"action\": func(d): _deselect_all(), \"enabled\": not selected_items.is_empty()})
+	menu_data.append({\"type\": \"separator\"})
+
+	var has_selection = not selected_items.is_empty()
+	var clipboard_valid = not _clipboard_type.is_empty() and not _clipboard_data.is_empty()
+
+	# 剪切 / 复制
+	menu_data.append({\"label\": \"剪切\", \"action\": func(d): _on_cut_pressed(), \"enabled\": has_selection})
+	menu_data.append({\"label\": \"复制\", \"action\": func(d): _on_copy_pressed(), \"enabled\": has_selection})
+
+	# 粘贴：只要剪贴板有数据就启用（跨视图逻辑在 _on_paste_pressed 里处理）
+	menu_data.append({\"label\": \"粘贴\", \"action\": func(d): _on_paste_pressed(), \"enabled\": clipboard_valid})
+
+	menu_data.append({\"type\": \"separator\"})
+	menu_data.append({\"label\": \"删除\", \"action\": func(d): _delete_selected_items(), \"enabled\": has_selection})
+
+	# 若为文件视图，增加下载
+	if not _is_showing_favorites:
+		var has_network = false
+		for item in selected_items:
+			if \"link\" in item and item.video_info.get(\"is_network\", true):
+				has_network = true
+				break
+		menu_data.append({\"label\": \"下载\", \"action\": func(d): _download_selected_cards(), \"enabled\": has_network})
+	if \"link\" in node and not _is_showing_favorites:
+		# 当前视图必须是文件视图，且右击的是视频卡片
+		menu_data.append({\"type\": \"separator\"})
+		menu_data.append({\"label\": \"属性\", \"action\": func(d): _on_properties_pressed(node), \"enabled\": true})
+	GdScriptFunc.open_right_click_menu_window(DisplayServer.mouse_get_position(), menu_data)
+func _on_properties_pressed(node: Node) -> void:
+	GdScriptFunc.open_metadata_manager_window(_current_fav_dir, node.link)
+func _select_all() -> void:
+	selected_items.clear()
+	for child in grid_container.get_children():
+		selected_items.append(child)
+	_update_selection_visual()
+
+func _deselect_all() -> void:
+	selected_items.clear()
+	_update_selection_visual()
+
+# ------------------------------------------------------------
+# 下载功能（带队列）
+# ------------------------------------------------------------
+func _download_video(video_card: Control, on_finished: Callable = Callable()) -> void:
+	var video_info: Dictionary = video_card.get(\"video_info\")
+	if video_info.is_empty():
+		GdScriptFunc.set_progress_bar_value(100, \"\", \"下载失败：无视频信息\")
+		if on_finished.is_valid(): on_finished.call()
+		return
+
+	if video_info.get(\"is_network\", true) == false:
+		GdScriptFunc.set_progress_bar_value(100, \"\", \"本地文件，无需下载\")
+		if on_finished.is_valid(): on_finished.call()
+		return
+
+	var bvid: String = video_info.get(\"link\", \"\")
+	if bvid.is_empty():
+		GdScriptFunc.set_progress_bar_value(100, \"\", \"下载失败：无效链接\")
+		if on_finished.is_valid(): on_finished.call()
+		return
+
+	GdScriptFunc.set_progress_bar_value(10, \"下载\", \"正在获取视频信息...\")
+
+	BilibiliIc.fetch_video_info(bvid, func(full_info: Dictionary):
+		if full_info.is_empty():
+			push_error(\"获取视频信息失败: \" + bvid)
+			GdScriptFunc.set_progress_bar_value(100, \"\", \"获取视频信息失败\")
+			if on_finished.is_valid(): on_finished.call()
+			return
+
+		var title = full_info.get(\"title\", bvid)
+		var author = full_info.get(\"author\", \"\")
+		var description = full_info.get(\"desc\", \"\")
+
+		GdScriptFunc.set_progress_bar_value(20, title, \"信息获取成功，开始下载音频...\")
+
+		_download_audio_async(bvid, func(audio_result: Dictionary):
+			if audio_result.is_empty():
+				push_error(\"下载音频失败: \" + bvid)
+				GdScriptFunc.set_progress_bar_value(100, title, \"音频下载失败\")
+				if on_finished.is_valid(): on_finished.call()
+				return
+
+			var audio_path: String = audio_result[\"local_path\"]
+			GdScriptFunc.set_progress_bar_value(50, title, \"音频下载完成，正在下载封面...\")
+
+			# 预先计算好歌词路径
+			var lrc_path: String = audio_path.get_basename() + \".lrc\"
+
+			var fav_list: Array = GdScriptFunc.get_data(\"Favorites\", _current_fav_dir, [])
+			var updated := false
+			for item in fav_list:
+				if item[\"link\"] == bvid:
+					item[\"link\"] = audio_path
+					item[\"is_network\"] = false
+					item[\"title\"] = title
+					item[\"author\"] = author
+					item[\"description\"] = description
+					item[\"BV\"] = bvid          # 新增：保存原始BV号
+					item.erase(\"subtitles\")    # 旧字幕数据先清除
+					updated = true
+					break
+
+			if not updated:
+				push_error(\"未在收藏夹中找到对应条目: \" + bvid)
+				GdScriptFunc.set_progress_bar_value(100, title, \"更新收藏夹失败\")
+				if on_finished.is_valid(): on_finished.call()
+				return
+
+			BilibiliIc.fetch_cover(bvid, func(bvid_param, cover_texture: Texture2D):
+				var cover_loaded = false
+				if cover_texture:
+					var img = cover_texture.get_image()
+					if img:
+						var dir = audio_path.get_base_dir()
+						var base_name = audio_path.get_file().get_basename()
+						var cover_path = dir.path_join(base_name + \".jpg\")
+						var err = img.save_jpg(cover_path)
+						if err == OK:
+							cover_loaded = true
+							if is_instance_valid(video_card):
+								video_card.video_info = {
+									\"link\": audio_path,
+									\"is_network\": false,
+									\"title\": title,
+									\"author\": author,
+									\"description\": description,
+									\"BV\": bvid           # 新增：同步到卡片信息
+								}
+								video_card.link = audio_path
+								video_card.title = title
+								video_card.author = author
+								video_card.description = description
+								video_card.reset()
+								video_card.block_play = true
+								var loaded_img = Image.new()
+								if loaded_img.load(cover_path) == OK:
+									video_card.cover = ImageTexture.create_from_image(loaded_img)
+								else:
+									GdScriptFunc.generate_label_texture(Color.WHITE, title, _set_cover.bind(video_card), null, 50)
+								video_card.custom_minimum_size = Vector2(582.4, 364.0)
+
+				if not cover_loaded:
+					if is_instance_valid(video_card):
+						video_card.video_info = {
+							\"link\": audio_path,
+							\"is_network\": false,
+							\"title\": title,
+							\"author\": author,
+							\"description\": description,
+							\"BV\": bvid
+						}
+						video_card.link = audio_path
+						video_card.title = title
+						video_card.author = author
+						video_card.description = description
+						video_card.reset()
+						video_card.block_play = true
+						GdScriptFunc.generate_label_texture(Color.WHITE, title, _set_cover.bind(video_card), null, 50)
+						video_card.custom_minimum_size = Vector2(582.4, 364.0)
+
+				GdScriptFunc.set_progress_bar_value(70, title, \"封面处理完成\")
+
+				if GdScriptFunc.get_data(\"Options\", \"SubtitleTextCorrection\", false):
+					GdScriptFunc.set_progress_bar_value(80, title, \"正在下载字幕...\")
+					BilibiliIc.fetch_subtitle_auto(bvid, func(subtitle_data: Dictionary):
+						if not subtitle_data.is_empty():
+							for item in fav_list:
+								if item[\"link\"] == audio_path:
+									item[\"subtitles\"] = {\"path\": lrc_path}
+									break
+							if is_instance_valid(video_card):
+								video_card.video_info[\"subtitles\"] = {\"path\": lrc_path}
+							GdScriptFunc.set_data(\"Favorites\", _current_fav_dir, fav_list)
+
+						GdScriptFunc.set_progress_bar_value(100, title, \"下载完成\")
+						if on_finished.is_valid(): on_finished.call()
+						update.call_deferred()
+					, lrc_path)
+				else:
+					GdScriptFunc.set_progress_bar_value(100, title, \"下载完成\")
+					GdScriptFunc.set_data(\"Favorites\", _current_fav_dir, fav_list)
+					if on_finished.is_valid(): on_finished.call()
+					update.call_deferred()
+			, 1280, 720)
+		)
+	)
+const TARGET_DIR := \"user://local_music/\"
+func _download_audio_async(bvid: String, callback: Callable) -> void:
+	var thread := Thread.new()
+	var result := {
+		\"success\": false,
+		\"local_path\": \"\",
+		\"hash\": \"\"
+	}
+
+	thread.start(func():
+		var info_dict = DownloadAudio.GetAudioInfoByBvSync(bvid)
+		if info_dict == null or info_dict.get(\"audioUrl\", \"\").is_empty():
+			return result
+
+		var audio_url = info_dict[\"audioUrl\"]
+		var referer = info_dict[\"referer\"]
+
+		var temp_path = DownloadAudio.DownloadAudioSync(audio_url, referer)
+		if temp_path == \"\" or temp_path.is_empty() or not FileAccess.file_exists(temp_path):
+			return result
+		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(TARGET_DIR))
+
+		var src := FileAccess.open(temp_path, FileAccess.READ)
+		if src == null:
+			return result
+
+		var ctx := HashingContext.new()
+		ctx.start(HashingContext.HASH_SHA256)
+		while src.get_position() < src.get_length():
+			ctx.update(src.get_buffer(4096))
+		var file_hash := ctx.finish().hex_encode()
+		src.close()
+
+		var ext = temp_path.get_extension()
+		var dst_filename = file_hash + \".\" + ext if not ext.is_empty() else file_hash
+		var dst_path := TARGET_DIR.path_join(dst_filename)
+
+		if not FileAccess.file_exists(dst_path):
+			var err := DirAccess.copy_absolute(temp_path, dst_path)
+			if err != OK:
+				DirAccess.remove_absolute(temp_path)
+				return result
+
+		DirAccess.remove_absolute(temp_path)
+
+		result[\"success\"] = true
+		result[\"local_path\"] = dst_path
+		result[\"hash\"] = file_hash
+		return result
+	)
+
+	var check_timer := Timer.new()
+	check_timer.wait_time = 0.05
+	check_timer.one_shot = false
+	add_child(check_timer)
+	check_timer.timeout.connect(func():
+		if not thread.is_alive():
+			var res = thread.wait_to_finish()
+			check_timer.queue_free()
+			callback.call(res)
+	)
+	check_timer.start()
+
+func _process_download_queue() -> void:
+	if _is_downloading:
+		return
+	if _download_queue.is_empty():
+		return
+
+	var card = _download_queue.pop_front()
+	_is_downloading = true
+	_download_video(card, func():
+		_is_downloading = false
+		_process_download_queue()
+	)
+
+# ------------------------------------------------------------
+# 删除选中项
+# ------------------------------------------------------------
+func _delete_selected_items() -> void:
+	var to_delete = selected_items.duplicate()
+	selected_items.clear()
+	for node in to_delete:
+		if not is_instance_valid(node):
+			continue
+		if \"directory_name\" in node:
+			var dir_name = node.directory_name
+			GdScriptFunc.remove_key(\"Favorites\", dir_name)
+			node.queue_free()
+		elif \"link\" in node:
+			var link = node.link
+			_remove_video_from_current_fav(link)
+			node.queue_free()
+	_update_selection_visual()
+	update()
+
+func _remove_video_from_current_fav(link: String) -> void:
+	if _current_fav_dir.is_empty():
+		return
+	var videos: Array = GdScriptFunc.get_data(\"Favorites\", _current_fav_dir, [])
+	var new_videos = []
+	for v in videos:
+		if v[\"link\"] != link:
+			new_videos.append(v)
+	GdScriptFunc.set_data(\"Favorites\", _current_fav_dir, new_videos)
+
+# ------------------------------------------------------------
+# 下载选中项（仅网络视频）
+# ------------------------------------------------------------
+func _download_selected_cards() -> void:
+	var cards_to_download = []
+	for node in selected_items:
+		if \"link\" in node and node.video_info.get(\"is_network\", true):
+			cards_to_download.append(node)
+
+	if cards_to_download.is_empty():
+		return
+
+	_download_queue = cards_to_download
+	_process_download_queue()
+
+# ------------------------------------------------------------
+# 按钮回调
+# ------------------------------------------------------------
+func _on_add_pressed() -> void:
+	if not _is_showing_favorites:
+		return
+
+	var deck = preload(\"res://Scene/Deck.tscn\").instantiate()
+	deck.directory_name = \"\"
+	deck.videos = []
+	deck.text_node.call_deferred(\"grab_focus\")
+	deck.pressed.connect(_on_deck_pressed.bind(deck))
+	grid_container.add_child(deck)
+	await get_tree().process_frame
+	grid_container.update_minimum_size()
+	scroll_container.update_minimum_size()
+	await get_tree().process_frame
+	scroll_to_bottom()
+	_update_buttons_state()
+
+func _on_back_pressed() -> void:
+	back_button.hide()
+	_is_showing_favorites = true
+	update()
+
+func _on_remove_pressed() -> void:
+	_delete_selected_items()
+
+func _on_download_pressed() -> void:
+	_download_selected_cards()
+	_update_buttons_state()
+
+func scroll_to_bottom() -> void:
+	var v_scrollbar = scroll_container.get_v_scroll_bar()
+	if v_scrollbar:
+		scroll_container.scroll_vertical = int(v_scrollbar.max_value)
+		v_scrollbar.queue_redraw()
+		scroll_container.queue_redraw()
+
+func _on_scroll_container_resized() -> void:
+	if not scroll_container:
+		return
+	var new_columns = max(1, int(scroll_container.size.x / 600))
+	if new_columns != grid_container.columns:
+		grid_container.columns = new_columns
+
+# ------------------------------------------------------------
+# 确认按钮（仅在多选收藏夹的选择模式下使用）
+# ------------------------------------------------------------
+func _on_ok_pressed() -> void:
+	var selected_favs: Array[String] = []
+	for node in selected_items:
+		if \"directory_name\" in node:
+			selected_favs.append(node.directory_name)
+
+	favorites_selected.emit(selected_favs)
+
+	if get_parent():
+		get_parent().queue_free()
+
+# ------------------------------------------------------------
+# 剪切 / 复制 / 粘贴（完整跨视图支持）
+# ------------------------------------------------------------
+func _on_cut_pressed() -> void:
+	if selected_items.is_empty():
+		return
+	_clipboard_type = \"cut\"
+	_clipboard_data.clear()
+	for node in selected_items:
+		var data = _serialize_node(node)
+		if not data.is_empty():
+			_clipboard_data.append(data)
+	_update_buttons_state()
+
+func _on_copy_pressed() -> void:
+	if selected_items.is_empty():
+		return
+	_clipboard_type = \"copy\"
+	_clipboard_data.clear()
+	for node in selected_items:
+		var data = _serialize_node(node)
+		if not data.is_empty():
+			_clipboard_data.append(data)
+	_update_buttons_state()
+
+func _on_paste_pressed() -> void:
+	if _clipboard_type.is_empty() or _clipboard_data.is_empty():
+		return
+
+	var any_pasted = false
+
+	for data in _clipboard_data:
+		var type = data.get(\"type\", \"\")
+		if type == \"folder\":
+			if _is_showing_favorites:
+				# 在文件夹列表视图：创建文件夹副本
+				if _paste_folder(data):
+					any_pasted = true
+			else:
+				# 在文件视图：将文件夹内的视频全部导入当前收藏夹
+				if _paste_folder_contents_to_current(data):
+					any_pasted = true
+		elif type == \"file\":
+			if _is_showing_favorites:
+				# 在文件夹列表视图：把文件放入一个新建的收藏夹
+				if _paste_file_to_new_folder(data):
+					any_pasted = true
+			else:
+				# 在文件视图：直接添加到当前收藏夹
+				if _paste_file(data):
+					any_pasted = true
+
+	if _clipboard_type == \"cut\" and any_pasted:
+		_execute_cut_delete()
+		_clipboard_type = \"\"
+		_clipboard_data.clear()
+
+	update()
+	_update_buttons_state()
+
+func _serialize_node(node: Node) -> Dictionary:
+	if \"directory_name\" in node:
+		var videos = GdScriptFunc.get_data(\"Favorites\", node.directory_name, [])
+		return {
+			\"type\": \"folder\",
+			\"name\": node.directory_name,
+			\"videos\": videos.duplicate(true)
+		}
+	elif \"link\" in node:
+		return {
+			\"type\": \"file\",
+			\"data\": node.video_info.duplicate(true) if \"video_info\" in node else {},
+			\"source_dir\": _current_fav_dir
+		}
+	return {}
+
+func _paste_folder(data: Dictionary) -> bool:
+	var original_name = data[\"name\"]
+	var new_name = _generate_unique_folder_name(original_name)
+	var videos_copy = data[\"videos\"].duplicate(true)
+	GdScriptFunc.set_data(\"Favorites\", new_name, videos_copy)
+	return true
+
+func _paste_file(data: Dictionary) -> bool:
+	var file_data = data[\"data\"].duplicate(true)
+	if file_data.is_empty():
+		return false
+	var fav_list = GdScriptFunc.get_data(\"Favorites\", _current_fav_dir, [])
+	for item in fav_list:
+		if item.get(\"link\") == file_data.get(\"link\"):
+			return false   # 已存在，不粘贴
+	fav_list.append(file_data)
+	GdScriptFunc.set_data(\"Favorites\", _current_fav_dir, fav_list)
+	return true
+
+func _paste_file_to_new_folder(data: Dictionary) -> bool:
+	# 在文件夹列表视图粘贴一个文件：为该文件创建一个新的收藏夹
+	var file_data = data[\"data\"].duplicate(true)
+	if file_data.is_empty():
+		return false
+	var folder_name = file_data.get(\"title\", \"未命名\")
+	folder_name = _generate_unique_folder_name(folder_name)
+	var video_list = [file_data]
+	GdScriptFunc.set_data(\"Favorites\", folder_name, video_list)
+	return true
+
+func _paste_folder_contents_to_current(data: Dictionary) -> bool:
+	# 在文件视图粘贴一个文件夹：将该文件夹内的所有视频导入当前收藏夹
+	if _current_fav_dir.is_empty():
+		return false
+	var videos = data.get(\"videos\", [])
+	if videos.is_empty():
+		return false
+	var fav_list = GdScriptFunc.get_data(\"Favorites\", _current_fav_dir, [])
+	var added_any = false
+	for video in videos:
+		var already_exists = false
+		for item in fav_list:
+			if item.get(\"link\") == video.get(\"link\"):
+				already_exists = true
+				break
+		if not already_exists:
+			fav_list.append(video.duplicate(true))
+			added_any = true
+	if added_any:
+		GdScriptFunc.set_data(\"Favorites\", _current_fav_dir, fav_list)
+	return added_any
+
+func _generate_unique_folder_name(base: String) -> String:
+	var keys = GdScriptFunc.get_keys(\"Favorites\")
+	if keys == null: keys = []
+	var new_name = base
+	var counter = 1
+	while keys.has(new_name):
+		new_name = base + \" - 副本\" + ((\" (\" + str(counter) + \")\") if counter > 1 else \"\")
+		counter += 1
+	return new_name
+
+func _execute_cut_delete() -> void:
+	for data in _clipboard_data:
+		if data.get(\"type\") == \"folder\":
+			var _name = data[\"name\"]
+			GdScriptFunc.remove_key(\"Favorites\", _name)
+		elif data.get(\"type\") == \"file\":
+			var file_data = data[\"data\"]
+			var link = file_data.get(\"link\", \"\")
+			var source_dir = data.get(\"source_dir\", \"\")
+			if not link.is_empty() and not source_dir.is_empty():
+				var fav_list = GdScriptFunc.get_data(\"Favorites\", source_dir, [])
+				var new_list = []
+				for item in fav_list:
+					if item.get(\"link\") != link:
+						new_list.append(item)
+				GdScriptFunc.set_data(\"Favorites\", source_dir, new_list)
+"
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_0inii"]
+content_margin_left = 5.0
+content_margin_top = 5.0
+content_margin_right = 5.0
+content_margin_bottom = 5.0
+bg_color = Color(0.9490196, 0.9529412, 0.98039216, 1)
+corner_radius_top_left = 15
+corner_radius_top_right = 15
+corner_radius_bottom_right = 15
+corner_radius_bottom_left = 15
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_1siev"]
+content_margin_left = 20.0
+content_margin_top = 130.0
+draw_center = false
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_gvq1e"]
+bg_color = Color(0.87021685, 0.8702169, 0.8702167, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.5839104, 0.58391047, 0.5839102, 1)
+corner_radius_top_left = 9
+corner_radius_top_right = 9
+corner_radius_bottom_right = 9
+corner_radius_bottom_left = 9
+corner_detail = 4
+
+[node name="Page" type="Control" unique_id=585043204 node_paths=PackedStringArray("grid_container", "back_button", "scroll_container", "ok_button", "remove_button", "download_button", "cut_button", "copy_button", "paste_button", "add_button")]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 310.0
+offset_bottom = -99.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 1
+script = SubResource("GDScript_1siev")
+grid_container = NodePath("ScrollContainer/GridContainer")
+back_button = NodePath("Back")
+scroll_container = NodePath("ScrollContainer")
+ok_button = NodePath("OK")
+remove_button = NodePath("Bar/Remove")
+download_button = NodePath("Bar/Download")
+cut_button = NodePath("Bar/Cut")
+copy_button = NodePath("Bar/Copy")
+paste_button = NodePath("Bar/Paste")
+add_button = NodePath("Bar/Add")
+
+[node name="Label" type="Label" parent="." unique_id=921580403]
+layout_mode = 0
+offset_right = 1290.0
+offset_bottom = 73.0
+mouse_filter = 0
+theme_override_font_sizes/font_size = 50
+text = "收藏列表"
+
+[node name="SubLabel" type="Label" parent="Label" unique_id=345127570]
+layout_mode = 1
+offset_top = 78.0
+offset_right = 201.0
+offset_bottom = 112.0
+theme_override_colors/font_color = Color(0.22352941, 0.23137255, 0.23921569, 1)
+theme_override_font_sizes/font_size = 24
+text = "做一个音乐收藏家"
+
+[node name="Bar" type="HBoxContainer" parent="." unique_id=1984783473]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 220.0
+offset_top = 29.0
+offset_right = -16.0
+offset_bottom = 99.0
+grow_horizontal = 2
+theme_override_constants/separation = 20
+
+[node name="Add" type="Button" parent="Bar" unique_id=2043052242]
+custom_minimum_size = Vector2(70, 70)
+layout_mode = 2
+tooltip_text = "添加文件夹"
+theme_override_colors/icon_disabled_color = Color(6.758958, 0.8067969, 0.55357623, 1)
+theme_override_styles/disabled = SubResource("StyleBoxFlat_0inii")
+icon = ExtResource("1_wkvp8")
+expand_icon = true
+
+[node name="Cut" type="Button" parent="Bar" unique_id=1756933694]
+custom_minimum_size = Vector2(70, 70)
+layout_mode = 2
+tooltip_text = "剪切"
+theme_override_colors/icon_disabled_color = Color(6.758958, 0.8067969, 0.55357623, 1)
+theme_override_styles/disabled = SubResource("StyleBoxFlat_0inii")
+icon = ExtResource("2_70l1a")
+expand_icon = true
+
+[node name="Copy" type="Button" parent="Bar" unique_id=141322814]
+custom_minimum_size = Vector2(70, 70)
+layout_mode = 2
+tooltip_text = "复制"
+theme_override_colors/icon_disabled_color = Color(6.758958, 0.8067969, 0.55357623, 1)
+theme_override_styles/disabled = SubResource("StyleBoxFlat_0inii")
+icon = ExtResource("3_3pacr")
+expand_icon = true
+
+[node name="Paste" type="Button" parent="Bar" unique_id=1791995644]
+custom_minimum_size = Vector2(70, 70)
+layout_mode = 2
+tooltip_text = "粘贴"
+theme_override_colors/icon_disabled_color = Color(6.758958, 0.8067969, 0.55357623, 1)
+theme_override_styles/disabled = SubResource("StyleBoxFlat_0inii")
+icon = ExtResource("4_o8iwe")
+expand_icon = true
+
+[node name="Remove" type="Button" parent="Bar" unique_id=167491011]
+custom_minimum_size = Vector2(70, 70)
+layout_mode = 2
+tooltip_text = "移除"
+theme_override_colors/icon_disabled_color = Color(6.758958, 0.8067969, 0.55357623, 1)
+theme_override_styles/disabled = SubResource("StyleBoxFlat_0inii")
+icon = ExtResource("2_a53u4")
+expand_icon = true
+
+[node name="Download" type="Button" parent="Bar" unique_id=936197800]
+custom_minimum_size = Vector2(70, 70)
+layout_mode = 2
+tooltip_text = "下载到本地"
+theme_override_colors/icon_disabled_color = Color(6.758958, 0.8067969, 0.55357623, 1)
+theme_override_styles/disabled = SubResource("StyleBoxFlat_0inii")
+icon = ExtResource("3_au07f")
+expand_icon = true
+
+[node name="ScrollContainer" type="ScrollContainer" parent="." unique_id=352955920]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = 127.0
+offset_right = -24.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_1siev")
+horizontal_scroll_mode = 3
+
+[node name="GridContainer" type="GridContainer" parent="ScrollContainer" unique_id=58795696]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/h_separation = 20
+theme_override_constants/v_separation = 120
+columns = 5
+
+[node name="Back" type="Button" parent="." unique_id=1348982218]
+visible = false
+custom_minimum_size = Vector2(70, 70)
+layout_mode = 0
+offset_top = 127.0
+offset_right = 50.0
+offset_bottom = 177.0
+icon = ExtResource("3_gvq1e")
+expand_icon = true
+
+[node name="OK" type="Button" parent="." unique_id=576419686]
+visible = false
+custom_minimum_size = Vector2(70, 70)
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -40.0
+offset_top = -70.0
+offset_right = 40.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_colors/font_disabled_color = Color(0.16078432, 0.16078432, 0.16078432, 1)
+theme_override_styles/normal = SubResource("StyleBoxFlat_gvq1e")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_gvq1e")
+theme_override_styles/hover = SubResource("StyleBoxFlat_gvq1e")
+theme_override_styles/hover_pressed = SubResource("StyleBoxFlat_gvq1e")
+theme_override_styles/hover_pressed_mirrored = SubResource("StyleBoxFlat_gvq1e")
+theme_override_styles/disabled = SubResource("StyleBoxFlat_gvq1e")
+theme_override_styles/focus = SubResource("StyleBoxFlat_gvq1e")
+text = "确定"
+expand_icon = true
+
+[connection signal="visibility_changed" from="." to="." method="_on_visibility_changed"]
+[connection signal="pressed" from="Bar/Add" to="." method="_on_add_pressed"]
+[connection signal="pressed" from="Bar/Cut" to="." method="_on_cut_pressed"]
+[connection signal="pressed" from="Bar/Copy" to="." method="_on_copy_pressed"]
+[connection signal="pressed" from="Bar/Paste" to="." method="_on_paste_pressed"]
+[connection signal="pressed" from="Bar/Remove" to="." method="_on_remove_pressed"]
+[connection signal="pressed" from="Bar/Download" to="." method="_on_download_pressed"]
+[connection signal="resized" from="ScrollContainer" to="." method="_on_scroll_container_resized"]
+[connection signal="pressed" from="Back" to="." method="_on_back_pressed"]
+[connection signal="pressed" from="OK" to="." method="_on_ok_pressed"]

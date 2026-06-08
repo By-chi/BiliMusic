@@ -1,0 +1,59 @@
+[gd_scene format=3 uid="uid://b3tcktm1qy5uv"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_6vwaf"]
+content_margin_left = 10.0
+content_margin_top = 10.0
+content_margin_right = 10.0
+content_margin_bottom = 10.0
+bg_color = Color(0.9490196, 0.9529412, 0.98039216, 1)
+corner_radius_top_left = 20
+corner_radius_top_right = 20
+corner_radius_bottom_right = 20
+corner_radius_bottom_left = 20
+
+[sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_i4x8i"]
+
+[node name="Name" type="Label" unique_id=956806502]
+custom_minimum_size = Vector2(0, 290)
+offset_right = 106.0
+offset_bottom = 290.0
+mouse_filter = 1
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 35
+text = "Name"
+
+[node name="ScrollContainer" type="ScrollContainer" parent="." unique_id=1434697579]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 8.0
+offset_top = 71.0
+offset_bottom = 288.0
+grow_horizontal = 2
+mouse_filter = 0
+theme_override_styles/panel = SubResource("StyleBoxFlat_6vwaf")
+theme_override_styles/focus = SubResource("StyleBoxFlat_6vwaf")
+horizontal_scroll_mode = 3
+vertical_scroll_mode = 0
+
+[node name="HBoxContainer" type="HBoxContainer" parent="ScrollContainer" unique_id=1674501813]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 10
+
+[node name="Link" type="Button" parent="." unique_id=635102444]
+show_behind_parent = true
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 56.0
+grow_horizontal = 2
+mouse_default_cursor_shape = 2
+theme_override_styles/normal = SubResource("StyleBoxEmpty_i4x8i")
+theme_override_styles/pressed = SubResource("StyleBoxEmpty_i4x8i")
+theme_override_styles/hover = SubResource("StyleBoxEmpty_i4x8i")
+theme_override_styles/hover_pressed = SubResource("StyleBoxEmpty_i4x8i")
+theme_override_styles/hover_pressed_mirrored = SubResource("StyleBoxEmpty_i4x8i")
+theme_override_styles/disabled = SubResource("StyleBoxEmpty_i4x8i")
+theme_override_styles/focus = SubResource("StyleBoxEmpty_i4x8i")

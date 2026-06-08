@@ -1,0 +1,344 @@
+[gd_scene format=3 uid="uid://b2guguiotl085"]
+
+[sub_resource type="GDScript" id="GDScript_leq5y"]
+script/source = "extends Button
+
+const ANGLES := [-5, 0, 6, 13.5]
+@export var cards: Array[TextureRect]
+@export var text_node: LineEdit
+@export var target_bottom_y: float = 258.0
+@export var number: Label
+
+var videos: Array
+var directory_name := \"\":
+	set(value):
+		directory_name = value
+		text_node.text = directory_name
+
+var lift_distance: float = 58.0
+var hovered_index := -1
+var is_ready := false
+
+# 存储每个卡片正在播放的出现动画（用于打断）
+var _appear_tweens: Array[Tween] = [null, null, null, null]
+
+func _ready() -> void:
+	# 1. 所有卡片初始不可见，且透明度设为0（为淡入动画做准备）
+	for i in cards.size():
+		cards[i].visible = false
+		cards[i].modulate.a = 0.0
+		# 设置好最终位置（避免出现时位置突变）
+		var target_y = target_bottom_y - cards[i].size.y
+		cards[i].position.y = target_y
+	
+	# 2. 准备就绪
+	is_ready = true
+	
+	# 3. 初始加载封面
+	_update_covers()
+
+# 全量重新加载封面：每次调用都会清空并重新拉取所有卡片封面
+func _update_covers() -> void:
+	# 先中断所有卡片正在进行的动画并隐藏
+	for i in cards.size():
+		if _appear_tweens[i] and _appear_tweens[i].is_valid():
+			_appear_tweens[i].kill()
+			_appear_tweens[i] = null
+		cards[i].texture = null
+		cards[i].visible = false
+		cards[i].modulate.a = 0.0
+	
+	# 根据 videos 数组重新加载封面
+	if videos.size()>4:
+		number.text='♪'+str(videos.size())
+		number.show()
+	for i in min(videos.size(), cards.size()):
+		var link:String = videos[i].get(\"link\", \"\")
+		if link.is_empty():
+			# 链接为空：卡片保持隐藏状态（已经 visible = false）
+			continue
+		# 有链接：拉取封面，回调中会处理显示
+		if videos[i].get(\"is_network\", true):
+			BilibiliIc.fetch_cover(link, set_cover.bind(i), 158, 227)
+		elif FileAccess.file_exists(link.get_basename()+\".jpg\"):
+			var image = Image.load_from_file(link.get_basename()+\".jpg\")
+			_set_cover(ImageTexture.create_from_image(image),i)
+		else:
+			GdScriptFunc.generate_label_texture(preload(\"res://UI/CardBackground.png\"),videos[i].get(\"title\", \"本地文件\"),_set_cover.bind(i),null,50)
+	# 注意：视频数量少于卡片数量时，多余卡片已在上面的循环中保持隐藏状态
+
+# 隐藏单个卡片（不可见、清纹理、杀动画）
+func _hide_card(idx: int) -> void:
+	if idx >= cards.size():
+		return
+	if _appear_tweens[idx] and _appear_tweens[idx].is_valid():
+		_appear_tweens[idx].kill()
+		_appear_tweens[idx] = null
+	cards[idx].texture = null
+	cards[idx].visible = false
+	cards[idx].modulate.a = 0.0
+
+# 显示卡片并播放出现动画（仅在从隐藏变为显示时调用）
+func _show_card_with_animation(idx: int) -> void:
+	if idx >= cards.size() or cards[idx].visible:
+		return  # 已经可见，无需重复播放
+	
+	# 中断之前的动画（如果有）
+	if _appear_tweens[idx] and _appear_tweens[idx].is_valid():
+		_appear_tweens[idx].kill()
+	
+	# 确保起始透明且可见
+	cards[idx].visible = true
+	cards[idx].modulate.a = 0.0
+	
+	# 创建出现动画：淡入
+	var tween = create_tween()
+	tween.set_trans(Tween.TRANS_CUBIC)
+	tween.tween_property(cards[idx], \"modulate:a\", 1.0, 0.25)
+	
+	# 动画结束后清除 tween 引用
+	tween.finished.connect(func():
+		if idx < cards.size() and is_instance_valid(cards[idx]):
+			if _appear_tweens[idx] == tween:
+				_appear_tweens[idx] = null
+	)
+	_appear_tweens[idx] = tween
+	
+#不知道什么时候写的屎山,当时set_cover非要传入bvid参数,到现在还一点用都没有,其他接口要调用还得写一个中间函数来对其参数...
+func _set_cover(texture: Texture2D, id: int)->void:
+	set_cover(\"\",texture, id)
+
+func set_cover(_bvid: String, texture: Texture2D, id: int) -> void:
+	if id >= cards.size() or not is_instance_valid(cards[id]):
+		return
+	
+	if texture == null:
+		# 拉取到的纹理无效 → 隐藏卡片
+		_hide_card(id)
+		return
+	
+	# 有效纹理：设置纹理
+	cards[id].texture = texture
+	# 如果当前该卡片不可见，则播放出现动画
+	if not cards[id].visible:
+		_show_card_with_animation(id)
+
+# 外部调用：当 videos 被修改后，调用此方法刷新封面（全量重新加载）
+func refresh_covers() -> void:
+	if not is_inside_tree():
+		return
+	_update_covers()
+
+func _process(delta: float) -> void:
+	if not is_ready:
+		return
+	if not hovering:
+		return
+	
+	var local_mouse = get_local_mouse_position()
+	var new_hovered_index := -1
+	if local_mouse.x > 136.5 and local_mouse.x < 411.74:
+		var region_width = 275.24 / float(cards.size())
+		var idx = int(floor((local_mouse.x - 136.5) / region_width))
+		new_hovered_index = clamp(idx, 0, cards.size() - 1)
+	
+	# 如果新悬停的索引对应的卡片不可见，则视为没有悬停任何卡片
+	if new_hovered_index != -1 and not cards[new_hovered_index].visible:
+		new_hovered_index = -1
+	
+	if new_hovered_index != hovered_index:
+		hovered_index = new_hovered_index
+	
+	var lerp_speed = 15.0
+	for i in cards.size():
+		if not cards[i].visible:
+			continue
+		
+		var current_base_y = target_bottom_y - cards[i].size.y
+		var target_y = current_base_y
+		if i == hovered_index:
+			target_y -= lift_distance
+		cards[i].position.y = lerpf(cards[i].position.y, target_y, lerp_speed * delta)
+		
+		var target_alpha = 1.0
+		if hovered_index != -1 and i < hovered_index:
+			target_alpha = 0.1 / (hovered_index + 1)
+		cards[i].modulate.a = lerpf(cards[i].modulate.a, target_alpha, lerp_speed * delta)
+
+var hovering := false
+
+func _on_mouse_entered() -> void:
+	var tween := create_tween()
+	tween.tween_method(func(value):
+		for i in ANGLES.size():
+			if cards[i].visible:
+				cards[i].rotation_degrees = ANGLES[i] * value
+		text_node.modulate.a = 1 - value
+	, 0., 1., 0.3).set_trans(Tween.TRANS_CUBIC)
+	hovering = true
+
+func _on_mouse_exited() -> void:
+	var tween := create_tween()
+	tween.tween_method(func(value):
+		for i in ANGLES.size():
+			if cards[i].visible:
+				cards[i].rotation_degrees = ANGLES[i] * value
+		text_node.modulate.a = 1 - value
+	, 1.0, 0.0, 0.3).set_trans(Tween.TRANS_CUBIC)
+	
+	for i in cards.size():
+		if not cards[i].visible:
+			continue
+		var base_y = target_bottom_y - cards[i].size.y
+		var target_pos = Vector2(cards[i].position.x, base_y)
+		var target_alpha = 1.0
+		var reset_tween = create_tween()
+		reset_tween.tween_property(cards[i], \"position\", target_pos, 0.2)
+		reset_tween.parallel().tween_property(cards[i], \"modulate:a\", target_alpha, 0.2)
+	
+	hovering = false
+	hovered_index = -1
+
+func _on_name_text_submitted(new_text: String) -> void:
+	new_text=new_text.strip_edges()
+	var err:=GdScriptFunc.set_key(\"Favorites\", directory_name, new_text)
+	if err==OK:
+		directory_name = new_text
+		text_node.release_focus()
+	elif err==ERR_ALREADY_EXISTS:
+		text_node.text = directory_name
+	elif err==ERR_DOES_NOT_EXIST:
+		GdScriptFunc.set_data(\"Favorites\", new_text,[])
+		directory_name = new_text
+		text_node.release_focus()
+"
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_xu2cg"]
+bg_color = Color(0.83137256, 1, 0.9647059, 1)
+border_width_left = 5
+border_width_top = 5
+border_width_right = 5
+border_width_bottom = 5
+border_color = Color(0.14044741, 0.14044747, 0.14044735, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_dsk8h"]
+content_margin_left = 5.0
+content_margin_right = 5.0
+bg_color = Color(0.5822, 0.63332, 0.71, 1)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[node name="Deck" type="Button" unique_id=1318285485 node_paths=PackedStringArray("cards", "text_node", "number")]
+custom_minimum_size = Vector2(582.4, 364)
+clip_contents = true
+offset_right = 582.4
+offset_bottom = 364.0
+script = SubResource("GDScript_leq5y")
+cards = [NodePath("1"), NodePath("2"), NodePath("3"), NodePath("4")]
+text_node = NodePath("Name")
+target_bottom_y = 364.0
+number = NodePath("Number")
+
+[node name="4" type="TextureRect" parent="." unique_id=1159328667]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.4359375
+anchor_top = 0.295
+anchor_right = 0.7069718
+anchor_bottom = 0.918385
+offset_top = 60.000008
+offset_bottom = 60.0
+pivot_offset_ratio = Vector2(0.5, 1)
+expand_mode = 5
+stretch_mode = 6
+metadata/_edit_use_anchors_ = true
+
+[node name="3" type="TextureRect" parent="." unique_id=87115883]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.3796875
+anchor_top = 0.225
+anchor_right = 0.6808375
+anchor_bottom = 0.91765
+offset_left = 1.5258789e-05
+offset_top = 40.0
+offset_bottom = 40.00009
+grow_horizontal = 2
+grow_vertical = 2
+pivot_offset_ratio = Vector2(0.5, 1)
+expand_mode = 5
+stretch_mode = 6
+metadata/_edit_use_anchors_ = true
+
+[node name="2" type="TextureRect" parent="." unique_id=908870579]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.3140625
+anchor_top = 0.15
+anchor_right = 0.6486719
+anchor_bottom = 0.91960996
+offset_top = 20.0
+offset_right = -3.0517578e-05
+offset_bottom = 20.0
+grow_horizontal = 2
+grow_vertical = 2
+pivot_offset_ratio = Vector2(0.5, 1)
+expand_mode = 5
+stretch_mode = 6
+metadata/_edit_use_anchors_ = true
+
+[node name="1" type="TextureRect" parent="." unique_id=233452844]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.234375
+anchor_top = 0.065
+anchor_right = 0.60616285
+anchor_bottom = 0.9201207
+grow_horizontal = 2
+grow_vertical = 2
+pivot_offset_ratio = Vector2(0.5, 1)
+expand_mode = 5
+stretch_mode = 6
+metadata/_edit_use_anchors_ = true
+
+[node name="Name" type="LineEdit" parent="." unique_id=821527688]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -45.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_font_sizes/font_size = 24
+theme_override_styles/focus = SubResource("StyleBoxFlat_xu2cg")
+text = "Name"
+placeholder_text = "收藏夹名称"
+alignment = 1
+keep_editing_on_text_submit = true
+context_menu_enabled = false
+emoji_menu_enabled = false
+shortcut_keys_enabled = false
+
+[node name="Number" type="Label" parent="." unique_id=1133486555]
+visible = false
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -33.400024
+offset_top = 5.0
+offset_right = -4.4000244
+offset_bottom = 34.0
+grow_horizontal = 0
+theme_override_font_sizes/font_size = 19
+theme_override_styles/normal = SubResource("StyleBoxFlat_dsk8h")
+text = "♪0"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[connection signal="mouse_entered" from="." to="." method="_on_mouse_entered"]
+[connection signal="mouse_exited" from="." to="." method="_on_mouse_exited"]
+[connection signal="text_submitted" from="Name" to="." method="_on_name_text_submitted"]

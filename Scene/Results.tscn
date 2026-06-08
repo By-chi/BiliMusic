@@ -1,0 +1,438 @@
+[gd_scene format=3 uid="uid://y2pw3prar650"]
+
+[ext_resource type="Texture2D" uid="uid://c1mlfbnyirqyi" path="res://UI/Icon/Tids.svg" id="2_bp3gr"]
+[ext_resource type="SpriteFrames" uid="uid://dbdlrepdaw65o" path="res://UI/Icon/loading_new.gif" id="2_loqq7"]
+[ext_resource type="Texture2D" uid="uid://cldgs6g0a1mab" path="res://UI/Icon/sort.svg" id="2_uix17"]
+[ext_resource type="Texture2D" uid="uid://b5n803anbcsxp" path="res://UI/Icon/neterror.png" id="3_loqq7"]
+
+[sub_resource type="GDScript" id="GDScript_q7gkv"]
+script/source = "extends Control
+
+@export var rsults_list: VBoxContainer
+@export var page_edit: LineEdit
+@export var label: Label
+@export var sub_label: Label
+@export var SortModeButton: OptionButton
+@export var TidsButton: OptionButton
+@export var loading: Control
+@export var error: TextureRect
+@export var obstacle: ColorRect
+
+var current_execution_number := 0
+var current_count := 0
+var current_page := 1
+var current_keyword := \"\"
+var active_tweens: Array[Tween] = [] # 管理卡片生成动画，方便中途取消
+
+# obstacle 需要在编辑器里设置 color 的 alpha，比如 (0,0,0,0.5)
+var page_number := 1:
+	set(value):
+		if page_number != value and value > 0:
+			page_edit.text = str(value)
+			page_number = value
+			update_page(current_keyword)
+
+func fade_in(node: Control, duration: float = 0.2) -> Tween:
+	node.show()
+	node.modulate.a = 0.0
+	var tw = create_tween()
+	tw.tween_property(node, \"modulate:a\", 1.0, duration)
+	return tw
+
+func fade_out(node: Control, duration: float = 0.15) -> Tween:
+	if not node.visible: return null
+	var tw = create_tween()
+	tw.tween_property(node, \"modulate:a\", 0.0, duration)
+	tw.tween_callback(node.hide)
+	return tw
+
+func _kill_active_tweens() -> void:
+	for tw in active_tweens:
+		if tw and tw.is_running():
+			tw.kill()
+	active_tweens.clear()
+
+func clear_page() -> void:
+	_kill_active_tweens()
+	for child in rsults_list.get_children():
+		fade_out(child, 0.1)
+	await get_tree().create_timer(0.12).timeout
+	for i in rsults_list.get_child_count():
+		rsults_list.get_child(i).queue_free()
+		
+	label.text = \"搜索\"
+	sub_label.text = \"请搜索\"
+	fade_out(loading, 0.1)
+
+func update_page(keyword: String) -> void:
+	current_execution_number = randi()
+	_kill_active_tweens() # 打断上一次未完成的卡片动画
+	
+	fade_out(error, 0.1)
+	fade_in(obstacle, 0.15)
+	
+	# 瞬间隐藏旧卡片，腾出位置
+	for child in rsults_list.get_children():
+		child.modulate.a = 0.0
+		child.hide()
+		
+	current_keyword = keyword
+	if keyword == \"\":
+		clear_page()
+		return
+		
+	label.text = \"搜索\\\"\" + keyword + \"\\\"\"
+	sub_label.text = \"搜索中\"
+	fade_in(loading, 0.2)
+	
+	BilibiliIc.search_bilibili(update_callback.bind(current_execution_number), keyword, 30, SortModeButton.selected, page_number,\"\",TidsButton.selected)
+
+func update_callback(videos: Array, execution_number := 0) -> void:
+	_kill_active_tweens() # 确保没有残留动画
+	current_count = videos.size()
+	
+	fade_out(loading, 0.2)
+	fade_out(obstacle, 0.2)
+	
+	if current_count == 0:
+		fade_in(error, 0.3)
+		error.texture = preload(\"res://UI/Icon/nodat.png\")
+		sub_label.text = \"未找任何歌曲\"
+		return
+	if videos[0].is_empty():
+		fade_in(error, 0.3)
+		error.texture = preload(\"res://UI/Icon/neterror.png\")
+		sub_label.text = \"网络错误\"
+		return
+		
+	sub_label.text = \"已找到\" + str(current_count) + \"首歌曲\"
+	
+	var total_needed = current_count
+	
+	for i in current_count:
+		if execution_number != current_execution_number:
+			return
+		
+		var video_transverse_card: BaseVideoCard
+		if rsults_list.get_child_count() <= i:
+			video_transverse_card = preload(\"res://Scene/VideoTransverseCard.tscn\").instantiate()
+			rsults_list.add_child(video_transverse_card)
+		else:
+			video_transverse_card = rsults_list.get_child(i)
+		var video: Dictionary = videos[i]
+		video_transverse_card.video_info = video
+		video_transverse_card.title = video.title
+		video_transverse_card.author = video.author
+		video_transverse_card.keywords = current_keyword
+		video_transverse_card.play = int(video.play)
+		video_transverse_card.description = video.description
+		video_transverse_card.link = video.link
+		video_transverse_card.reset()
+		
+		if video.has(\"duration\"):
+			video_transverse_card.duration = video.duration
+		if video.get(\"is_network\", true):
+			BilibiliIc.fetch_cover(video.link, set_cover.bind(video_transverse_card),70,70)
+		elif FileAccess.file_exists(video.link.get_basename()+\".jpg\"):
+			var image = Image.load_from_file(video.link.get_basename()+\".jpg\")
+			_set_cover(ImageTexture.create_from_image(image),video_transverse_card)
+		else:
+			GdScriptFunc.generate_label_texture(Color.WHITE,video.get(\"title\", \"本地文件\"),_set_cover.bind(video_transverse_card),null,10,Color.BLACK,Vector2i(70,70))
+		# 卡片入场：依次透明+缩放弹入
+		video_transverse_card.modulate.a = 0.0
+		video_transverse_card.scale = Vector2(0.9, 0.9)
+		video_transverse_card.show()
+		
+		var tw = create_tween()
+		active_tweens.append(tw)
+		
+		tw.tween_interval(i * 0.04)
+		tw.set_parallel(true)
+		tw.tween_property(video_transverse_card, \"modulate:a\", 1.0, 0.25)
+		tw.tween_property(video_transverse_card, \"scale\", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		
+	# 移除多余的旧卡片
+	while rsults_list.get_child_count() > total_needed:
+		var extra_card = rsults_list.get_child(-1)
+		fade_out(extra_card, 0.1)
+		await get_tree().create_timer(0.12).timeout
+		if extra_card.is_inside_tree():
+			rsults_list.remove_child(extra_card)
+			extra_card.queue_free()
+
+func _set_cover(texture: Texture2D, video_card: Control)->void:
+	set_cover(\"\",texture, video_card)
+func set_cover(_bvid: String, texture: Texture2D, video_card: Control) -> void:
+	if is_instance_valid(video_card):
+		video_card.cover = texture
+
+func _on_sort_mode_item_selected(_index: int) -> void:
+	update_page(current_keyword)
+
+func _on_last_pressed() -> void:
+	if page_number > 1:
+		page_number -= 1
+
+func _on_next_pressed() -> void:
+	page_number += 1
+
+func _on_page_text_submitted(new_text: String) -> void:
+	var num = new_text.to_int()
+	if num > 0:
+		page_number = num
+	else:
+		page_edit.text = str(page_number)
+
+
+func _on_tids_item_selected(_index: int) -> void:
+	update_page(current_keyword)
+"
+
+[node name="Page" type="Control" unique_id=585043204 node_paths=PackedStringArray("rsults_list", "page_edit", "label", "sub_label", "SortModeButton", "TidsButton", "loading", "error", "obstacle")]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 310.0
+offset_right = 27.0
+offset_bottom = -99.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 1
+script = SubResource("GDScript_q7gkv")
+rsults_list = NodePath("ScrollContainer/VBoxContainer")
+page_edit = NodePath("BottomBar/Page")
+label = NodePath("Label")
+sub_label = NodePath("Label/SubLabel")
+SortModeButton = NodePath("SortMode")
+TidsButton = NodePath("Tids")
+loading = NodePath("Loading")
+error = NodePath("Error")
+obstacle = NodePath("Obstacle")
+
+[node name="Label" type="Label" parent="." unique_id=921580403]
+layout_mode = 1
+offset_right = 997.0
+offset_bottom = 73.0
+theme_override_font_sizes/font_size = 50
+text = "搜索"
+text_overrun_behavior = 5
+
+[node name="SubLabel" type="Label" parent="Label" unique_id=345127570]
+layout_mode = 1
+offset_top = 78.0
+offset_right = 201.0
+offset_bottom = 113.0
+theme_override_colors/font_color = Color(0.22352941, 0.23137255, 0.23921569, 1)
+theme_override_font_sizes/font_size = 24
+text = "请搜索"
+
+[node name="SortMode" type="OptionButton" parent="." unique_id=751136305]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -246.0
+offset_top = 18.0
+offset_right = -62.0
+offset_bottom = 67.0
+grow_horizontal = 0
+alignment = 1
+autowrap_mode = 3
+selected = 0
+item_count = 6
+popup/item_0/text = "综合排序"
+popup/item_0/id = 0
+popup/item_1/text = "最多点击"
+popup/item_1/id = 1
+popup/item_2/text = "最新发布"
+popup/item_2/id = 2
+popup/item_3/text = "最多弹幕"
+popup/item_3/id = 3
+popup/item_4/text = "最多收藏"
+popup/item_4/id = 4
+popup/item_5/text = "最多评论"
+popup/item_5/id = 5
+
+[node name="TextureRect" type="TextureRect" parent="SortMode" unique_id=1921336207]
+layout_mode = 0
+offset_top = 6.0
+offset_right = 44.0
+offset_bottom = 48.0
+texture = ExtResource("2_uix17")
+expand_mode = 1
+
+[node name="Tids" type="OptionButton" parent="." unique_id=114355242]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -463.0
+offset_top = 18.0
+offset_right = -278.0
+offset_bottom = 67.0
+grow_horizontal = 0
+alignment = 1
+text_overrun_behavior = 5
+selected = 0
+item_count = 9
+popup/item_0/text = "默认分区"
+popup/item_0/id = 3
+popup/item_1/text = "音乐综合"
+popup/item_1/id = 130
+popup/item_2/text = "音乐现场"
+popup/item_2/id = 29
+popup/item_3/text = "演奏"
+popup/item_3/id = 59
+popup/item_4/text = "翻唱"
+popup/item_4/id = 31
+popup/item_5/text = "MV"
+popup/item_5/id = 193
+popup/item_6/text = "VOCALOID·UTAU"
+popup/item_6/id = 30
+popup/item_7/text = "电音"
+popup/item_7/id = 194
+popup/item_8/text = "原创音乐"
+popup/item_8/id = 28
+
+[node name="TextureRect" type="TextureRect" parent="Tids" unique_id=810428921]
+layout_mode = 0
+offset_top = 6.0
+offset_right = 44.0
+offset_bottom = 48.0
+texture = ExtResource("2_bp3gr")
+expand_mode = 1
+
+[node name="ScrollContainer" type="ScrollContainer" parent="." unique_id=107934420]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 146.0
+offset_right = -60.0
+offset_bottom = -82.0
+grow_horizontal = 2
+grow_vertical = 2
+horizontal_scroll_mode = 3
+
+[node name="VBoxContainer" type="VBoxContainer" parent="ScrollContainer" unique_id=68593511]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 10
+
+[node name="BottomBar" type="Panel" parent="." unique_id=876931135]
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -228.5
+offset_top = -74.0
+offset_right = 229.5
+offset_bottom = -7.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="Last" type="Button" parent="BottomBar" unique_id=1166267069]
+layout_mode = 1
+anchors_preset = 4
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = 11.0
+offset_top = -26.0
+offset_right = 140.0
+offset_bottom = 26.0
+grow_vertical = 2
+text = "上一页"
+
+[node name="Page" type="LineEdit" parent="BottomBar" unique_id=1070623383]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -80.5
+offset_top = -26.0
+offset_right = 80.5
+offset_bottom = 26.0
+grow_horizontal = 2
+grow_vertical = 2
+text = "1"
+placeholder_text = "页码"
+alignment = 1
+max_length = 5
+context_menu_enabled = false
+emoji_menu_enabled = false
+shortcut_keys_enabled = false
+
+[node name="Next" type="Button" parent="BottomBar" unique_id=144262640]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -140.0
+offset_top = -25.5
+offset_right = -11.0
+offset_bottom = 26.5
+grow_horizontal = 0
+grow_vertical = 2
+text = "下一页"
+
+[node name="Obstacle" type="ColorRect" parent="." unique_id=112343300]
+visible = false
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 63.0
+offset_top = 146.0
+offset_right = -36.0
+offset_bottom = -82.0
+color = Color(0.96862745, 0.9764706, 1, 1)
+
+[node name="Loading" type="Control" parent="." unique_id=2119322998]
+visible = false
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Loading" type="AnimatedSprite2D" parent="Loading" unique_id=943880696]
+sprite_frames = ExtResource("2_loqq7")
+animation = &"gif"
+autoplay = "gif"
+frame_progress = 0.14410801
+speed_scale = 2.0
+
+[node name="Error" type="TextureRect" parent="." unique_id=1470372765]
+visible = false
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -280.0
+offset_top = -158.0
+offset_right = 280.0
+offset_bottom = 158.0
+grow_horizontal = 2
+grow_vertical = 2
+texture = ExtResource("3_loqq7")
+
+[connection signal="item_selected" from="SortMode" to="." method="_on_sort_mode_item_selected"]
+[connection signal="item_selected" from="Tids" to="." method="_on_tids_item_selected"]
+[connection signal="gui_input" from="ScrollContainer" to="." method="_on_scroll_container_gui_input"]
+[connection signal="pressed" from="BottomBar/Last" to="." method="_on_last_pressed"]
+[connection signal="text_submitted" from="BottomBar/Page" to="." method="_on_page_text_submitted"]
+[connection signal="pressed" from="BottomBar/Next" to="." method="_on_next_pressed"]

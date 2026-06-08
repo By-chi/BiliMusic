@@ -1,0 +1,267 @@
+[gd_scene format=3 uid="uid://g3lqi52kbx7q"]
+
+[sub_resource type="GDScript" id="GDScript_nmc4f"]
+script/source = "extends Control
+@export var OptionsTabContainer:TabContainer
+@export var ClearCoversCache:Button
+@export var ClearLyricsCache:Button
+var options:Array[Control]=[]
+func _ready() -> void:
+	for i in OptionsTabContainer.get_children():
+		if i is ScrollContainer:
+			var vBox_childs:Array[Node]=i.get_child(0).get_children()
+			options.append_array(vBox_childs)
+			for option in vBox_childs:
+				if option.name==\"Account\":
+					if GdScriptFunc.get_data(\"AccountData\",\"SESSDATA\")==null:
+						option.get_child(0).text=\"点击登陆\"
+						get_node(\"/root/Main\").icon.texture=preload(\"res://UI/Icon/bilibili.svg\")
+					else:
+						option.get_child(0).text=\"退出登陆\"
+						BilibiliIc.fetch_user_avatar(func(tex: ImageTexture):
+							if tex != null:
+								get_node(\"/root/Main\").icon.texture = tex
+						)
+					
+					option.get_child(0).connect(\"pressed\",_log_in_out.bind(option))
+					continue
+				match option.get_class():
+					\"CheckButton\":
+						option.button_pressed=GdScriptFunc.get_data(\"Options\",option.name,false)
+						option.connect(\"toggled\",_on_option_change.bind(option))
+					\"Label\":
+						var node:LineEdit=option.get_child(0)
+						node.text=GdScriptFunc.get_data(\"Options\",option.name,\"\")
+						node.connect(\"focus_exited\",_on_option_change.bind(option))
+						node.connect(\"text_submitted\",_on_option_change.bind(option))
+func _log_in_out(button:Control)->void:
+	if GdScriptFunc.get_data(\"AccountData\",\"SESSDATA\") !=null:
+		GdScriptFunc.set_data(\"AccountData\",\"SESSDATA\",null,true)
+		GdScriptFunc.set_data(\"AccountData\",\"bili_jct\",null,true)
+		GdScriptFunc.set_data(\"AccountData\",\"DedeUserID\",null,true)
+		GdScriptFunc.set_data(\"AccountData\",\"DedeUserID__ckMd5\",null,true)
+		GdScriptFunc.set_data(\"AccountData\",\"sid\",null,true)
+		button.get_child(0).text=\"点击登陆\"
+		get_node(\"/root/Main\").icon.texture=preload(\"res://UI/Icon/bilibili.svg\")
+	else:
+		# 无凭证时自动弹出二维码登录
+		BilibiliIc.start_qr_login(
+		func(success:bool):
+			if success:
+				button.get_child(0).text=\"退出登陆\"
+				BilibiliIc.fetch_user_avatar(func(tex: ImageTexture):
+					if tex != null:
+						get_node(\"/root/Main\").icon.texture = tex
+				)
+		)
+func _on_option_change(new_value:Variant,option:Control)->void:
+	GdScriptFunc.set_data(\"Options\",option.name,new_value,true)
+	update(option)
+func update(option=null)->void:
+	if option!=null:
+		var method_name = \"_update_\" + option.name
+		if has_method(method_name):
+			call(method_name,GdScriptFunc.get_data(\"Options\",option.name))
+	else:
+		for i in options:
+			update(i)
+func _update_Self_triggered(value:Variant)->void:
+	if value==null:
+		CSharpFunc.SetRunOnStartup(false)
+		return
+	CSharpFunc.SetRunOnStartup(value)
+	
+
+func _on_clear_covers_cache_pressed() -> void:
+	delete_directory_contents(\"user://bilibili_cover_cache/\")
+	_update_cache_size()
+func _on_clear_lyrics_cache_pressed() -> void:
+	delete_directory_contents(\"user://lyrics/\")
+	_update_cache_size()
+func delete_directory_contents(path: String) -> bool:
+	var dir = DirAccess.open(path)
+	if dir == null:
+		printerr(\"无法打开目录: \", path)
+		return false
+	dir.list_dir_begin()
+	var file_name = dir.get_next()
+	while file_name != \"\":
+		var child_path = path.path_join(file_name)
+		if dir.current_is_dir():
+			if file_name != \".\" and file_name != \"..\":
+				if delete_directory_contents(child_path):
+					DirAccess.remove_absolute(child_path)
+		else:
+			DirAccess.remove_absolute(child_path)
+		file_name = dir.get_next()
+	dir.list_dir_end()
+	return true
+func _update_cache_size()->void:
+	if DirAccess.dir_exists_absolute(\"user://bilibili_cover_cache/\"):
+		ClearCoversCache.text=\"清理封面缓存(\"+(\"%.2f\" %CSharpFunc.GetDirectorySize(ProjectSettings.globalize_path(\"user://bilibili_cover_cache/\")))+\"MB)\"
+	if DirAccess.dir_exists_absolute(\"user://lyrics/\"):
+		ClearLyricsCache.text=\"清理歌词缓存(\"+(\"%.2f\" %CSharpFunc.GetDirectorySize(ProjectSettings.globalize_path(\"user://lyrics/\")))+\"MB)\"
+
+func _on_visibility_changed() -> void:
+	_update_cache_size()
+"
+
+[node name="Page" type="Control" unique_id=585043204 node_paths=PackedStringArray("OptionsTabContainer", "ClearCoversCache", "ClearLyricsCache")]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 310.0
+offset_bottom = -99.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 1
+script = SubResource("GDScript_nmc4f")
+OptionsTabContainer = NodePath("TabContainer")
+ClearCoversCache = NodePath("TabContainer/储存/VBoxContainer/ClearCoversCache")
+ClearLyricsCache = NodePath("TabContainer/储存/VBoxContainer/ClearLyricsCache")
+
+[node name="Label" type="Label" parent="." unique_id=1198818235]
+layout_mode = 0
+offset_right = 1290.0
+offset_bottom = 73.0
+mouse_filter = 0
+theme_override_font_sizes/font_size = 50
+text = "设置"
+
+[node name="SubLabel" type="Label" parent="Label" unique_id=2118856395]
+layout_mode = 1
+offset_top = 78.0
+offset_right = 201.0
+offset_bottom = 112.0
+theme_override_colors/font_color = Color(0.22352941, 0.23137255, 0.23921569, 1)
+theme_override_font_sizes/font_size = 24
+text = "自定义你的播放器"
+
+[node name="TabContainer" type="TabContainer" parent="." unique_id=204611800]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = 143.0
+offset_right = -26.0
+offset_bottom = -34.0
+grow_horizontal = 2
+grow_vertical = 2
+current_tab = 0
+
+[node name="基础" type="ScrollContainer" parent="TabContainer" unique_id=1036775212]
+layout_mode = 2
+metadata/_tab_index = 0
+
+[node name="VBoxContainer" type="VBoxContainer" parent="TabContainer/基础" unique_id=1391304493]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="Account" type="Label" parent="TabContainer/基础/VBoxContainer" unique_id=611858259]
+layout_mode = 2
+theme_override_font_sizes/font_size = 35
+text = " B站账号"
+
+[node name="IN_OUT" type="Button" parent="TabContainer/基础/VBoxContainer/Account" unique_id=641899972]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -104.0
+offset_top = -17.5
+offset_right = -26.0
+offset_bottom = 17.5
+grow_horizontal = 0
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.95, 0, 0.06333327, 1)
+theme_override_font_sizes/font_size = 24
+text = "点击登陆"
+
+[node name="Automatically_obtain_subtitles" type="CheckButton" parent="TabContainer/基础/VBoxContainer" unique_id=701302890]
+layout_mode = 2
+text = "自动获取字幕(有些误差)"
+
+[node name="SubtitleTextCorrection" type="CheckButton" parent="TabContainer/基础/VBoxContainer" unique_id=1121978215]
+layout_mode = 2
+text = "字幕文本修正(作用不太大)"
+
+[node name="Self_triggered" type="CheckButton" parent="TabContainer/基础/VBoxContainer" unique_id=222246544]
+layout_mode = 2
+text = "开机自启动"
+
+[node name="窗口" type="ScrollContainer" parent="TabContainer" unique_id=264393034]
+visible = false
+layout_mode = 2
+metadata/_tab_index = 1
+
+[node name="VBoxContainer" type="VBoxContainer" parent="TabContainer/窗口" unique_id=454597577]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="RememberWindow" type="CheckButton" parent="TabContainer/窗口/VBoxContainer" unique_id=741804647]
+layout_mode = 2
+button_pressed = true
+text = "记住窗口状态"
+
+[node name="储存" type="ScrollContainer" parent="TabContainer" unique_id=1953152351]
+visible = false
+layout_mode = 2
+metadata/_tab_index = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="TabContainer/储存" unique_id=1168130419]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="ClearCoversCache" type="Button" parent="TabContainer/储存/VBoxContainer" unique_id=1029973453]
+layout_mode = 2
+text = "清理封面缓存"
+
+[node name="ClearLyricsCache" type="Button" parent="TabContainer/储存/VBoxContainer" unique_id=1373312603]
+layout_mode = 2
+text = "清理歌词缓存"
+
+[node name="网络" type="ScrollContainer" parent="TabContainer" unique_id=1345396364]
+visible = false
+layout_mode = 2
+metadata/_tab_index = 3
+
+[node name="VBoxContainer" type="VBoxContainer" parent="TabContainer/网络" unique_id=381784264]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="播放" type="ScrollContainer" parent="TabContainer" unique_id=982766782]
+visible = false
+layout_mode = 2
+metadata/_tab_index = 4
+
+[node name="VBoxContainer" type="VBoxContainer" parent="TabContainer/播放" unique_id=297756248]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="Custom_Big_Window_Theme" type="Label" parent="TabContainer/播放/VBoxContainer" unique_id=2115885586]
+layout_mode = 2
+theme_override_font_sizes/font_size = 35
+text = "自定义大窗口播放主题"
+
+[node name="LineEdit" type="LineEdit" parent="TabContainer/播放/VBoxContainer/Custom_Big_Window_Theme" unique_id=1656176069]
+layout_mode = 1
+anchors_preset = -1
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = 372.0
+offset_top = -31.0
+offset_right = 1245.0
+offset_bottom = 31.0
+placeholder_text = "文件路径(留空使用默认主题)"
+
+[connection signal="visibility_changed" from="." to="." method="_on_visibility_changed"]
+[connection signal="pressed" from="TabContainer/储存/VBoxContainer/ClearCoversCache" to="." method="_on_clear_covers_cache_pressed"]
+[connection signal="pressed" from="TabContainer/储存/VBoxContainer/ClearLyricsCache" to="." method="_on_clear_lyrics_cache_pressed"]

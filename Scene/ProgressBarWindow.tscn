@@ -1,0 +1,81 @@
+[gd_scene format=3 uid="uid://bbnd8wrckfqyd"]
+
+[sub_resource type="GDScript" id="GDScript_uj84i"]
+script/source = "extends Window
+
+@export var title_node:Label
+@export var progress_bar:ProgressBar
+@export var text_node:Label
+func update(progress_value:int,title_str:=\"\",text_str:=\"\")->void:
+	if title_str!=\"\":
+		title_node.text=title_str
+	if text_str!=\"\":
+		text_node.text=text_str
+	if progress_value!=0&&!visible:
+		popup_centered()
+	elif progress_value==100&&visible:
+		hide()
+		return
+	progress_bar.value=progress_value
+"
+
+[node name="Window" type="Window" unique_id=286263036 node_paths=PackedStringArray("title_node", "progress_bar", "text_node")]
+disable_3d = true
+gui_disable_input = true
+oversampling_override = 1.0
+initial_position = 2
+size = Vector2i(512, 110)
+transient = true
+exclusive = true
+unresizable = true
+borderless = true
+unfocusable = true
+popup_wm_hint = true
+minimize_disabled = true
+maximize_disabled = true
+force_native = true
+min_size = Vector2i(512, 110)
+max_size = Vector2i(512, 110)
+script = SubResource("GDScript_uj84i")
+title_node = NodePath("VFlowContainer/Title")
+progress_bar = NodePath("VFlowContainer/ProgressBar")
+text_node = NodePath("VFlowContainer/Text")
+
+[node name="ColorRect" type="ColorRect" parent="." unique_id=156442499]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.07058824, 0.07058824, 0.07058824, 1)
+
+[node name="VFlowContainer" type="VFlowContainer" parent="." unique_id=1537236903]
+custom_maximum_size = Vector2(452, -1)
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Title" type="Label" parent="VFlowContainer" unique_id=1792817811]
+custom_minimum_size = Vector2(452, 0)
+custom_maximum_size = Vector2(452, -1)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.76862746, 0.76862746, 0.76862746, 1)
+theme_override_font_sizes/font_size = 25
+text = "Title"
+text_overrun_behavior = 1
+
+[node name="ProgressBar" type="ProgressBar" parent="VFlowContainer" unique_id=755798096]
+custom_minimum_size = Vector2(452, 42)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Text" type="Label" parent="VFlowContainer" unique_id=841142867]
+custom_minimum_size = Vector2(452, 0)
+custom_maximum_size = Vector2(452, -1)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.76862746, 0.76862746, 0.76862746, 1)
+theme_override_font_sizes/font_size = 15
+text = "Text"
+text_overrun_behavior = 2

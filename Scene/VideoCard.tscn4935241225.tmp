@@ -1,0 +1,95 @@
+[gd_scene format=3 uid="uid://b0n7fvlidpxkj"]
+
+[ext_resource type="FontFile" uid="uid://6otoum78bj10" path="res://UI/Font/NotoSansCJKsc-DemiLight.otf" id="2_oy5bj"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_ku42p"]
+content_margin_left = 20.0
+content_margin_top = 5.0
+content_margin_right = 5.0
+content_margin_bottom = 5.0
+bg_color = Color(0.9490196, 0.9529412, 0.98039216, 1)
+corner_radius_top_left = 15
+corner_radius_top_right = 15
+corner_radius_bottom_right = 15
+corner_radius_bottom_left = 15
+
+[sub_resource type="GDScript" id="GDScript_vdm7u"]
+script/source = "extends BaseVideoCard
+func _update_pivot() -> void:
+	pivot_offset = size / 2
+
+func _on_mouse_entered() -> void:
+	_update_pivot()
+	if _hover_tween and _hover_tween.is_running(): _hover_tween.kill()
+	
+	_hover_tween = create_tween().set_parallel()
+	_hover_tween.tween_property(self, \"scale\", Vector2(1.05, 1.05), 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_hover_tween.tween_property(color_rect, \"modulate\", Color.WHITE, 0.25)
+
+func _on_mouse_exited() -> void:
+	if _hover_tween and _hover_tween.is_running(): _hover_tween.kill()
+	
+	_hover_tween = create_tween().set_parallel()
+	_hover_tween.tween_property(self, \"scale\", Vector2.ONE, 0.2).set_trans(Tween.TRANS_EXPO)
+	_hover_tween.tween_property(color_rect, \"modulate\", Color.TRANSPARENT, 0.2)
+"
+
+[node name="Button" type="Button" unique_id=1924604098 node_paths=PackedStringArray("cover_node", "color_rect", "title_label")]
+clip_children = 2
+custom_minimum_size = Vector2(197, 197)
+offset_right = 197.0
+offset_bottom = 197.0
+theme_override_styles/normal = SubResource("StyleBoxFlat_ku42p")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_ku42p")
+theme_override_styles/hover = SubResource("StyleBoxFlat_ku42p")
+theme_override_styles/hover_pressed = SubResource("StyleBoxFlat_ku42p")
+theme_override_styles/hover_pressed_mirrored = SubResource("StyleBoxFlat_ku42p")
+theme_override_styles/disabled = SubResource("StyleBoxFlat_ku42p")
+theme_override_styles/focus = SubResource("StyleBoxFlat_ku42p")
+script = SubResource("GDScript_vdm7u")
+cover_node = NodePath("Cover")
+color_rect = NodePath("ColorRect")
+title_label = NodePath("Title")
+
+[node name="Cover" type="TextureRect" parent="." unique_id=296815783]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_bottom = -30.0
+grow_horizontal = 2
+grow_vertical = 2
+expand_mode = 2
+stretch_mode = 6
+
+[node name="ColorRect" type="ColorRect" parent="." unique_id=363228497]
+modulate = Color(1, 1, 1, 0)
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -30.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 1
+
+[node name="Title" type="Label" parent="." unique_id=1906814716]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -30.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 1
+theme_override_fonts/font = ExtResource("2_oy5bj")
+theme_override_font_sizes/font_size = 24
+text = "Title"
+horizontal_alignment = 1
+text_overrun_behavior = 6
+
+[connection signal="mouse_entered" from="." to="." method="_on_mouse_entered"]
+[connection signal="mouse_exited" from="." to="." method="_on_mouse_exited"]
+[connection signal="pressed" from="." to="." method="_on_pressed"]

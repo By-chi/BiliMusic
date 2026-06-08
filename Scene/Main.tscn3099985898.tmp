@@ -1,0 +1,673 @@
+[gd_scene format=3 uid="uid://d3y0m53pwfo5a"]
+
+[ext_resource type="Texture2D" uid="uid://bu3hypyoam7f3" path="res://UI/Icon/bilibili.svg" id="2_djkur"]
+[ext_resource type="Texture2D" uid="uid://b34pnocr74oyw" path="res://UI/Icon/Options.svg" id="2_g6ejq"]
+[ext_resource type="Texture2D" uid="uid://cuo2jbqmb5lrf" path="res://UI/Icon/Discover.svg" id="3_h175a"]
+[ext_resource type="Texture2D" uid="uid://5hx7joul85hg" path="res://UI/Icon/Favorites.svg" id="4_6a8me"]
+[ext_resource type="Texture2D" uid="uid://bepenwiqcen8e" path="res://UI/Icon/Search.svg" id="4_togfq"]
+[ext_resource type="PackedScene" uid="uid://h8qr8p6khg63" path="res://Scene/Discover.tscn" id="6_aan6j"]
+[ext_resource type="PackedScene" uid="uid://y2pw3prar650" path="res://Scene/Results.tscn" id="7_h3nmf"]
+[ext_resource type="PackedScene" uid="uid://c00vteu0bh0vl" path="res://Scene/Favorites.tscn" id="8_yg4ot"]
+[ext_resource type="Texture2D" uid="uid://c1i1praq4hx1w" path="res://UI/Icon/pause.svg" id="9_6a8me"]
+[ext_resource type="PackedScene" uid="uid://g3lqi52kbx7q" path="res://Scene/Options.tscn" id="9_vm4ek"]
+[ext_resource type="Texture2D" uid="uid://xnvpcuxqr5u0" path="res://UI/Icon/ShadouMuYou.png" id="9_yg4ot"]
+[ext_resource type="Texture2D" uid="uid://bjpx1onk8kgbk" path="res://UI/Icon/PlayOnce.svg" id="10_gclda"]
+[ext_resource type="Texture2D" uid="uid://bdopxjml2yacq" path="res://UI/Icon/Volume.svg" id="12_4qtod"]
+[ext_resource type="Texture2D" uid="uid://c0yxtey4d6tkm" path="res://UI/Icon/ListLoop.svg" id="12_4w0o7"]
+[ext_resource type="Texture2D" uid="uid://dtory6dhisyt6" path="res://UI/Icon/Shuffle.svg" id="12_kp1vv"]
+[ext_resource type="Texture2D" uid="uid://b3xsbub1ghib" path="res://UI/Icon/RepeatOne.svg" id="12_mr7am"]
+[ext_resource type="Texture2D" uid="uid://d2h6u5vsahrtp" path="res://UI/Icon/Mute.svg" id="13_i0sg4"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_2p7c5"]
+content_margin_left = 0.0
+content_margin_top = 0.0
+content_margin_right = 0.0
+content_margin_bottom = 0.0
+bg_color = Color(0.96862745, 0.9764706, 1, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="GDScript" id="GDScript_aan6j"]
+script/source = "extends Panel
+@export var page_buttons:Array[Button]
+@export var current_page:Control
+@export var current_page_name:String
+@export var bottom_menu:Panel
+@export var ui_sound:AudioStreamPlayer
+func play(card:BaseVideoCard,type:String)->void:
+	Player.type=type
+	Player.play(card.link)
+	match State.play_ui_mode:
+		0:
+			bottom_menu.show()
+			bottom_menu.play_button.button_pressed=true
+			bottom_menu.title=card.title
+			bottom_menu.progress_bar.value=0
+			bottom_menu.author=card.author
+			var i:=0
+			while card.cover == null&&i!=1000:
+				await get_tree().process_frame
+				i+=1
+			bottom_menu.cover=card.cover
+func _ready() -> void:
+	get_window().size_changed.connect(func():
+		GdScriptFunc.set_data(\"Window\",\"Size\",get_window().size)
+		
+	)
+	get_window().close_requested.connect(func():
+		GdScriptFunc.set_data(\"Window\",\"Position\",get_window().position)
+		get_tree().quit()
+	)
+	get_window().min_size=Vector2i(966,262)
+	for button in page_buttons:
+		button.connect(\"pressed\",change_page.bind(button.name))
+	get_window().size=GdScriptFunc.get_data(\"Window\",\"Size\",Vector2i(1600,1000))
+	var pos:Vector2i=GdScriptFunc.get_data(\"Window\",\"Position\",Vector2i(-114514,-114514))
+	if pos!=Vector2i(-114514,-114514):
+		get_window().position=pos
+	
+func change_page(page_name:String)->void:
+	if page_name==current_page_name:
+		return
+	current_page.hide()
+	current_page=get_node(page_name)
+	current_page.show()
+	current_page_name=page_name
+
+
+func _on_search_text_submitted(new_text: String) -> void:
+	get_node(\"Results\").update_page(new_text)
+	change_page(\"Results\")
+"
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_46ucy"]
+content_margin_left = 0.0
+content_margin_top = 0.0
+content_margin_right = 0.0
+content_margin_bottom = 0.0
+bg_color = Color(0.9490196, 0.9529412, 0.98039216, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_h175a"]
+content_margin_left = 6.0
+content_margin_top = 6.0
+content_margin_right = 6.0
+content_margin_bottom = 6.0
+
+[sub_resource type="Animation" id="Animation_aan6j"]
+length = 0.001
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("LeftMenu:position:x")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 1,
+"values": [-283.0]
+}
+
+[sub_resource type="Animation" id="Animation_togfq"]
+resource_name = "start"
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("LeftMenu:position:x")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0.6666667, 0.73333335),
+"transitions": PackedFloat32Array(1, 1),
+"update": 0,
+"values": [-283.0, 0.0]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_aan6j"]
+_data = {
+&"RESET": SubResource("Animation_aan6j"),
+&"start": SubResource("Animation_togfq")
+}
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_aan6j"]
+bg_color = Color(0.9490196, 0.9529412, 0.98039216, 1)
+
+[sub_resource type="GDScript" id="GDScript_6a8me"]
+script/source = "
+# 仅处理界面显示与用户输入，实际播放逻辑调用 Player 中枢
+
+extends Panel
+
+@export var cover_node: TextureRect
+@export var title_label: Label
+@export var author_label: Label
+@export var play_button: Button
+@export var volume_button: Button
+@export var progress_bar: HSlider
+@export var volume_progress_bar: VSlider
+@export var volume_background: Panel
+@export var volume_exit_timer: Timer
+
+# 模式相关UI
+@export var play_mode_button: Button
+@export var play_once_icon: Texture2D
+@export var repeat_one_icon: Texture2D
+@export var list_loop_icon: Texture2D
+@export var shuffle_icon: Texture2D
+var list_name:=\"\"
+var cover: Texture2D:
+	set(value):
+		if value == null: return
+		cover = value
+		cover_node.show()
+		cover_node.texture = value
+
+var title: String = \"\":
+	set(value):
+		title = value
+		title_label.text = value
+
+var author: String = \"\":
+	set(value):
+		author = value
+		author_label.text = value
+
+var progress_lock := false
+var volume := 0.73
+
+# ========== 模式UI更新 ==========
+func _update_mode_ui(_new_mode: int):
+	match Player.current_mode:
+		Player.PlayMode.PLAY_ONCE:
+			play_mode_button.icon = play_once_icon
+		Player.PlayMode.REPEAT_ONE:
+			play_mode_button.icon = repeat_one_icon
+		Player.PlayMode.LIST_LOOP:
+			play_mode_button.icon = list_loop_icon
+		Player.PlayMode.SHUFFLE:
+			play_mode_button.icon = shuffle_icon
+
+func _on_play_mode_pressed():
+	var next:=Player.current_mode + 1
+	if list_name==\"\":
+		next++
+	var new_mode = next % Player.PlayMode.size()
+	
+	Player.set_play_mode(new_mode)
+
+# ========== 歌曲信息更新 ==========
+func _on_song_changed(index: int, song_id: String):
+	title = song_id.get_file().get_basename()
+	author = \"未知艺术家\"
+	# 加载封面图片
+	var img_path = song_id.replace(\".mp3\", \".jpg\")   # 实际需根据你的逻辑
+	if FileAccess.file_exists(img_path):
+		var img = Image.new()
+		if img.load(img_path) == OK:
+			cover = ImageTexture.create_from_image(img)
+	# 更新进度条和播放状态（保持播放）
+	play_button.button_pressed = true
+
+# ========== 原有UI逻辑 ==========
+func _on_progress_drag_ended(value_changed: bool):
+	if !value_changed: return
+	play_button.button_pressed = true
+	Player.seek_percentage(progress_bar.value / 100.0)
+	progress_lock = false
+
+func _physics_process(_delta):
+	if !progress_lock && visible:
+		progress_bar.value = Player.get_current_percentage() * 100.0
+
+func _on_progress_drag_started():
+	progress_lock = true
+
+func _on_play_toggled(toggled_on: bool):
+	if toggled_on:
+		play_button.icon = preload(\"res://UI/Icon/pause.svg\")
+		Player.resume()
+	else:
+		play_button.icon = preload(\"res://UI/Icon/play.svg\")
+		Player.pause()
+
+func _on_volume_toggled(toggled_on: bool):
+	if toggled_on:
+		Player.volume_linear = 0
+		volume_progress_bar.set_value_no_signal(0)
+	else:
+		Player.volume_linear = volume * 0.01
+		volume_progress_bar.set_value_no_signal(volume)
+
+func _on_volume_mouse_entered():
+	var tween = volume_background.create_tween()
+	tween.tween_property(volume_background, \"scale\", Vector2.ONE, 0.3).set_trans(Tween.TRANS_CUBIC)
+
+func _on_volume_slider_value_changed(value: float):
+	volume = value
+	Player.volume_linear = value * 0.01
+	volume_exit_timer.stop()
+	volume_button.button_pressed = value == 0
+
+func _on_volume_mouse_exit_timer_timeout():
+	var tween = volume_background.create_tween()
+	tween.tween_property(volume_background, \"scale\", Vector2.ZERO, 0.3).set_trans(Tween.TRANS_CUBIC)
+
+func _on_volume_slider_drag_ended(_value_changed: bool):
+	volume_exit_timer.start()
+	GdScriptFunc.set_data(\"PlayerData\", \"Volume\", volume)
+
+func _ready():
+	# 读取音量配置
+	volume_progress_bar.value = GdScriptFunc.get_data(\"PlayerData\", \"Volume\", 73)
+	volume = volume_progress_bar.value
+	Player.volume_linear = volume * 0.01
+	
+	# 读取播放模式配置并设置
+	var saved_mode = GdScriptFunc.get_data(\"PlayerData\", \"PlayMode\", Player.PlayMode.REPEAT_ONE)
+	Player.set_play_mode(saved_mode)
+	
+	# 连接中枢信号
+	Player.mode_changed.connect(_update_mode_ui)
+	Player.song_changed.connect(_on_song_changed)
+"
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_kp1vv"]
+bg_color = Color(0.7462899, 0.8842406, 0.89652765, 1)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+corner_detail = 3
+expand_margin_top = 3.0
+expand_margin_bottom = 3.0
+
+[sub_resource type="StyleBoxTexture" id="StyleBoxTexture_mr7am"]
+texture = ExtResource("12_4qtod")
+
+[sub_resource type="StyleBoxTexture" id="StyleBoxTexture_sc4dx"]
+texture = ExtResource("13_i0sg4")
+
+[sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_gclda"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_i0sg4"]
+bg_color = Color(0, 0, 0, 0.42352942)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_mr7am"]
+content_margin_left = 4.0
+content_margin_top = 4.0
+content_margin_right = 4.0
+content_margin_bottom = 4.0
+bg_color = Color(0.29114056, 0.2911404, 0.2911404, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+corner_detail = 6
+expand_margin_left = 2.0
+expand_margin_right = 2.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_sc4dx"]
+bg_color = Color(0.7462899, 0.8842406, 0.89652765, 1)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+corner_detail = 3
+expand_margin_left = 2.0
+expand_margin_right = 2.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_gclda"]
+bg_color = Color(0.7462899, 0.8842406, 0.89652765, 1)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+corner_detail = 3
+expand_margin_left = 3.0
+expand_margin_right = 3.0
+
+[node name="Main" type="Panel" unique_id=1291672957 node_paths=PackedStringArray("page_buttons", "current_page", "bottom_menu", "ui_sound")]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+focus_mode = 1
+theme_override_styles/panel = SubResource("StyleBoxFlat_2p7c5")
+script = SubResource("GDScript_aan6j")
+page_buttons = [NodePath("LeftMenu/ScrollContainer/VBoxContainer/Discover"), NodePath("LeftMenu/ScrollContainer/VBoxContainer/Results"), NodePath("LeftMenu/ScrollContainer/VBoxContainer/Favorites"), NodePath("LeftMenu/Options")]
+current_page = NodePath("Discover")
+current_page_name = "Discover"
+bottom_menu = NodePath("BottomMenu")
+ui_sound = NodePath("AudioStreamPlayer")
+
+[node name="LeftMenu" type="Panel" parent="." unique_id=1758456242]
+clip_contents = true
+layout_mode = 1
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_left = -283.0
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_46ucy")
+metadata/_edit_use_anchors_ = true
+
+[node name="Search" type="LineEdit" parent="LeftMenu" unique_id=499293569]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -73.5
+offset_top = 26.0
+offset_right = 111.5
+offset_bottom = 85.0
+grow_horizontal = 2
+tooltip_text = "在B站上找音乐"
+placeholder_text = "搜索音乐"
+context_menu_enabled = false
+emoji_menu_enabled = false
+
+[node name="TextureRect" type="TextureRect" parent="LeftMenu/Search" unique_id=2069813124]
+layout_mode = 1
+anchors_preset = 4
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = -44.0
+offset_top = -20.5
+offset_right = -7.0
+offset_bottom = 16.5
+grow_vertical = 2
+texture = ExtResource("2_djkur")
+expand_mode = 1
+
+[node name="ScrollContainer" type="ScrollContainer" parent="LeftMenu" unique_id=74204146]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = 120.0
+offset_bottom = -79.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxEmpty_h175a")
+horizontal_scroll_mode = 0
+vertical_scroll_mode = 3
+
+[node name="VBoxContainer" type="VBoxContainer" parent="LeftMenu/ScrollContainer" unique_id=464861529]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 10
+
+[node name="Discover" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=380134334]
+custom_minimum_size = Vector2(0, 60)
+layout_mode = 2
+tooltip_text = "从众多up主中推荐"
+text = "发现音乐"
+icon = ExtResource("3_h175a")
+expand_icon = true
+
+[node name="Results" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=1597806874]
+custom_minimum_size = Vector2(0, 60)
+layout_mode = 2
+tooltip_text = "搜索结果"
+text = "搜索结果"
+icon = ExtResource("4_togfq")
+expand_icon = true
+
+[node name="Favorites" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=963398162]
+custom_minimum_size = Vector2(0, 60)
+layout_mode = 2
+tooltip_text = "收藏列表"
+text = "收藏列表"
+icon = ExtResource("4_6a8me")
+expand_icon = true
+
+[node name="Options" type="Button" parent="LeftMenu" unique_id=1648837809]
+custom_minimum_size = Vector2(0, 60)
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -133.5
+offset_top = -80.0
+offset_right = 135.5
+offset_bottom = -20.0
+grow_horizontal = 2
+grow_vertical = 0
+text = "设置"
+icon = ExtResource("2_g6ejq")
+expand_icon = true
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="." unique_id=2030030357]
+libraries/ = SubResource("AnimationLibrary_aan6j")
+autoplay = &"start"
+
+[node name="Discover" parent="." unique_id=585043204 instance=ExtResource("6_aan6j")]
+layout_mode = 1
+
+[node name="Results" parent="." unique_id=386418663 instance=ExtResource("7_h3nmf")]
+visible = false
+layout_mode = 1
+
+[node name="Favorites" parent="." unique_id=1004751732 instance=ExtResource("8_yg4ot")]
+visible = false
+layout_mode = 1
+
+[node name="Options" parent="." unique_id=708186307 instance=ExtResource("9_vm4ek")]
+visible = false
+layout_mode = 1
+
+[node name="BottomMenu" type="Panel" parent="." unique_id=1456727291 node_paths=PackedStringArray("cover_node", "title_label", "author_label", "play_button", "volume_button", "progress_bar", "volume_progress_bar", "volume_background", "volume_exit_timer", "play_mode_button")]
+visible = false
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 283.0
+offset_top = -99.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_styles/panel = SubResource("StyleBoxFlat_aan6j")
+script = SubResource("GDScript_6a8me")
+cover_node = NodePath("Cover")
+title_label = NodePath("Title")
+author_label = NodePath("Author")
+play_button = NodePath("Play")
+volume_button = NodePath("Volume")
+progress_bar = NodePath("Progress")
+volume_progress_bar = NodePath("Volume/Background/VolumeSlider")
+volume_background = NodePath("Volume/Background")
+volume_exit_timer = NodePath("Volume/Timer")
+play_mode_button = NodePath("PlayMode")
+play_once_icon = ExtResource("10_gclda")
+repeat_one_icon = ExtResource("12_mr7am")
+list_loop_icon = ExtResource("12_4w0o7")
+shuffle_icon = ExtResource("12_kp1vv")
+
+[node name="Cover" type="TextureRect" parent="BottomMenu" unique_id=837129774]
+layout_mode = 1
+anchors_preset = 4
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = 13.0
+offset_top = -31.0
+offset_right = 77.0
+offset_bottom = 33.0
+grow_vertical = 2
+texture = ExtResource("9_yg4ot")
+expand_mode = 5
+stretch_mode = 5
+
+[node name="Title" type="Label" parent="BottomMenu" unique_id=2137018343]
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 0.42900002
+offset_left = 96.0
+offset_top = 16.0
+offset_right = -52.533997
+offset_bottom = 45.0
+mouse_filter = 1
+theme_override_font_sizes/font_size = 24
+text = "TitleTitleTitleTitleTitleTitleTitleTitleTitleTitle"
+text_overrun_behavior = 5
+
+[node name="Author" type="Label" parent="BottomMenu" unique_id=891646003]
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 0.43600002
+offset_left = 96.0
+offset_top = 47.0
+offset_right = -143.25604
+offset_bottom = 66.0
+grow_horizontal = 2
+mouse_filter = 1
+theme_override_colors/font_color = Color(0.21684542, 0.21552005, 0.22141024, 1)
+theme_override_font_sizes/font_size = 16
+text = "AuthorAuthorAuthorAuthorAuthorAuthorAuthor"
+text_overrun_behavior = 5
+
+[node name="Play" type="Button" parent="BottomMenu" unique_id=156709578]
+custom_minimum_size = Vector2(40, 40)
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.52900004
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = 84.86597
+offset_top = -31.0
+offset_right = -462.0
+offset_bottom = 9.0
+grow_horizontal = 2
+grow_vertical = 2
+toggle_mode = true
+button_pressed = true
+icon = ExtResource("9_6a8me")
+flat = true
+icon_alignment = 1
+expand_icon = true
+
+[node name="PlayMode" type="Button" parent="BottomMenu" unique_id=1372697597]
+custom_minimum_size = Vector2(40, 40)
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -102.0
+offset_top = -2.5
+offset_right = -62.0
+offset_bottom = 42.5
+grow_horizontal = 0
+grow_vertical = 2
+icon = ExtResource("12_mr7am")
+flat = true
+expand_icon = true
+
+[node name="Progress" type="HSlider" parent="BottomMenu" unique_id=2107993955]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.572
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -233.32404
+offset_top = 9.5
+offset_right = -200.61206
+offset_bottom = 29.5
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/grabber_area_highlight = SubResource("StyleBoxFlat_kp1vv")
+step = 0.0
+value = 50.0
+
+[node name="Volume" type="Button" parent="BottomMenu" unique_id=663841792]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -143.0
+offset_top = 4.5
+offset_right = -113.0
+offset_bottom = 34.5
+grow_horizontal = 0
+grow_vertical = 2
+theme_override_styles/normal = SubResource("StyleBoxTexture_mr7am")
+theme_override_styles/pressed = SubResource("StyleBoxTexture_sc4dx")
+theme_override_styles/hover = SubResource("StyleBoxTexture_mr7am")
+theme_override_styles/hover_pressed = SubResource("StyleBoxTexture_sc4dx")
+theme_override_styles/disabled = SubResource("StyleBoxTexture_sc4dx")
+theme_override_styles/focus = SubResource("StyleBoxEmpty_gclda")
+toggle_mode = true
+expand_icon = true
+
+[node name="Background" type="Panel" parent="BottomMenu/Volume" unique_id=439948838]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -29.999956
+offset_top = -179.00003
+offset_right = 3.0000458
+offset_bottom = -24.00003
+grow_horizontal = 0
+grow_vertical = 2
+scale = Vector2(1e-05, 1e-05)
+pivot_offset_ratio = Vector2(0.5, 1)
+mouse_filter = 1
+theme_override_styles/panel = SubResource("StyleBoxFlat_i0sg4")
+
+[node name="VolumeSlider" type="VSlider" parent="BottomMenu/Volume/Background" unique_id=1494802250]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -20.0
+offset_top = 8.0
+offset_right = 20.0
+offset_bottom = 149.0
+grow_horizontal = 2
+theme_override_styles/slider = SubResource("StyleBoxFlat_mr7am")
+theme_override_styles/grabber_area = SubResource("StyleBoxFlat_sc4dx")
+theme_override_styles/grabber_area_highlight = SubResource("StyleBoxFlat_gclda")
+value = 73.0
+rounded = true
+
+[node name="Timer" type="Timer" parent="BottomMenu/Volume" unique_id=474611131]
+wait_time = 0.35
+one_shot = true
+
+[node name="AudioStreamPlayer" type="AudioStreamPlayer" parent="." unique_id=690380417]
+
+[connection signal="text_submitted" from="LeftMenu/Search" to="." method="_on_search_text_submitted"]
+[connection signal="toggled" from="BottomMenu/Play" to="BottomMenu" method="_on_play_toggled"]
+[connection signal="pressed" from="BottomMenu/PlayMode" to="BottomMenu" method="_on_play_mode_pressed"]
+[connection signal="drag_ended" from="BottomMenu/Progress" to="BottomMenu" method="_on_progress_drag_ended"]
+[connection signal="drag_started" from="BottomMenu/Progress" to="BottomMenu" method="_on_progress_drag_started"]
+[connection signal="mouse_entered" from="BottomMenu/Volume" to="BottomMenu" method="_on_volume_mouse_entered"]
+[connection signal="mouse_entered" from="BottomMenu/Volume" to="BottomMenu/Volume/Timer" method="stop"]
+[connection signal="mouse_exited" from="BottomMenu/Volume" to="BottomMenu/Volume/Timer" method="start"]
+[connection signal="toggled" from="BottomMenu/Volume" to="BottomMenu" method="_on_volume_toggled"]
+[connection signal="drag_ended" from="BottomMenu/Volume/Background/VolumeSlider" to="BottomMenu" method="_on_volume_slider_drag_ended"]
+[connection signal="mouse_entered" from="BottomMenu/Volume/Background/VolumeSlider" to="BottomMenu/Volume/Timer" method="stop"]
+[connection signal="mouse_exited" from="BottomMenu/Volume/Background/VolumeSlider" to="BottomMenu/Volume/Timer" method="start"]
+[connection signal="value_changed" from="BottomMenu/Volume/Background/VolumeSlider" to="BottomMenu" method="_on_volume_slider_value_changed"]
+[connection signal="timeout" from="BottomMenu/Volume/Timer" to="BottomMenu" method="_on_volume_mouse_exit_timer_timeout"]

@@ -1,0 +1,219 @@
+[gd_scene format=3 uid="uid://h8qr8p6khg63"]
+
+[sub_resource type="GDScript" id="GDScript_61i7r"]
+script/source = "extends Control
+
+@export var list: VBoxContainer
+@export var scroll_container: ScrollContainer
+@export var ups: Array[Dictionary] = []
+
+var up_nodes: Array[Label] = []
+var up_preview_visible_id := 0
+
+func _ready() -> void:
+	for item in ups:
+		var key: String = item[\"key\"]
+		var color: Color = item[\"value\"]
+		
+		var node := preload(\"res://Scene/UpPpreview.tscn\").instantiate()
+		node.name = key
+		node.text = key
+		node.self_modulate = color
+		
+		up_nodes.append(node)
+		list.add_child(node)
+		
+	list.transform_changed.connect(on_list_rolling)
+	on_list_rolling()
+
+# ---------------- 核心懒加载逻辑 ----------------
+func on_list_rolling() -> void:
+	# 计算当前可视区域底部的 Y 坐标
+	var bottom := -list.position.y + scroll_container.size.y
+	
+	# 169 大概是第一个元素的偏移，350 是每个 UpPreview 的高度（根据实际调整）
+	if bottom >= 169 + up_preview_visible_id * 350:
+		if up_preview_visible_id < up_nodes.size():
+			var current_up_node := up_nodes[up_preview_visible_id]
+			# 安全获取内部的 HBoxContainer 路径
+			var target_hbox := current_up_node.get_node_or_null(\"ScrollContainer/HBoxContainer\")
+			
+			if target_hbox:
+				BilibiliIc.search_bilibili(
+					load_cards_callback.bind(target_hbox),
+					current_up_node.text, 10, 0, 1, current_up_node.text
+				)
+		up_preview_visible_id += 1
+
+# ---------------- Tween 动画重构 ----------------
+func load_cards_callback(videos: Array, list_node: BoxContainer) -> void:
+	if videos.is_empty() or not is_instance_valid(list_node):
+		return
+		
+	# 创建一个 Tween 序列，专门用来控制卡片依次生成
+	var spawn_tween := create_tween()
+	
+	for i in videos.size():
+		var video = videos[i]
+		# 使用 tween_callback 将实例化操作排入队列，替代 await
+		spawn_tween.tween_callback(_instantiate_and_setup_card.bind(video, list_node))
+		# 每张卡片的间隔时间（可以调小到 0.05 ~ 0.08，体验更流畅）
+		spawn_tween.tween_interval(0.08)
+
+# 独立出来的卡片创建与动画函数
+func _instantiate_and_setup_card(video: Dictionary, list_node: BoxContainer) -> void:
+	var video_card := preload(\"res://Scene/VideoCard.tscn\").instantiate()
+	list_node.add_child(video_card)
+	
+	# 赋值逻辑
+	video_card.title = video.title
+	video_card.author = video.author
+	video_card.description = video.description
+	video_card.link = video.bvid
+	video_card.reset()
+	if video.has(\"cover_url\"):
+		BilibiliIc._download_cover(video.cover_url, video.bvid,video_card.size.x,video_card.size.y,set_cover.bind(video_card))
+	else:
+		BilibiliIc.fetch_cover(video.bvid, set_cover.bind(video_card))
+	
+func set_cover(_bvid: String, texture: Texture2D, video_card: Control) -> void:
+	# 增加安全校验，防止在异步下载期间节点被意外销毁
+	if is_instance_valid(video_card):
+		video_card.cover = texture
+
+# ---------------- 滚动状态与防冲突处理 ----------------
+@export var time_cd: Timer
+var is_vertical_sliding := false:
+	set(value):
+		if value == is_vertical_sliding:
+			return
+		is_vertical_sliding = value
+		
+		for node in up_nodes:
+			var inner_scroll := node.get_node_or_null(\"ScrollContainer\")
+			if inner_scroll:
+				inner_scroll.mouse_filter = Control.MOUSE_FILTER_IGNORE if value else Control.MOUSE_FILTER_STOP
+
+var is_on_vertical_scroll := false
+
+func _on_scroll_container_gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		if (event.button_index == MOUSE_BUTTON_WHEEL_DOWN or event.button_index == MOUSE_BUTTON_WHEEL_UP) and is_on_vertical_scroll:
+			is_vertical_sliding = true
+			time_cd.start()
+			
+	if event is InputEventMouseMotion and time_cd.is_stopped():
+		is_vertical_sliding = false
+		time_cd.stop()
+
+func _on_cd_timer_timeout() -> void:
+	is_vertical_sliding = false
+
+func _on_scroll_container_mouse_entered() -> void:
+	is_on_vertical_scroll = true
+
+func _on_scroll_container_mouse_exited() -> void:
+	is_on_vertical_scroll = false
+"
+
+[sub_resource type="GDScript" id="GDScript_6vwaf"]
+script/source = "extends VBoxContainer
+
+signal transform_changed
+func _ready() -> void:
+	set_notify_transform(true)#用来监听位置信息,从而计算可见的up预览区域,这样就能按需求加载
+func _notification(what):
+	if what == NOTIFICATION_TRANSFORM_CHANGED:
+		transform_changed.emit()
+"
+
+[node name="Page" type="Control" unique_id=585043204 node_paths=PackedStringArray("list", "scroll_container", "time_cd")]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 310.0
+offset_bottom = -99.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 1
+script = SubResource("GDScript_61i7r")
+list = NodePath("ScrollContainer/VBoxContainer")
+scroll_container = NodePath("ScrollContainer")
+ups = Array[Dictionary]([{
+"key": "JLRS-LeoFM",
+"series_id": 0,
+"value": Color(0.7137255, 0.4745098, 0.36862746, 1)
+}, {
+"key": "FANTASONIC",
+"series_id": 0,
+"value": Color(0.2, 0.46666667, 0.72156864, 1)
+}, {
+"key": "bilibili音乐周榜",
+"value": Color(0.6666667, 0.76862746, 1, 1)
+}, {
+"key": "蛋某人音乐",
+"series_id": 0,
+"value": Color(0.17254902, 0.18039216, 0.19215687, 1)
+}, {
+"FANTASONIC": 2879887,
+"key": "我爱吃派大星",
+"value": Color(0.6666667, 0.29803923, 0.27058825, 1)
+}, {
+"key": "ProjectMili",
+"series_id": 0,
+"value": Color(0.3882353, 0.7058824, 0.7137255, 1)
+}, {
+"key": "4K音乐馆",
+"series_id": 0,
+"value": Color(0.3764706, 0.32156864, 0.5529412, 1)
+}, {
+"key": "ianluther",
+"series_id": 0,
+"value": Color(0.09411765, 0.24705882, 0.3647059, 1)
+}, {
+"key": "索尼音乐中国",
+"series_id": 440249,
+"value": Color(0.69411767, 0.14901961, 0.18431373, 1)
+}])
+time_cd = NodePath("ScrollContainer/CDTimer")
+
+[node name="ScrollContainer" type="ScrollContainer" parent="." unique_id=352955920]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+horizontal_scroll_mode = 3
+
+[node name="VBoxContainer" type="VBoxContainer" parent="ScrollContainer" unique_id=1811422253]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 60
+script = SubResource("GDScript_6vwaf")
+
+[node name="Label" type="Label" parent="ScrollContainer/VBoxContainer" unique_id=921580403]
+layout_mode = 2
+mouse_filter = 0
+theme_override_font_sizes/font_size = 50
+text = "发现音乐"
+
+[node name="SubLabel" type="Label" parent="ScrollContainer/VBoxContainer/Label" unique_id=345127570]
+layout_mode = 1
+offset_top = 78.0
+offset_right = 201.0
+offset_bottom = 112.0
+theme_override_colors/font_color = Color(0.22352941, 0.23137255, 0.23921569, 1)
+theme_override_font_sizes/font_size = 24
+text = "从众多UP主中推荐"
+
+[node name="CDTimer" type="Timer" parent="ScrollContainer" unique_id=520375900]
+wait_time = 0.5
+one_shot = true
+autostart = true
+
+[connection signal="gui_input" from="ScrollContainer" to="." method="_on_scroll_container_gui_input"]
+[connection signal="mouse_entered" from="ScrollContainer" to="." method="_on_scroll_container_mouse_entered"]
+[connection signal="mouse_exited" from="ScrollContainer" to="." method="_on_scroll_container_mouse_exited"]
+[connection signal="timeout" from="ScrollContainer/CDTimer" to="." method="_on_cd_timer_timeout"]

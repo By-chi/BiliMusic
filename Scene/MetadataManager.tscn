@@ -1,0 +1,589 @@
+[gd_scene format=3 uid="uid://nkijfdj758na"]
+
+[ext_resource type="Texture2D" uid="uid://c627o3sd15geu" path="res://UI/Icon/Download.svg" id="1_gptc6"]
+
+[sub_resource type="GDScript" id="GDScript_00ea4"]
+script/source = "extends Window
+@export var cover_texture_rect: TextureRect
+@export var title_line_edit: LineEdit
+@export var author_line_edit: LineEdit
+@export var link_line_edit: LineEdit
+@export var description_line_edit: TextEdit
+@export var bv_label: Label
+
+var music_title := \"\"
+var music_uploader := \"\"
+var music_link := \"\"
+var music_description := \"\"
+var bv := \"\"                     # 用户无法修改，单项下载时要用到
+
+var previous_title := \"\"
+var previous_uploader := \"\"
+var previous_link := \"\"
+var previous_description := \"\"
+
+var directory_name := \"\"
+
+
+func update(_directory_name: String, link: String) -> void:
+	print(\"[MetadataWindow] update called with dir: \", _directory_name, \", link: \", link)
+	var deck: Array = GdScriptFunc.get_data(\"Favorites\", _directory_name)
+	print(\"[MetadataWindow] deck size: \", deck.size())
+	for i in deck:
+		if i[\"link\"] == link:
+			print(\"[MetadataWindow] Found matching entry, BV present: \", i.has(\"BV\"), \" value: \", i.get(\"BV\", \"\"))
+			if i.has(\"BV\"):
+				bv_label.visible = true
+				bv = i[\"BV\"]
+			else:
+				bv_label.visible = false
+				bv = \"\"
+			bv_label.text=bv
+			directory_name = _directory_name
+			title_line_edit.text = i[\"title\"]
+			author_line_edit.text = i[\"author\"]
+			description_line_edit.text = i[\"description\"]
+			link_line_edit.text = i[\"link\"]
+
+			previous_title = i[\"title\"]
+			previous_uploader = i[\"author\"]
+			previous_link = i[\"link\"]
+			previous_description = i[\"description\"]
+
+			music_title = i[\"title\"]
+			music_uploader = i[\"author\"]
+			music_link = i[\"link\"]
+			music_description = i[\"description\"]
+
+			_load_cover_for_link(i[\"link\"])
+			return
+	print(\"[MetadataWindow] WARNING: No matching entry found!\")
+
+
+func _load_cover_for_link(link: String) -> void:
+	var cover_path = link.get_basename() + \".jpg\"
+	print(\"[MetadataWindow] Loading cover from: \", cover_path)
+	if FileAccess.file_exists(cover_path):
+		var img = Image.new()
+		if img.load(cover_path) == OK:
+			cover_texture_rect.texture = ImageTexture.create_from_image(img)
+			print(\"[MetadataWindow] Cover loaded successfully\")
+			return
+		print(\"[MetadataWindow] Cover image load failed\")
+	else:
+		print(\"[MetadataWindow] Cover file does not exist, clearing texture\")
+	cover_texture_rect.texture = null
+
+
+# ---------- 下载功能 ----------
+
+func _on_cover_download_pressed() -> void:
+	print(\"[MetadataWindow] _on_cover_download_pressed called, bv: \", bv)
+	if bv.is_empty():
+		print(\"[MetadataWindow] bv is empty, aborting cover download\")
+		return
+	var link = music_link
+	if link.is_empty():
+		print(\"[MetadataWindow] music_link is empty, aborting cover download\")
+		return
+
+	print(\"[MetadataWindow] Starting cover download for BV: \", bv)
+	GdScriptFunc.set_progress_bar_value(10, \"封面下载\", \"正在获取封面...\")
+
+	BilibiliIc.fetch_cover(bv, func(bvid, texture: Texture2D):
+		print(\"[MetadataWindow] Cover fetch callback triggered, texture is null: \", texture == null)
+		if texture:
+			var img = texture.get_image()
+			var cover_path = link.get_basename() + \".jpg\"
+			GdScriptFunc.set_progress_bar_value(50, \"封面下载\", \"正在保存封面...\")
+			var err = img.save_jpg(cover_path)
+			if err == OK:
+				cover_texture_rect.texture = texture
+				print(\"[MetadataWindow] Cover saved to: \", cover_path)
+				GdScriptFunc.set_progress_bar_value(100, \"完成\", \"封面已更新\")
+			else:
+				print(\"[MetadataWindow] Cover save failed, error: \", err)
+				GdScriptFunc.set_progress_bar_value(100, \"失败\", \"封面保存失败\")
+		else:
+			print(\"[MetadataWindow] Cover texture is null\")
+			GdScriptFunc.set_progress_bar_value(100, \"失败\", \"封面获取失败\")
+	, 1280, 720)
+
+func _on_title_download_pressed() -> void:
+	print(\"[MetadataWindow] _on_title_download_pressed called, bv: \", bv)
+	if bv.is_empty():
+		print(\"[MetadataWindow] bv is empty, aborting title download\")
+		return
+	GdScriptFunc.set_progress_bar_value(10, \"获取信息\", \"正在获取标题...\")
+	BilibiliIc.fetch_video_info(bv, func(info: Dictionary):
+		print(\"[MetadataWindow] Title fetch callback triggered, info size: \", info.size())
+		if info.is_empty():
+			GdScriptFunc.set_progress_bar_value(100, \"失败\", \"获取信息失败\")
+			return
+		var title = info.get(\"title\", \"\")
+		title_line_edit.text = title
+		music_title = title
+		print(\"[MetadataWindow] Title updated to: \", title)
+		GdScriptFunc.set_progress_bar_value(100, \"完成\", \"标题已更新\")
+	)
+
+func _on_author_download_pressed() -> void:
+	print(\"[MetadataWindow] _on_author_download_pressed called, bv: \", bv)
+	if bv.is_empty():
+		print(\"[MetadataWindow] bv is empty, aborting author download\")
+		return
+	GdScriptFunc.set_progress_bar_value(10, \"获取信息\", \"正在获取作者...\")
+	BilibiliIc.fetch_video_info(bv, func(info: Dictionary):
+		print(\"[MetadataWindow] Author fetch callback triggered, info size: \", info.size())
+		if info.is_empty():
+			GdScriptFunc.set_progress_bar_value(100, \"失败\", \"获取信息失败\")
+			return
+		var author = info.get(\"author\", \"\")
+		author_line_edit.text = author
+		music_uploader = author
+		print(\"[MetadataWindow] Author updated to: \", author)
+		GdScriptFunc.set_progress_bar_value(100, \"完成\", \"作者已更新\")
+	)
+
+func _on_link_download_pressed() -> void:
+	print(\"[MetadataWindow] _on_link_download_pressed called, bv: \", bv)
+	if bv.is_empty():
+		print(\"[MetadataWindow] bv is empty, aborting link download\")
+		return
+
+	var old_link = music_link
+	var old_cover_path = old_link.get_basename() + \".jpg\" if not old_link.is_empty() else \"\"
+	var old_lrc_path = old_link.get_basename() + \".lrc\" if not old_link.is_empty() else \"\"
+
+	GdScriptFunc.set_progress_bar_value(10, \"音频下载\", \"正在获取音频信息...\")
+	print(\"[MetadataWindow] Starting async audio download for BV: \", bv)
+	_download_audio_async(bv, func(audio_result: Dictionary):
+		print(\"[MetadataWindow] Audio download callback, result: \", audio_result)
+		if audio_result.is_empty():
+			GdScriptFunc.set_progress_bar_value(100, \"失败\", \"音频下载失败\")
+			return
+
+		var new_link = audio_result[\"local_path\"]
+		link_line_edit.text = new_link
+		music_link = new_link
+		print(\"[MetadataWindow] New audio path: \", new_link)
+
+		var deck: Array = GdScriptFunc.get_data(\"Favorites\", directory_name)
+		var updated = false
+		for item in deck:
+			if item.get(\"BV\") == bv or item[\"link\"] == previous_link:
+				item[\"link\"] = new_link
+				item[\"is_network\"] = false
+				GdScriptFunc.set_data(\"Favorites\", directory_name, deck)
+				updated = true
+				print(\"[MetadataWindow] Updated favorites data with new link\")
+				break
+		if not updated:
+			print(\"[MetadataWindow] WARNING: could not find entry in favorites to update link\")
+
+		if not old_cover_path.is_empty() and FileAccess.file_exists(old_cover_path):
+			GdScriptFunc.set_progress_bar_value(60, \"音频下载\", \"正在迁移封面...\")
+			var new_cover_path = new_link.get_basename() + \".jpg\"
+			var err = DirAccess.copy_absolute(old_cover_path, new_cover_path)
+			print(\"[MetadataWindow] Migrating cover from \", old_cover_path, \" to \", new_cover_path, \" error: \", err)
+			_load_cover_for_link(new_link)
+
+		if not old_lrc_path.is_empty() and FileAccess.file_exists(old_lrc_path):
+			GdScriptFunc.set_progress_bar_value(80, \"音频下载\", \"正在迁移字幕...\")
+			var new_lrc_path = new_link.get_basename() + \".lrc\"
+			var err = DirAccess.copy_absolute(old_lrc_path, new_lrc_path)
+			print(\"[MetadataWindow] Migrating lrc from \", old_lrc_path, \" to \", new_lrc_path, \" error: \", err)
+			for item in deck:
+				if item.get(\"link\") == new_link and item.has(\"subtitles\"):
+					item[\"subtitles\"][\"path\"] = new_lrc_path
+					GdScriptFunc.set_data(\"Favorites\", directory_name, deck)
+					print(\"[MetadataWindow] Updated subtitle path in favorites\")
+					break
+
+		GdScriptFunc.set_progress_bar_value(100, \"完成\", \"音频已更新\")
+	)
+
+func _on_description_download_pressed() -> void:
+	print(\"[MetadataWindow] _on_description_download_pressed called, bv: \", bv)
+	if bv.is_empty():
+		print(\"[MetadataWindow] bv is empty, aborting description download\")
+		return
+	GdScriptFunc.set_progress_bar_value(10, \"获取信息\", \"正在获取描述...\")
+	BilibiliIc.fetch_video_info(bv, func(info: Dictionary):
+		print(\"[MetadataWindow] Description fetch callback triggered, info size: \", info.size())
+		if info.is_empty():
+			GdScriptFunc.set_progress_bar_value(100, \"失败\", \"获取信息失败\")
+			return
+		var desc = info.get(\"desc\", \"\")
+		description_line_edit.text = desc
+		music_description = desc
+		print(\"[MetadataWindow] Description updated, length: \", desc.length())
+		GdScriptFunc.set_progress_bar_value(100, \"完成\", \"描述已更新\")
+	)
+
+
+# ---------- 异步音频下载（局部实现，与主界面一致）----------
+const TARGET_DIR := \"user://local_music/\"
+
+func _download_audio_async(bvid: String, callback: Callable) -> void:
+	print(\"[MetadataWindow] _download_audio_async called for bvid: \", bvid)
+	GdScriptFunc.set_progress_bar_value(30, \"音频下载\", \"正在下载音频文件...\")
+
+	var thread := Thread.new()
+	var result := {
+		\"success\": false,
+		\"local_path\": \"\",
+		\"hash\": \"\"
+	}
+
+	thread.start(func():
+		print(\"[Thread] Starting audio download for bvid: \", bvid)
+		var info_dict = DownloadAudio.GetAudioInfoByBvSync(bvid)
+		if info_dict == null or info_dict.get(\"audioUrl\", \"\").is_empty():
+			print(\"[Thread] Failed to get audio info or empty url\")
+			return result
+
+		var audio_url = info_dict[\"audioUrl\"]
+		var referer = info_dict[\"referer\"]
+		print(\"[Thread] Audio URL: \", audio_url)
+
+		var temp_path = DownloadAudio.DownloadAudioSync(audio_url, referer)
+		if temp_path == \"\" or temp_path.is_empty() or not FileAccess.file_exists(temp_path):
+			print(\"[Thread] Download failed, temp_path: \", temp_path)
+			return result
+
+		print(\"[Thread] Downloaded to temp: \", temp_path)
+		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(TARGET_DIR))
+
+		var src := FileAccess.open(temp_path, FileAccess.READ)
+		if src == null:
+			print(\"[Thread] Could not open temp file\")
+			return result
+
+		var ctx := HashingContext.new()
+		ctx.start(HashingContext.HASH_SHA256)
+		while src.get_position() < src.get_length():
+			ctx.update(src.get_buffer(4096))
+		var file_hash := ctx.finish().hex_encode()
+		src.close()
+
+		var ext = temp_path.get_extension()
+		var dst_filename = file_hash + \".\" + ext if not ext.is_empty() else file_hash
+		var dst_path := TARGET_DIR.path_join(dst_filename)
+
+		if not FileAccess.file_exists(dst_path):
+			var err := DirAccess.copy_absolute(temp_path, dst_path)
+			if err != OK:
+				print(\"[Thread] Copy to destination failed, error: \", err)
+				DirAccess.remove_absolute(temp_path)
+				return result
+
+		DirAccess.remove_absolute(temp_path)
+		print(\"[Thread] Saved to: \", dst_path)
+
+		result[\"success\"] = true
+		result[\"local_path\"] = dst_path
+		result[\"hash\"] = file_hash
+		return result
+	)
+
+	var check_timer := Timer.new()
+	check_timer.wait_time = 0.05
+	check_timer.one_shot = false
+	add_child(check_timer)
+	check_timer.timeout.connect(func():
+		if not thread.is_alive():
+			var res = thread.wait_to_finish()
+			check_timer.queue_free()
+			print(\"[MetadataWindow] Thread finished, result: \", res)
+			GdScriptFunc.set_progress_bar_value(50, \"音频下载\", \"音频文件处理完成\")
+			callback.call(res)
+	)
+	check_timer.start()
+
+
+# ---------- 保存修改 ----------
+func _on_ok_pressed() -> void:
+	print(\"[MetadataWindow] _on_ok_pressed called\")
+	var new_title = title_line_edit.text
+	var new_author = author_line_edit.text
+	var new_link = link_line_edit.text
+	var new_description = description_line_edit.text
+
+	var deck: Array = GdScriptFunc.get_data(\"Favorites\", directory_name)
+	var found := false
+	for i in deck:
+		if i[\"link\"] == previous_link:
+			i[\"title\"] = new_title
+			i[\"author\"] = new_author
+			i[\"link\"] = new_link
+			i[\"description\"] = new_description
+			found = true
+			print(\"[MetadataWindow] Updated entry in favorites\")
+			break
+
+	if found:
+		GdScriptFunc.set_data(\"Favorites\", directory_name, deck)
+	else:
+		push_error(\"未找到对应收藏条目，无法保存\")
+
+	queue_free()
+
+
+func _on_close_requested() -> void:
+	print(\"[MetadataWindow] Window close requested\")
+	queue_free()
+"
+
+[node name="Window" type="Window" unique_id=1319607576 node_paths=PackedStringArray("cover_texture_rect", "title_line_edit", "author_line_edit", "link_line_edit", "description_line_edit", "bv_label")]
+oversampling_override = 1.0
+title = "管理音乐元数据"
+initial_position = 2
+size = Vector2i(700, 410)
+min_size = Vector2i(578, 410)
+script = SubResource("GDScript_00ea4")
+cover_texture_rect = NodePath("ScrollContainer/VBoxContainer/Cover/TextureRect")
+title_line_edit = NodePath("ScrollContainer/VBoxContainer/Title/Title")
+author_line_edit = NodePath("ScrollContainer/VBoxContainer/Author/Author")
+link_line_edit = NodePath("ScrollContainer/VBoxContainer/Link/Link")
+description_line_edit = NodePath("ScrollContainer/VBoxContainer/Description/Description")
+bv_label = NodePath("ScrollContainer/VBoxContainer/BV/BV")
+
+[node name="ScrollContainer" type="ScrollContainer" parent="." unique_id=1655877729]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_bottom = -95.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="ScrollContainer" unique_id=9868774]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Cover" type="Label" parent="ScrollContainer/VBoxContainer" unique_id=1425577985]
+layout_mode = 2
+theme_override_font_sizes/font_size = 35
+text = "封面文件"
+
+[node name="TextureRect" type="TextureRect" parent="ScrollContainer/VBoxContainer/Cover" unique_id=2137580870]
+layout_mode = 1
+anchors_preset = 11
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -158.0
+offset_right = -57.0
+grow_horizontal = 0
+grow_vertical = 2
+expand_mode = 1
+stretch_mode = 6
+
+[node name="CoverDownload" type="Button" parent="ScrollContainer/VBoxContainer/Cover" unique_id=235466502]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -57.0
+offset_top = -26.0
+offset_right = -8.0
+offset_bottom = 23.0
+grow_horizontal = 0
+grow_vertical = 2
+icon = ExtResource("1_gptc6")
+expand_icon = true
+
+[node name="Title" type="Label" parent="ScrollContainer/VBoxContainer" unique_id=1731279792]
+layout_mode = 2
+theme_override_font_sizes/font_size = 35
+text = "标题文本"
+
+[node name="Title" type="LineEdit" parent="ScrollContainer/VBoxContainer/Title" unique_id=1484343758]
+layout_mode = 1
+anchors_preset = 11
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -373.0
+offset_top = 8.0
+offset_right = -68.0
+offset_bottom = 1.0
+grow_horizontal = 0
+grow_vertical = 2
+theme_override_font_sizes/font_size = 24
+
+[node name="TitleDownload" type="Button" parent="ScrollContainer/VBoxContainer/Title" unique_id=477457240]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -57.0
+offset_top = -18.0
+offset_right = -8.0
+offset_bottom = 31.0
+grow_horizontal = 0
+grow_vertical = 2
+icon = ExtResource("1_gptc6")
+expand_icon = true
+
+[node name="Author" type="Label" parent="ScrollContainer/VBoxContainer" unique_id=682376517]
+layout_mode = 2
+theme_override_font_sizes/font_size = 35
+text = "上传者"
+
+[node name="Author" type="LineEdit" parent="ScrollContainer/VBoxContainer/Author" unique_id=1044975226]
+layout_mode = 1
+anchors_preset = 11
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -373.0
+offset_top = 9.0
+offset_right = -68.0
+offset_bottom = 2.0
+grow_horizontal = 0
+grow_vertical = 2
+theme_override_font_sizes/font_size = 24
+
+[node name="AuthorDownload" type="Button" parent="ScrollContainer/VBoxContainer/Author" unique_id=737071497]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -57.0
+offset_top = -19.0
+offset_right = -8.0
+offset_bottom = 30.0
+grow_horizontal = 0
+grow_vertical = 2
+icon = ExtResource("1_gptc6")
+expand_icon = true
+
+[node name="Link" type="Label" parent="ScrollContainer/VBoxContainer" unique_id=1860814800]
+layout_mode = 2
+theme_override_font_sizes/font_size = 35
+text = "音频链接"
+
+[node name="Link" type="LineEdit" parent="ScrollContainer/VBoxContainer/Link" unique_id=728377525]
+layout_mode = 1
+anchors_preset = 11
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -373.0
+offset_top = 8.0
+offset_right = -68.0
+offset_bottom = 1.0
+grow_horizontal = 0
+grow_vertical = 2
+theme_override_font_sizes/font_size = 24
+
+[node name="LinkDownload" type="Button" parent="ScrollContainer/VBoxContainer/Link" unique_id=309291845]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -57.0
+offset_top = -18.0
+offset_right = -8.0
+offset_bottom = 31.0
+grow_horizontal = 0
+grow_vertical = 2
+icon = ExtResource("1_gptc6")
+expand_icon = true
+
+[node name="BV" type="Label" parent="ScrollContainer/VBoxContainer" unique_id=288741236]
+layout_mode = 2
+mouse_filter = 0
+theme_override_font_sizes/font_size = 35
+text = "原BV号"
+
+[node name="BV" type="Label" parent="ScrollContainer/VBoxContainer/BV" unique_id=259367839]
+layout_mode = 1
+anchors_preset = 11
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -373.0
+offset_top = 1.0
+offset_right = -68.0
+offset_bottom = 11.0
+grow_horizontal = 0
+grow_vertical = 2
+mouse_filter = 0
+mouse_default_cursor_shape = 8
+theme_override_font_sizes/font_size = 35
+
+[node name="Description" type="Label" parent="ScrollContainer/VBoxContainer" unique_id=1461812370]
+custom_minimum_size = Vector2(0, 200)
+layout_mode = 2
+theme_override_font_sizes/font_size = 35
+text = "音乐描述"
+
+[node name="Description" type="TextEdit" parent="ScrollContainer/VBoxContainer/Description" unique_id=627023929]
+layout_mode = 1
+offset_top = 49.0
+offset_right = 464.0
+offset_bottom = 200.0
+
+[node name="DescriptionDownload" type="Button" parent="ScrollContainer/VBoxContainer/Description" unique_id=501125755]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -57.0
+offset_top = -67.0
+offset_right = -8.0
+offset_bottom = -18.0
+grow_horizontal = 0
+grow_vertical = 2
+icon = ExtResource("1_gptc6")
+expand_icon = true
+
+[node name="OK" type="Button" parent="." unique_id=1180992404]
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 144.0
+offset_top = -77.0
+offset_right = 253.0
+offset_bottom = -15.0
+grow_vertical = 0
+text = "确定"
+
+[node name="Cancel" type="Button" parent="." unique_id=1772564917]
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -295.0
+offset_top = -77.0
+offset_right = -186.0
+offset_bottom = -15.0
+grow_horizontal = 0
+grow_vertical = 0
+text = "取消"
+
+[connection signal="close_requested" from="." to="." method="_on_close_requested"]
+[connection signal="pressed" from="ScrollContainer/VBoxContainer/Cover/CoverDownload" to="." method="_on_cover_download_pressed"]
+[connection signal="text_submitted" from="ScrollContainer/VBoxContainer/Title/Title" to="." method="_on_title_text_submitted"]
+[connection signal="pressed" from="ScrollContainer/VBoxContainer/Title/TitleDownload" to="." method="_on_title_download_pressed"]
+[connection signal="text_submitted" from="ScrollContainer/VBoxContainer/Author/Author" to="." method="_on_author_text_submitted"]
+[connection signal="pressed" from="ScrollContainer/VBoxContainer/Author/AuthorDownload" to="." method="_on_author_download_pressed"]
+[connection signal="text_submitted" from="ScrollContainer/VBoxContainer/Link/Link" to="." method="_on_link_text_submitted"]
+[connection signal="pressed" from="ScrollContainer/VBoxContainer/Link/LinkDownload" to="." method="_on_link_download_pressed"]
+[connection signal="text_changed" from="ScrollContainer/VBoxContainer/Description/Description" to="." method="_on_description_text_changed"]
+[connection signal="pressed" from="ScrollContainer/VBoxContainer/Description/DescriptionDownload" to="." method="_on_description_download_pressed"]
+[connection signal="pressed" from="OK" to="." method="_on_ok_pressed"]
+[connection signal="pressed" from="Cancel" to="." method="_on_cancel_pressed"]

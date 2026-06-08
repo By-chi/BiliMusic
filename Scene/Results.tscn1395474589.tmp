@@ -1,0 +1,79 @@
+[gd_scene format=3 uid="uid://y2pw3prar650"]
+
+[ext_resource type="Script" uid="uid://bfxhdkkwl3iir" path="res://GDScript/results.gd" id="1_q7gkv"]
+[ext_resource type="Texture2D" uid="uid://cldgs6g0a1mab" path="res://UI/Icon/sort.svg" id="2_uix17"]
+
+[node name="Page" type="Control" unique_id=585043204 node_paths=PackedStringArray("rsults_list", "label", "sub_label")]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 283.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_q7gkv")
+rsults_list = NodePath("ScrollContainer/VBoxContainer")
+label = NodePath("Label")
+sub_label = NodePath("Label/SubLabel")
+
+[node name="Label" type="Label" parent="." unique_id=921580403]
+layout_mode = 1
+offset_left = 63.0
+offset_top = 18.0
+offset_right = 263.0
+offset_bottom = 87.0
+theme_override_font_sizes/font_size = 50
+text = "搜索"
+
+[node name="SubLabel" type="Label" parent="Label" unique_id=345127570]
+layout_mode = 1
+offset_top = 78.0
+offset_right = 201.0
+offset_bottom = 112.0
+theme_override_colors/font_color = Color(0.22352941, 0.23137255, 0.23921569, 1)
+theme_override_font_sizes/font_size = 24
+text = "请搜索"
+
+[node name="OptionButton" type="OptionButton" parent="." unique_id=751136305]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -190.0
+offset_top = 18.0
+offset_right = -62.0
+offset_bottom = 47.0
+grow_horizontal = 0
+alignment = 2
+selected = 0
+item_count = 3
+popup/item_0/text = "综合排序"
+popup/item_0/id = 0
+popup/item_1/text = "最多点击"
+popup/item_1/id = 1
+popup/item_2/text = "最新发布"
+popup/item_2/id = 2
+
+[node name="TextureRect" type="TextureRect" parent="OptionButton" unique_id=1921336207]
+layout_mode = 0
+offset_right = 31.0
+offset_bottom = 29.0
+texture = ExtResource("2_uix17")
+expand_mode = 1
+
+[node name="ScrollContainer" type="ScrollContainer" parent="." unique_id=107934420]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 63.0
+offset_top = 146.0
+offset_right = -36.0
+grow_horizontal = 2
+grow_vertical = 2
+horizontal_scroll_mode = 3
+
+[node name="VBoxContainer" type="VBoxContainer" parent="ScrollContainer" unique_id=68593511]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3

@@ -1,0 +1,136 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[animation]
+
+compatibility/default_parent_skeleton_in_mesh_instance_3d=true
+
+[application]
+
+config/name="BiliMusic"
+config/name_localized={
+"en": ""
+}
+config/tags=PackedStringArray("播放器", "网络", "软件", "音乐")
+run/main_scene="uid://d3y0m53pwfo5a"
+config/features=PackedStringArray("4.7", "C#", "GL Compatibility")
+run/max_fps=60
+run/low_processor_mode=true
+run/low_processor_mode_sleep_usec=16000
+run/delta_smoothing=false
+boot_splash/bg_color=Color(0.96862745, 0.9764706, 1, 1)
+boot_splash/stretch_mode=4
+boot_splash/image="uid://ctw0btub2lsnq"
+config/icon="uid://0n3b8lrdu8ju"
+
+[audio]
+
+buses/default_bus_layout="uid://dy4u4ldyxiuyy"
+driver/output_latency=100
+
+[autoload]
+
+CSharpFunc="*uid://dc6q0tvcj8frm"
+GdScriptFunc="*uid://dfn12u64v7awl"
+State="*uid://dbpv6nl857ykq"
+DownloadAudio="*uid://codnd15cufmwj"
+M4SAudioPlayer="*uid://ch2cbuqa2ewot"
+SubtitleCorrection="*uid://cmgf8hb5jlwe5"
+BilibiliIc="*uid://5x7uni0ucwon"
+Player="*uid://ng3rdbd38uuj"
+
+[display]
+
+window/size/viewport_width=1600
+window/size/viewport_height=1000
+window/size/transparent=true
+window/energy_saving/keep_screen_on=false
+window/subwindows/embed_subwindows=false
+window/vsync/vsync_mode=0
+mouse_cursor/tooltip_position_offset=Vector2(20, 20)
+
+[dotnet]
+
+project/assembly_name="BiliMusic"
+
+[gui]
+
+common/snap_controls_to_pixels=false
+theme/custom="uid://boa17oq83cbf4"
+
+[input]
+
+ui_accept={
+"deadzone": 0.5,
+"events": []
+}
+ui_select={
+"deadzone": 0.5,
+"events": [Object(InputEventJoypadButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"button_index":3,"pressure":0.0,"pressed":false,"script":null)
+]
+}
+Pause_Play={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":32,"key_label":0,"unicode":32,"location":0,"echo":false,"script":null)
+]
+}
+ShowHideBottomMenu={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194326,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+Forward={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194321,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+Rewind={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194319,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+Turn_Up={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194320,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+Turn_Down={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194322,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+Again={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194336,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+
+[input_devices]
+
+pointing/emulate_touch_from_mouse=true
+
+[physics]
+
+common/physics_ticks_per_second=1
+common/max_physics_steps_per_frame=1
+3d/physics_engine="Jolt Physics"
+common/enable_object_picking=false
+
+[rendering]
+
+rendering_device/driver.windows="d3d12"
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+2d/batching/uniform_set_cache_size=16384
+shading/overrides/force_vertex_shading=true
+anti_aliasing/quality/msaa_2d=2
+anti_aliasing/screen_space_roughness_limiter/enabled=false
+environment/defaults/default_clear_color=Color(0.96862745, 0.9764706, 1, 1)
+viewport/transparent_background=true

@@ -1,0 +1,464 @@
+[gd_scene format=3 uid="uid://cwiqxi6syqjjk"]
+
+[ext_resource type="Texture2D" uid="uid://5hx7joul85hg" path="res://UI/Icon/Favorites.svg" id="1_1g1i4"]
+
+[sub_resource type="GDScript" id="GDScript_aq1kl"]
+script/source = "extends Control
+@export var PathLineEdit: LineEdit
+@export var VideoIDLineEdit: LineEdit
+@export var Tab: TabContainer
+@export var ImportSubtitlesCheckButton: CheckButton
+
+var local_paths: PackedStringArray = []
+var video_ids: PackedStringArray = []
+var current_directorys: PackedStringArray = []
+
+const REQUEST_TIMEOUT := 10.0
+var pending_tasks := []
+var tasks_number := 0
+# 用于进度条的总任务数（初始值）
+var _initial_task_count: int = 0
+
+
+func _on_import_pressed() -> void:
+	match Tab.current_tab:
+		0:
+			PathLineEdit.clear()
+			var target_dir := \"user://local_music\"
+			DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(target_dir))
+
+			for directory_name in current_directorys:
+				var list: Array = GdScriptFunc.get_data(\"Favorites\", directory_name, [])
+				for file in local_paths:
+					if not FileAccess.file_exists(file):
+						continue
+
+					var src = FileAccess.open(file, FileAccess.READ)
+					if src == null:
+						continue
+
+					var ctx := HashingContext.new()
+					ctx.start(HashingContext.HASH_SHA256)
+					while src.get_position() < src.get_length():
+						ctx.update(src.get_buffer(4096))
+					var h := ctx.finish().hex_encode()
+					src.close()
+
+					var ext := file.get_extension()
+					var dst_filename: String = h + \".\" + ext if ext else h
+					var dst_path := target_dir.path_join(dst_filename)
+
+					if not FileAccess.file_exists(dst_path):
+						var err := DirAccess.copy_absolute(file, dst_path)
+						if err != OK:
+							push_error(\"复制文件失败: %s -> %s\" % [file, dst_path])
+							continue
+
+					# ----- 复制同名封面图片（如果存在） -----
+					var src_cover := file.get_basename() + \".jpg\"
+					if FileAccess.file_exists(file.get_base_dir().path_join(src_cover)):
+						var dst_cover := target_dir.path_join(h + \".jpg\")
+						if not FileAccess.file_exists(dst_cover):
+							DirAccess.copy_absolute(
+								file.get_base_dir().path_join(src_cover),
+								dst_cover
+							)
+					# ------------------------------------
+
+					var repeated := false
+					for entry in list:
+						if entry[\"link\"] == dst_path:
+							repeated = true
+							break
+					if repeated:
+						continue
+
+					list.append({
+						\"link\": dst_path,
+						\"title\": file.get_file().get_basename(),
+						\"author\": \"本地文件\",
+						\"description\": \"本地文件\\n导入时间:%s\" % Time.get_date_string_from_system(),
+						\"is_network\": false,
+					})
+
+				GdScriptFunc.set_data(\"Favorites\", directory_name, list)
+			# 本地导入暂无进度条需求，保持原样
+
+		1:
+			video_ids = _parse_text_to_array(VideoIDLineEdit.text, false)
+			VideoIDLineEdit.clear()
+			tasks_number = video_ids.size()
+			pending_tasks.clear()
+
+			# 初始化进度条
+			_initial_task_count = tasks_number
+			GdScriptFunc.set_progress_bar_value(0, \"导入视频\", \"准备导入 %d 个视频...\" % _initial_task_count)
+
+			for directory_name in current_directorys:
+				var cache_list = GdScriptFunc.get_data(\"Favorites\", directory_name, [])
+
+				for link in video_ids:
+					var repeated := false
+					for item in cache_list:
+						if link == item[\"link\"]:
+							repeated = true
+							break
+					if repeated:
+						tasks_number -= 1
+						_initial_task_count -= 1   # 排除重复任务
+						continue
+
+					var task := {
+						\"directory\": directory_name,
+						\"cache\": cache_list,
+						\"link\": link,
+						\"done\": false,
+						\"main_counted\": false,
+						\"sub_counted\": false,
+						\"subtitle_pending\": false,
+						\"video_info\": null
+					}
+					if link.begins_with(\"BV\"):
+						task[\"BV\"] = link
+					var timer := get_tree().create_timer(REQUEST_TIMEOUT)
+					timer.timeout.connect(_on_task_timeout.bind(task))
+					task[\"timer\"] = timer
+
+					pending_tasks.append(task)
+
+					BilibiliIc.fetch_video_info(link, get_info_call_back.bind(task))
+
+			# 若初始任务数为零则直接结束
+			if _initial_task_count == 0:
+				GdScriptFunc.set_progress_bar_value(100, \"导入视频\", \"没有需要导入的视频\")
+				return
+
+			# 根据实际情况更新进度条（可能已有重复导致 tasks_number 变化）
+			_update_import_progress()
+
+
+func _update_import_progress() -> void:
+	if _initial_task_count <= 0:
+		return
+	var progress := int((_initial_task_count - tasks_number) / float(_initial_task_count) * 100)
+	GdScriptFunc.set_progress_bar_value(progress, \"导入视频\", \"已完成 %d/%d 项任务\" % [_initial_task_count - tasks_number, _initial_task_count])
+
+
+func get_info_call_back(video_info: Dictionary, task: Dictionary) -> void:
+	if task.done:
+		return
+	task.done = true
+
+	if task.has(\"timer\") and is_instance_valid(task.timer):
+		task.erase(\"timer\")
+
+	# ----- 下载封面并保存为 BV号.jpg -----
+	var cover_url = video_info.get(\"pic\", \"\")
+	if not cover_url.is_empty():
+		BilibiliIc.fetch_cover(task.link, func(tex: Texture2D):
+			if tex:
+				var img = tex.get_image()
+				if img:
+					var cover_dir := \"user://local_music\"
+					DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(cover_dir))
+					var cover_path := cover_dir.path_join(task.link + \".jpg\")
+					img.save_jpg(cover_path)
+					video_info[\"cover_local_path\"] = cover_path
+		, 1280, 720)
+	# -----------------------------------
+
+	task.cache.append(video_info)
+	task.video_info = video_info
+
+	if not task.main_counted:
+		task.main_counted = true
+		tasks_number -= 1
+		_update_import_progress()
+
+	# 使用 CheckButton 状态作为额外条件
+	if GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\") != null and ImportSubtitlesCheckButton.button_pressed:
+		tasks_number += 1
+		_initial_task_count += 1   # 总任务数也要增加
+		task.subtitle_pending = true
+		var file_name: String
+		if task.has(\"BV\"):
+			file_name = task.BV
+		elif task.has(\"link\"):
+			file_name = task.link.get_file()
+		else:
+			file_name = str(randi())
+
+		# 歌词文件路径（与传给 fetch_subtitle_auto 的路径一致）
+		var lrc_path := \"user://List/\" + file_name + \".lrc\"
+
+		BilibiliIc.fetch_subtitle_auto(task.link, func(subtitle_data: Dictionary):
+			# 无论 subtitle_data 是否为空，只要函数完成回调就视为字幕任务结束
+			if task.video_info != null and not subtitle_data.is_empty():
+				# 改为存储路径引用，而非直接存储歌词内容
+				task.video_info[\"subtitles\"] = {\"path\": lrc_path}
+
+			if not task.sub_counted:
+				task.sub_counted = true
+				tasks_number -= 1
+				_update_import_progress()
+
+			if tasks_number == 0:
+				GdScriptFunc.set_progress_bar_value(100, \"导入视频\", \"全部导入完成\")
+				_save_all()
+		, lrc_path)
+	else:
+		if tasks_number == 0:
+			GdScriptFunc.set_progress_bar_value(100, \"导入视频\", \"全部导入完成\")
+			_save_all()
+
+
+func _on_task_timeout(task: Dictionary) -> void:
+	if task.done:
+		return
+	task.done = true
+	print(\"请求超时: \", task.link)
+
+	if not task.main_counted:
+		task.main_counted = true
+		tasks_number -= 1
+		_update_import_progress()
+
+	if tasks_number == 0:
+		GdScriptFunc.set_progress_bar_value(100, \"导入视频\", \"导入完成（部分任务超时）\")
+		_save_all()
+
+
+func _save_all() -> void:
+	var saved_dirs := {}
+	for t in pending_tasks:
+		if not saved_dirs.has(t.directory):
+			saved_dirs[t.directory] = true
+			GdScriptFunc.set_data(\"Favorites\", t.directory, t.cache)
+
+	pending_tasks.clear()
+
+
+func _on_file_dialog_files_selected(paths: PackedStringArray) -> void:
+	local_paths = paths
+	PathLineEdit.text = _format_array_to_text(paths)
+
+
+func _on_favorite_window_button_pressed(line_edit_node_path: NodePath) -> void:
+	var node: LineEdit = get_node(line_edit_node_path)
+	var raw = await GdScriptFunc.open_select_favorites_window()
+	current_directorys = PackedStringArray(raw)
+	if !current_directorys.is_empty():
+		node.text = _format_array_to_text(current_directorys)
+	else:
+		node.text = \"\"
+
+
+func _on_path_text_submitted(new_text: String) -> void:
+	local_paths = _parse_text_to_array(new_text)
+
+
+func _on_favorite_text_submitted(new_text: String) -> void:
+	current_directorys = _parse_text_to_array(new_text)
+
+
+func _format_array_to_text(arr: PackedStringArray) -> String:
+	if arr.size() == 1:
+		return arr[0]
+	var parts: Array[String] = []
+	for s in arr:
+		parts.append('\"%s\"' % s)
+	return \" \".join(parts)
+
+
+func _parse_text_to_array(text: String, consider_quotes: bool = true) -> PackedStringArray:
+	text = text.strip_edges()
+	if text.is_empty():
+		return PackedStringArray()
+
+	if consider_quotes and '\"' in text:
+		var result := PackedStringArray()
+		var regex = RegEx.new()
+		regex.compile('\"([^\"]*)\"')
+		for m in regex.search_all(text):
+			result.append(m.get_string(1))
+		return result
+	else:
+		return text.split(\" \", false)
+
+
+func _on_visibility_changed() -> void:
+	ImportSubtitlesCheckButton.visible = GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\") != null
+"
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_1g1i4"]
+content_margin_left = 0.0
+content_margin_top = 0.0
+content_margin_right = 0.0
+content_margin_bottom = 0.0
+bg_color = Color(0.9215, 0.928625, 0.95, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.5724144, 0.5724144, 0.57241434, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[node name="Page" type="Control" unique_id=585043204 node_paths=PackedStringArray("PathLineEdit", "VideoIDLineEdit", "Tab", "ImportSubtitlesCheckButton")]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 310.0
+offset_bottom = -99.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 1
+script = SubResource("GDScript_aq1kl")
+PathLineEdit = NodePath("TabContainer/本地导入/Path")
+VideoIDLineEdit = NodePath("TabContainer/BV•AU号/VideoID")
+Tab = NodePath("TabContainer")
+ImportSubtitlesCheckButton = NodePath("TabContainer/BV•AU号/ImportSubtitles")
+
+[node name="Label" type="Label" parent="." unique_id=921580403]
+layout_mode = 0
+offset_right = 1290.0
+offset_bottom = 73.0
+mouse_filter = 0
+theme_override_font_sizes/font_size = 50
+text = "导入音乐"
+
+[node name="SubLabel" type="Label" parent="Label" unique_id=345127570]
+layout_mode = 1
+offset_top = 78.0
+offset_right = 201.0
+offset_bottom = 112.0
+theme_override_colors/font_color = Color(0.22352941, 0.23137255, 0.23921569, 1)
+theme_override_font_sizes/font_size = 24
+text = "从其他地方丰富你的收藏"
+
+[node name="TabContainer" type="TabContainer" parent="." unique_id=2077836486]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = 143.0
+offset_right = -26.0
+offset_bottom = -34.0
+grow_horizontal = 2
+grow_vertical = 2
+current_tab = 1
+
+[node name="本地导入" type="Panel" parent="TabContainer" unique_id=825157242]
+visible = false
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_1g1i4")
+metadata/_tab_index = 0
+
+[node name="Path" type="LineEdit" parent="TabContainer/本地导入" unique_id=200643175]
+layout_mode = 0
+offset_left = 40.0
+offset_top = 41.0
+offset_right = 653.0
+offset_bottom = 103.0
+placeholder_text = "文件路径"
+
+[node name="FileWindowButton" type="Button" parent="TabContainer/本地导入/Path" unique_id=1091846378]
+layout_mode = 0
+offset_left = 637.0
+offset_right = 701.0
+offset_bottom = 62.0
+icon = ExtResource("1_1g1i4")
+expand_icon = true
+
+[node name="FileDialog" type="FileDialog" parent="TabContainer/本地导入/Path" unique_id=452701309]
+oversampling_override = 1.0
+title = "请选择你要导入的音频文件"
+initial_position = 2
+cancel_button_text = "取消"
+mode_overrides_title = false
+file_mode = 1
+display_mode = 1
+access = 2
+filters = PackedStringArray("*.mp3, *.m4s, *.ogg, *.wav ; Audio Files")
+use_native_dialog = true
+
+[node name="Favorite" type="LineEdit" parent="TabContainer/本地导入" unique_id=1760234543]
+layout_mode = 0
+offset_left = 40.0
+offset_top = 131.0
+offset_right = 653.0
+offset_bottom = 193.0
+placeholder_text = "收藏夹名称"
+
+[node name="FavoriteWindowButton" type="Button" parent="TabContainer/本地导入/Favorite" unique_id=1570541580]
+layout_mode = 0
+offset_left = 637.0
+offset_right = 701.0
+offset_bottom = 62.0
+icon = ExtResource("1_1g1i4")
+expand_icon = true
+
+[node name="BV•AU号" type="Panel" parent="TabContainer" unique_id=248016974]
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_1g1i4")
+metadata/_tab_index = 1
+
+[node name="VideoID" type="LineEdit" parent="TabContainer/BV•AU号" unique_id=495644381]
+layout_mode = 0
+offset_left = 40.0
+offset_top = 41.0
+offset_right = 653.0
+offset_bottom = 103.0
+placeholder_text = "BV/AU号"
+
+[node name="Favorite" type="LineEdit" parent="TabContainer/BV•AU号" unique_id=682988759]
+layout_mode = 0
+offset_left = 40.0
+offset_top = 131.0
+offset_right = 653.0
+offset_bottom = 193.0
+placeholder_text = "收藏夹名称"
+
+[node name="FavoriteWindowButton" type="Button" parent="TabContainer/BV•AU号/Favorite" unique_id=517334895]
+layout_mode = 0
+offset_left = 637.0
+offset_right = 701.0
+offset_bottom = 62.0
+icon = ExtResource("1_1g1i4")
+expand_icon = true
+
+[node name="ImportSubtitles" type="CheckButton" parent="TabContainer/BV•AU号" unique_id=148749597]
+visible = false
+layout_mode = 0
+offset_left = 40.0
+offset_top = 221.0
+offset_right = 653.0
+offset_bottom = 283.0
+text = "导入字幕内容"
+
+[node name="Import" type="Button" parent="." unique_id=1038929272]
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -40.0
+offset_top = -99.0
+offset_right = 40.0
+offset_bottom = -37.0
+grow_horizontal = 2
+grow_vertical = 0
+text = "导入"
+
+[connection signal="visibility_changed" from="." to="." method="_on_visibility_changed"]
+[connection signal="text_submitted" from="TabContainer/本地导入/Path" to="." method="_on_path_text_submitted"]
+[connection signal="pressed" from="TabContainer/本地导入/Path/FileWindowButton" to="TabContainer/本地导入/Path/FileDialog" method="popup_file_dialog"]
+[connection signal="files_selected" from="TabContainer/本地导入/Path/FileDialog" to="." method="_on_file_dialog_files_selected"]
+[connection signal="text_submitted" from="TabContainer/本地导入/Favorite" to="." method="_on_favorite_text_submitted"]
+[connection signal="pressed" from="TabContainer/本地导入/Favorite/FavoriteWindowButton" to="." method="_on_favorite_window_button_pressed" binds= [NodePath("TabContainer/本地导入/Favorite")]]
+[connection signal="pressed" from="TabContainer/BV•AU号/Favorite/FavoriteWindowButton" to="." method="_on_favorite_window_button_pressed" binds= [NodePath("TabContainer/BV•AU号/Favorite")]]
+[connection signal="pressed" from="Import" to="." method="_on_import_pressed"]

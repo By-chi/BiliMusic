@@ -1,0 +1,406 @@
+[gd_scene format=3 uid="uid://d3y0m53pwfo5a"]
+
+[ext_resource type="Texture2D" uid="uid://bu3hypyoam7f3" path="res://UI/Icon/bilibili.svg" id="2_djkur"]
+[ext_resource type="Texture2D" uid="uid://b34pnocr74oyw" path="res://UI/Icon/Options.svg" id="2_g6ejq"]
+[ext_resource type="Texture2D" uid="uid://cuo2jbqmb5lrf" path="res://UI/Icon/Discover.svg" id="3_h175a"]
+[ext_resource type="Texture2D" uid="uid://5hx7joul85hg" path="res://UI/Icon/Favorites.svg" id="4_6a8me"]
+[ext_resource type="Texture2D" uid="uid://bepenwiqcen8e" path="res://UI/Icon/Search.svg" id="4_togfq"]
+[ext_resource type="PackedScene" uid="uid://h8qr8p6khg63" path="res://Scene/Discover.tscn" id="6_aan6j"]
+[ext_resource type="PackedScene" uid="uid://y2pw3prar650" path="res://Scene/Results.tscn" id="7_h3nmf"]
+[ext_resource type="PackedScene" uid="uid://c00vteu0bh0vl" path="res://Scene/Favorites.tscn" id="8_yg4ot"]
+[ext_resource type="Texture2D" uid="uid://c1i1praq4hx1w" path="res://UI/Icon/pause.svg" id="9_6a8me"]
+[ext_resource type="Texture2D" uid="uid://xnvpcuxqr5u0" path="res://UI/Icon/ShadouMuYou.png" id="9_yg4ot"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_2p7c5"]
+content_margin_left = 0.0
+content_margin_top = 0.0
+content_margin_right = 0.0
+content_margin_bottom = 0.0
+bg_color = Color(0.96862745, 0.9764706, 1, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="GDScript" id="GDScript_aan6j"]
+script/source = "extends Panel
+@export var page_buttons:Array[Button]
+@export var current_page:Control
+@export var current_page_name:String
+@export var bottom_menu:Panel
+@export var ui_sound:AudioStreamPlayer
+func play(card:BaseVideoCard,type:String)->void:
+	Player.type=type
+	Player.play(card.link)
+	match State.play_ui_mode:
+		0:
+			bottom_menu.show()
+			bottom_menu.play_button.button_pressed=true
+			bottom_menu.title=card.title
+			bottom_menu.progress_bar.value=0
+			bottom_menu.author=card.author
+			var i:=0
+			while card.cover == null&&i!=1000:
+				await get_tree().process_frame
+				i+=1
+			bottom_menu.cover=card.cover
+func _ready() -> void:
+	get_window().min_size=Vector2i(966,262)
+	for button in page_buttons:
+		button.connect(\"pressed\",change_page.bind(button.name))
+	pass
+func change_page(page_name:String)->void:
+	if page_name==current_page_name:
+		return
+	current_page.hide()
+	current_page=get_node(page_name)
+	current_page.show()
+	current_page_name=page_name
+
+
+func _on_search_text_submitted(new_text: String) -> void:
+	get_node(\"Results\").update_page(new_text)
+	change_page(\"Results\")
+"
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_46ucy"]
+content_margin_left = 0.0
+content_margin_top = 0.0
+content_margin_right = 0.0
+content_margin_bottom = 0.0
+bg_color = Color(0.9490196, 0.9529412, 0.98039216, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_h175a"]
+content_margin_left = 6.0
+content_margin_top = 6.0
+content_margin_right = 6.0
+content_margin_bottom = 6.0
+
+[sub_resource type="Animation" id="Animation_aan6j"]
+length = 0.001
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("LeftMenu:position:x")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 1,
+"values": [-283.0]
+}
+
+[sub_resource type="Animation" id="Animation_togfq"]
+resource_name = "start"
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("LeftMenu:position:x")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0.6666667, 0.73333335),
+"transitions": PackedFloat32Array(1, 1),
+"update": 0,
+"values": [-283.0, 0.0]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_aan6j"]
+_data = {
+&"RESET": SubResource("Animation_aan6j"),
+&"start": SubResource("Animation_togfq")
+}
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_aan6j"]
+bg_color = Color(0.9490196, 0.9529412, 0.98039216, 1)
+
+[sub_resource type="GDScript" id="GDScript_6a8me"]
+script/source = "extends Panel
+
+@export var cover_node:TextureRect
+@export var title_label: Label
+@export var author_label: Label
+@export var play_button: Button
+@export var progress_bar: HSlider
+var cover: Texture2D:
+	set(value):
+		if value == null: return
+		cover = value
+		cover_node.show()
+		cover_node.texture = value
+		#cover_node.modulate.a = 0.0
+		#var tween := cover_node.create_tween()
+		#tween.tween_property(cover_node, \"modulate:a\", 1.0, 1)
+var title: String = \"\":
+	set(value):
+		title = value
+		title_label.text = value
+var author: String = \"\":
+	set(value):
+		author = value
+		author_label.text = value
+
+
+func _on_progress_drag_ended(value_changed: bool) -> void:
+	if !value_changed: return
+	play_button.button_pressed=true
+	Player.seek_percentage(progress_bar.value/100.)
+	progress_lock=false
+func _physics_process(_delta: float) -> void:
+	if !progress_lock&&visible:
+		progress_bar.value=Player.get_current_percentage()*100.
+var progress_lock:=false
+func _on_progress_drag_started() -> void:
+	progress_lock=true
+
+
+func _on_play_toggled(toggled_on: bool) -> void:
+	if toggled_on:
+		play_button.icon=preload(\"res://UI/Icon/pause.svg\")
+		Player.resume()
+		
+	else:
+		play_button.icon=preload(\"res://UI/Icon/play.svg\")
+		Player.pause()
+"
+
+[node name="Main" type="Panel" unique_id=1291672957 node_paths=PackedStringArray("page_buttons", "current_page", "bottom_menu", "ui_sound")]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+focus_mode = 1
+theme_override_styles/panel = SubResource("StyleBoxFlat_2p7c5")
+script = SubResource("GDScript_aan6j")
+page_buttons = [NodePath("LeftMenu/ScrollContainer/VBoxContainer/Discover"), NodePath("LeftMenu/ScrollContainer/VBoxContainer/Results"), NodePath("LeftMenu/ScrollContainer/VBoxContainer/Favorites")]
+current_page = NodePath("Discover")
+current_page_name = "Discover"
+bottom_menu = NodePath("BottomMenu")
+ui_sound = NodePath("AudioStreamPlayer")
+
+[node name="LeftMenu" type="Panel" parent="." unique_id=1758456242]
+clip_contents = true
+layout_mode = 1
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_left = -283.0
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_46ucy")
+metadata/_edit_use_anchors_ = true
+
+[node name="Search" type="LineEdit" parent="LeftMenu" unique_id=499293569]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -73.5
+offset_top = 26.0
+offset_right = 111.5
+offset_bottom = 85.0
+grow_horizontal = 2
+tooltip_text = "在B站上找音乐"
+placeholder_text = "搜索音乐"
+context_menu_enabled = false
+emoji_menu_enabled = false
+
+[node name="TextureRect" type="TextureRect" parent="LeftMenu/Search" unique_id=2069813124]
+layout_mode = 1
+anchors_preset = 4
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = -44.0
+offset_top = -20.5
+offset_right = -7.0
+offset_bottom = 16.5
+grow_vertical = 2
+texture = ExtResource("2_djkur")
+expand_mode = 1
+
+[node name="ScrollContainer" type="ScrollContainer" parent="LeftMenu" unique_id=74204146]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = 120.0
+offset_bottom = -79.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxEmpty_h175a")
+horizontal_scroll_mode = 0
+vertical_scroll_mode = 3
+
+[node name="VBoxContainer" type="VBoxContainer" parent="LeftMenu/ScrollContainer" unique_id=464861529]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 10
+
+[node name="Discover" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=380134334]
+custom_minimum_size = Vector2(0, 60)
+layout_mode = 2
+tooltip_text = "从众多up主中推荐"
+text = "发现音乐"
+icon = ExtResource("3_h175a")
+expand_icon = true
+
+[node name="Results" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=1597806874]
+custom_minimum_size = Vector2(0, 60)
+layout_mode = 2
+tooltip_text = "搜索结果"
+text = "搜索结果"
+icon = ExtResource("4_togfq")
+expand_icon = true
+
+[node name="Favorites" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=963398162]
+custom_minimum_size = Vector2(0, 60)
+layout_mode = 2
+tooltip_text = "收藏列表"
+text = "收藏列表"
+icon = ExtResource("4_6a8me")
+expand_icon = true
+
+[node name="Options" type="Button" parent="LeftMenu" unique_id=1648837809]
+custom_minimum_size = Vector2(0, 60)
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -133.5
+offset_top = -80.0
+offset_right = 135.5
+offset_bottom = -20.0
+grow_horizontal = 2
+grow_vertical = 0
+text = "设置"
+icon = ExtResource("2_g6ejq")
+expand_icon = true
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="." unique_id=2030030357]
+libraries/ = SubResource("AnimationLibrary_aan6j")
+autoplay = &"start"
+
+[node name="Discover" parent="." unique_id=585043204 instance=ExtResource("6_aan6j")]
+layout_mode = 1
+
+[node name="Results" parent="." unique_id=386418663 instance=ExtResource("7_h3nmf")]
+visible = false
+layout_mode = 1
+
+[node name="Favorites" parent="." unique_id=1004751732 instance=ExtResource("8_yg4ot")]
+visible = false
+layout_mode = 1
+
+[node name="BottomMenu" type="Panel" parent="." unique_id=1456727291 node_paths=PackedStringArray("cover_node", "title_label", "author_label", "play_button", "progress_bar")]
+visible = false
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 318.0
+offset_top = -99.0
+offset_right = -36.0
+offset_bottom = -17.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_styles/panel = SubResource("StyleBoxFlat_aan6j")
+script = SubResource("GDScript_6a8me")
+cover_node = NodePath("Cover")
+title_label = NodePath("Title")
+author_label = NodePath("Author")
+play_button = NodePath("Play")
+progress_bar = NodePath("Progress")
+
+[node name="Cover" type="TextureRect" parent="BottomMenu" unique_id=837129774]
+layout_mode = 1
+anchors_preset = 4
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = 13.0
+offset_top = -31.0
+offset_right = 77.0
+offset_bottom = 33.0
+grow_vertical = 2
+texture = ExtResource("9_yg4ot")
+expand_mode = 5
+stretch_mode = 5
+
+[node name="Title" type="Label" parent="BottomMenu" unique_id=2137018343]
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 0.42900002
+offset_left = 96.0
+offset_top = 16.0
+offset_right = -52.533997
+offset_bottom = 45.0
+mouse_filter = 1
+theme_override_font_sizes/font_size = 24
+text = "TitleTitleTitleTitleTitleTitleTitleTitleTitleTitle"
+text_overrun_behavior = 5
+
+[node name="Author" type="Label" parent="BottomMenu" unique_id=891646003]
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 0.43600002
+offset_left = 96.0
+offset_top = 47.0
+offset_right = -143.25604
+offset_bottom = 66.0
+grow_horizontal = 2
+mouse_filter = 1
+theme_override_colors/font_color = Color(0.21684542, 0.21552005, 0.22141024, 1)
+theme_override_font_sizes/font_size = 16
+text = "AuthorAuthorAuthorAuthorAuthorAuthorAuthor"
+text_overrun_behavior = 5
+
+[node name="Play" type="Button" parent="BottomMenu" unique_id=156709578]
+custom_minimum_size = Vector2(40, 40)
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.52900004
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = 84.86597
+offset_top = -31.0
+offset_right = -462.0
+offset_bottom = 9.0
+grow_horizontal = 2
+grow_vertical = 2
+toggle_mode = true
+button_pressed = true
+icon = ExtResource("9_6a8me")
+flat = true
+icon_alignment = 1
+expand_icon = true
+
+[node name="Progress" type="HSlider" parent="BottomMenu" unique_id=2107993955]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.572
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -230.71204
+offset_top = 25.0
+offset_right = -198.0
+offset_bottom = 45.0
+grow_horizontal = 2
+grow_vertical = 2
+step = 0.0
+value = 50.0
+
+[node name="AudioStreamPlayer" type="AudioStreamPlayer" parent="." unique_id=690380417]
+
+[connection signal="text_submitted" from="LeftMenu/Search" to="." method="_on_search_text_submitted"]
+[connection signal="toggled" from="BottomMenu/Play" to="BottomMenu" method="_on_play_toggled"]
+[connection signal="drag_ended" from="BottomMenu/Progress" to="BottomMenu" method="_on_progress_drag_ended"]
+[connection signal="drag_started" from="BottomMenu/Progress" to="BottomMenu" method="_on_progress_drag_started"]

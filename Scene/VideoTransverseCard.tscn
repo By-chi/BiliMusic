@@ -1,0 +1,238 @@
+[gd_scene format=3 uid="uid://cx788qvk8tqwi"]
+
+[ext_resource type="Texture2D" uid="uid://cbbcwl3udcy28" path="res://UI/Icon/Share.svg" id="1_jchgq"]
+[ext_resource type="Texture2D" uid="uid://xnvpcuxqr5u0" path="res://UI/Icon/ShadouMuYou.png" id="1_olim5"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_0inii"]
+content_margin_left = 20.0
+content_margin_top = 5.0
+content_margin_right = 5.0
+content_margin_bottom = 5.0
+bg_color = Color(0.9490196, 0.9529412, 0.98039216, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="GDScript" id="GDScript_jchgq"]
+script/source = "extends BaseVideoCard
+
+@export var play_label: Label
+@export var share_button: Button
+@export var duration_label: Label
+
+var keywords:=\"\":
+	set(value):
+		keywords = value
+		_after_text_changed()
+func _after_text_changed() -> void:
+	if keywords != \"\" and title_label != null and author_label != null:
+		GdScriptFunc.apply_highlight(title_label, keywords, title)
+		GdScriptFunc.apply_highlight(author_label, keywords, author)
+var video_info:Dictionary={}
+var play: int = 0:
+	set(value):
+		play = value
+		play_label.text = \"▶ \" + GdScriptFunc.format_number(play)
+
+var duration: String = \"--:--\":
+	set(value):
+		duration = value
+		duration_label.text = GdScriptFunc.format_time_string(duration)
+
+# 鼠标悬停动画
+func _on_mouse_entered() -> void:
+	if _hover_tween and _hover_tween.is_running(): _hover_tween.kill()
+	_hover_tween = color_rect.create_tween()
+	_hover_tween.tween_property(color_rect, \"modulate\", Color.WHITE, 0.2)
+
+func _on_mouse_exited() -> void:
+	if _hover_tween and _hover_tween.is_running(): _hover_tween.kill()
+	_hover_tween = color_rect.create_tween()
+	_hover_tween.tween_property(color_rect, \"modulate\", Color.TRANSPARENT, 0.25).set_trans(Tween.TRANS_CUBIC)
+func reset()->void:
+	super.reset()
+	_update_share_button()
+func _update_share_button()->void:
+	for fav_key in GdScriptFunc.get_keys(\"Favorites\"):
+		var arr = GdScriptFunc.get_data(\"Favorites\", fav_key, [])
+		for item in arr:
+			if item[\"link\"] == link:
+				share_button.set_pressed_no_signal(true)
+				share_button.modulate=Color(3.095, 0.0, 0.0)
+				shared=true
+				return
+	share_button.modulate=Color.WHITE
+	shared=false
+	share_button.set_pressed_no_signal(false)
+
+var shared:=false
+func _on_share_pressed() -> void:
+	if !shared:
+		var directorys: Array = await GdScriptFunc.open_select_favorites_window()
+		if directorys.is_empty():
+			_update_share_button()
+			return
+		for directory_name in directorys:
+			var list: Array = GdScriptFunc.get_data(\"Favorites\", directory_name, [])
+			var repeated := false
+			for i in list:
+				if link == i[\"link\"]:
+					repeated = true
+					break
+			if repeated: continue
+
+			# 构建新条目，增加 BV 字段
+			var new_item := {
+				\"link\": link,
+				\"title\": title,
+				\"author\": author,
+				\"description\": description,
+				\"is_network\": true,
+				\"BV\": video_info.get(\"BV\", link)   # 若 video_info 已有 BV 则用，否则用 link（BV号）
+			}
+			list.append(new_item)
+			GdScriptFunc.set_data(\"Favorites\", directory_name, list)
+		GdScriptFunc.flush()
+		_update_share_button()
+	else:
+		GdScriptFunc.cancel_collection(link)
+		_update_share_button()
+"
+
+[sub_resource type="StyleBoxTexture" id="StyleBoxTexture_jchgq"]
+texture = ExtResource("1_jchgq")
+modulate_color = Color(0.3019608, 0.3019608, 0.3019608, 1)
+
+[sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_g1unn"]
+
+[node name="VideoTransverseCard" type="Button" unique_id=1092964094 node_paths=PackedStringArray("play_label", "share_button", "duration_label", "author_label", "cover_node", "color_rect", "title_label")]
+clip_children = 2
+custom_minimum_size = Vector2(0, 90)
+offset_right = 713.0
+offset_bottom = 90.0
+theme_override_styles/pressed = SubResource("StyleBoxFlat_0inii")
+theme_override_styles/hover = SubResource("StyleBoxFlat_0inii")
+theme_override_styles/hover_pressed = SubResource("StyleBoxFlat_0inii")
+theme_override_styles/hover_pressed_mirrored = SubResource("StyleBoxFlat_0inii")
+theme_override_styles/disabled = SubResource("StyleBoxFlat_0inii")
+theme_override_styles/focus = SubResource("StyleBoxFlat_0inii")
+script = SubResource("GDScript_jchgq")
+play_label = NodePath("Play")
+share_button = NodePath("Share")
+duration_label = NodePath("Duration")
+author_label = NodePath("Author")
+cover_node = NodePath("Cover")
+color_rect = NodePath("ColorRect")
+title_label = NodePath("Title")
+
+[node name="ColorRect" type="ColorRect" parent="." unique_id=813124608]
+modulate = Color(1, 1, 1, 0)
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 1
+
+[node name="Cover" type="TextureRect" parent="." unique_id=1706944126]
+custom_minimum_size = Vector2(70, 70)
+layout_mode = 1
+anchors_preset = 4
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = 11.0
+offset_top = -34.0
+offset_right = 81.0
+offset_bottom = 36.0
+grow_vertical = 2
+mouse_filter = 2
+texture = ExtResource("1_olim5")
+expand_mode = 5
+stretch_mode = 5
+
+[node name="Title" type="RichTextLabel" parent="." unique_id=1883313943]
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 0.823
+offset_left = 96.0
+offset_right = 0.20098877
+offset_bottom = 45.0
+grow_horizontal = 2
+mouse_filter = 1
+bbcode_enabled = true
+text = "Title"
+scroll_active = false
+autowrap_mode = 0
+threaded = true
+progress_bar_delay = -1
+
+[node name="Author" type="RichTextLabel" parent="." unique_id=2115600722]
+layout_mode = 1
+offset_left = 96.0
+offset_top = 41.0
+offset_right = 511.0
+offset_bottom = 66.0
+mouse_filter = 1
+theme_override_colors/default_color = Color(0.21684542, 0.21552005, 0.22141024, 1)
+theme_override_font_sizes/normal_font_size = 14
+theme_override_font_sizes/bold_font_size = 14
+theme_override_font_sizes/bold_italics_font_size = 14
+theme_override_font_sizes/italics_font_size = 14
+theme_override_font_sizes/mono_font_size = 14
+text = "Author"
+scroll_active = false
+autowrap_mode = 0
+threaded = true
+
+[node name="Play" type="Label" parent="." unique_id=1545101235]
+layout_mode = 1
+offset_left = 96.0
+offset_top = 66.0
+offset_right = 216.0
+offset_bottom = 89.0
+mouse_filter = 1
+theme_override_colors/font_color = Color(0.21684542, 0.21552005, 0.22141024, 1)
+theme_override_font_sizes/font_size = 16
+text = "▶ 114514"
+text_overrun_behavior = 6
+
+[node name="Duration" type="Label" parent="." unique_id=636884962]
+layout_mode = 1
+offset_left = 216.0
+offset_top = 68.0
+offset_right = 305.0
+offset_bottom = 91.0
+mouse_filter = 1
+theme_override_colors/font_color = Color(0.21684542, 0.21552005, 0.22141024, 1)
+theme_override_font_sizes/font_size = 16
+text = "0:00"
+text_overrun_behavior = 6
+
+[node name="Share" type="Button" parent="." unique_id=1164534920]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -48.0
+offset_right = -13.0
+offset_bottom = 35.0
+grow_horizontal = 0
+grow_vertical = 2
+theme_override_styles/normal = SubResource("StyleBoxTexture_jchgq")
+theme_override_styles/pressed = SubResource("StyleBoxTexture_jchgq")
+theme_override_styles/hover = SubResource("StyleBoxTexture_jchgq")
+theme_override_styles/hover_pressed = SubResource("StyleBoxTexture_jchgq")
+theme_override_styles/focus = SubResource("StyleBoxEmpty_g1unn")
+toggle_mode = true
+icon_alignment = 1
+expand_icon = true
+
+[connection signal="mouse_entered" from="." to="." method="_on_mouse_entered"]
+[connection signal="mouse_exited" from="." to="." method="_on_mouse_exited"]
+[connection signal="pressed" from="." to="." method="_on_pressed"]
+[connection signal="pressed" from="Share" to="." method="_on_share_pressed"]
+[connection signal="toggled" from="Share" to="." method="_on_share_toggled"]
