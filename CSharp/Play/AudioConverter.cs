@@ -13,11 +13,41 @@ public partial class AudioConverter
     private const int FramesPerBlock = 1024;
     private const int BytesPerFrame = 4;
     private const int PcmBlockSize = FramesPerBlock * BytesPerFrame;
+    private static string GetDebugFfmpegPath()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return @"D:\MSYS2\home\By.chi\ffmpeg-master\ffmpeg.exe";
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            // macOS 用户需要在 Homebrew 安装 ffmpeg: brew install ffmpeg
+            return "/usr/local/bin/ffmpeg";
+        }
+        else if (OperatingSystem.IsLinux())
+        {
+            // Linux 用户需要在系统包管理器安装 ffmpeg
+            return "/usr/bin/ffmpeg";
+        }
+        throw new NotSupportedException($"不支持的操作系统");
+    }
 
-#if DEBUG
-    private const string DebugFfmpegPath = @"D:\MSYS2\home\By.chi\ffmpeg-master\ffmpeg.exe";
-    private const string DebugFfprobePath = @"D:\MSYS2\home\By.chi\ffmpeg-master\ffprobe.exe";
-#endif
+    private static string GetDebugFfprobePath()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return @"D:\MSYS2\home\By.chi\ffmpeg-master\ffprobe.exe";
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            return "/usr/local/bin/ffprobe";
+        }
+        else if (OperatingSystem.IsLinux())
+        {
+            return "/usr/bin/ffprobe";
+        }
+        throw new NotSupportedException($"不支持的操作系统");
+    }
 
     public static string FfmpegBasePath
     {
@@ -38,7 +68,7 @@ public partial class AudioConverter
         get
         {
 #if DEBUG
-            return DebugFfmpegPath;
+            return GetDebugFfmpegPath();
 #else
             return Path.Combine(FfmpegBasePath, GetExecutableName("ffmpeg"));
 #endif
@@ -50,7 +80,7 @@ public partial class AudioConverter
         get
         {
 #if DEBUG
-            return DebugFfprobePath;
+            return GetDebugFfprobePath();
 #else
             return Path.Combine(FfmpegBasePath, GetExecutableName("ffprobe"));
 #endif
@@ -59,7 +89,15 @@ public partial class AudioConverter
 
     public static bool CheckFFmpegAvailable()
     {
-        return File.Exists(FfmpegPath) && File.Exists(FfprobePath);
+        bool ffmpegExists = File.Exists(FfmpegPath);
+        bool ffprobeExists = File.Exists(FfprobePath);
+
+        if (!ffmpegExists)
+            GD.PrintErr($"[AudioConverter] ffmpeg 未找到: {FfmpegPath}");
+        if (!ffprobeExists)
+            GD.PrintErr($"[AudioConverter] ffprobe 未找到: {FfprobePath}");
+
+        return ffmpegExists && ffprobeExists;
     }
 
     public static Process StartFFmpegPipe()
