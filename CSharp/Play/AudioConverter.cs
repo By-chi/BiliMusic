@@ -13,41 +13,11 @@ public partial class AudioConverter
     private const int FramesPerBlock = 1024;
     private const int BytesPerFrame = 4;
     private const int PcmBlockSize = FramesPerBlock * BytesPerFrame;
-    private static string GetDebugFfmpegPath()
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            return @"D:\MSYS2\home\By.chi\ffmpeg-master\ffmpeg.exe";
-        }
-        else if (OperatingSystem.IsMacOS())
-        {
-            // macOS 用户需要在 Homebrew 安装 ffmpeg: brew install ffmpeg
-            return "/usr/local/bin/ffmpeg";
-        }
-        else if (OperatingSystem.IsLinux())
-        {
-            // Linux 用户需要在系统包管理器安装 ffmpeg
-            return "/usr/bin/ffmpeg";
-        }
-        throw new NotSupportedException($"不支持的操作系统");
-    }
 
-    private static string GetDebugFfprobePath()
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            return @"D:\MSYS2\home\By.chi\ffmpeg-master\ffprobe.exe";
-        }
-        else if (OperatingSystem.IsMacOS())
-        {
-            return "/usr/local/bin/ffprobe";
-        }
-        else if (OperatingSystem.IsLinux())
-        {
-            return "/usr/bin/ffprobe";
-        }
-        throw new NotSupportedException($"不支持的操作系统");
-    }
+#if DEBUG
+    private const string DebugFfmpegPath = @"D:\MSYS2\home\By.chi\ffmpeg-master\ffmpeg.exe";
+    private const string DebugFfprobePath = @"D:\MSYS2\home\By.chi\ffmpeg-master\ffprobe.exe";
+#endif
 
     /// <summary>
     /// macOS：执行 shell 命令（which / brew）
@@ -229,13 +199,7 @@ public partial class AudioConverter
         try
         {
             string error = await process.StandardError.ReadToEndAsync();
-            // 过滤ffmpeg正常日志，只打印真正的错误
-            if (!string.IsNullOrEmpty(error) && 
-                (error.Contains("error", StringComparison.OrdinalIgnoreCase) || 
-                 error.Contains("fail", StringComparison.OrdinalIgnoreCase) ||
-                 error.Contains("invalid", StringComparison.OrdinalIgnoreCase) ||
-                 error.Contains("could not", StringComparison.OrdinalIgnoreCase) ||
-                 error.Contains("cannot", StringComparison.OrdinalIgnoreCase)))
+            if (!string.IsNullOrEmpty(error))
                 GD.PrintErr($"FFmpeg 错误: {error}");
         }
         catch (OperationCanceledException) { }
