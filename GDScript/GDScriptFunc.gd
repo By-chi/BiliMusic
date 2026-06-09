@@ -360,7 +360,7 @@ func cancel_collection(link:String)->void:
 		if changed:
 			set_data("Favorites", key, collections,true)
 # 安全回调，避免对象已释放
-func _safe_callback(bvid: String, texture: ImageTexture, callback: Callable) -> void:
+func safe_callback(bvid: String, texture: ImageTexture, callback: Callable) -> void:
 	if callback == null or not callback.is_valid() or callback.get_object() == null or callback.get_object().is_queued_for_deletion() or callback.is_null():
 		return
 	callback.call(bvid, texture)
