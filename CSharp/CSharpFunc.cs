@@ -5,6 +5,7 @@ using System.Linq;
 using RunOnStartup;
 using System.Diagnostics;
 using System.IO;
+
 public partial class CSharpFunc : Node
 {
     #region Image
@@ -91,7 +92,7 @@ public partial class CSharpFunc : Node
         }
         return pixels;
     }
-    
+
     private static List<Color> InitializeCentroidsKMeansPlusPlus(List<Color> pixels, int k, Random random)
     {
         var centroids = new List<Color>
@@ -280,34 +281,91 @@ public partial class CSharpFunc : Node
     }
 
     #endregion
-    
+
     #region Startup
+
     const string UNIQUE_NAME = "io.github.by-chi.BiliMusic";
+
+    /// <summary>
+    /// 设置开机启动（仅支持 Windows）
+    /// </summary>
     public static void SetRunOnStartup(bool value)
     {
-        #if DEBUG
+#if DEBUG
         return;
-        #endif
-        if (value)
+#endif
+
+        // 🔧 修复：添加平台检查
+        if (!OperatingSystem.IsWindows())
         {
-            string executablePath = System.Environment.ProcessPath;
-            RunOnStartupManager.Instance.Register(UNIQUE_NAME, executablePath, allUsers: false);
+            GD.PrintErr("[SetRunOnStartup] 开机启动功能仅在 Windows 平台上支持");
+            return;
+        }
+
+        try
+        {
+            if (value)
+            {
+                string executablePath = System.Environment.ProcessPath;
+                RunOnStartupManager.Instance.Register(UNIQUE_NAME, executablePath, allUsers: false);
+                GD.Print("[SetRunOnStartup] 已注册开机启动");
+            }
+            else
+            {
+                RunOnStartupManager.Instance.Unregister(UNIQUE_NAME, allUsers: false);
+                GD.Print("[SetRunOnStartup] 已取消开机启动");
+            }
+        }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"[SetRunOnStartup] 设置开机启动失败: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 检查是否已启用开机启动（仅支持 Windows）
+    /// </summary>
+    public static bool IsRunOnStartupEnabled()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return false;
+        }
+
+        try
+        {
+            return RunOnStartupManager.Instance.IsRegistered(UNIQUE_NAME, allUsers: false);
+        }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"[IsRunOnStartupEnabled] 检查开机启动状态失败: {ex.Message}");
+            return false;
+        }
+    }
+
+    #endregion
+
+    public override void _Ready()
+    {
+        // 🔧 修复：添加平台检查，避免在非 Windows 系统编译失败
+        if (OperatingSystem.IsWindows())
+        {
+            try
+            {
+                Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.High;
+                GD.Print("[CSharpFunc] 进程优先级已设置为 High");
+            }
+            catch (Exception ex)
+            {
+                GD.PrintErr($"[CSharpFunc] 设置进程优先级失败: {ex.Message}");
+            }
         }
         else
         {
-            RunOnStartupManager.Instance.Unregister(UNIQUE_NAME, allUsers: false);
+            GD.Print($"[CSharpFunc] 当前平台: {(OperatingSystem.IsMacOS() ? "macOS" : OperatingSystem.IsLinux() ? "Linux" : "Unknown")}，进程优先级设置功能不支持");
         }
-        
     }
-    public static bool IsRunOnStartupEnabled()
-    {
-        return RunOnStartupManager.Instance.IsRegistered(UNIQUE_NAME, allUsers: false);
-    }
-    #endregion
-    public override void _Ready()
-    {
-        Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.High;
-    }
+
     public static float GetDirectorySize(string path)
     {
         if (!Directory.Exists(path))
@@ -318,7 +376,7 @@ public partial class CSharpFunc : Node
 
         long totalBytes = 0;
         var files = Directory.GetFiles(path, "*", SearchOption.AllDirectories);
-        
+
         foreach (var file in files)
         {
             totalBytes += new FileInfo(file).Length;
@@ -326,6 +384,7 @@ public partial class CSharpFunc : Node
         double sizeInMB = totalBytes / (1024.0 * 1024.0);
         return (float)Math.Round(sizeInMB, 2);
     }
+
     /// <summary>
     /// 从标题提取歌名
     /// </summary>

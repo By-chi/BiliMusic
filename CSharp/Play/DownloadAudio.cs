@@ -22,6 +22,23 @@ public partial class DownloadAudio : Node
     public const int Channels = 2;
     public const int BytesPerFrame = 4;
     #endregion
+    private static string GetUserAgent()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+        }
+        else if (OperatingSystem.IsLinux())
+        {
+            return "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+        }
+        // 默认 fallback
+        return "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    }
 
     // ======================== 异步方法 ========================
 
@@ -29,7 +46,8 @@ public partial class DownloadAudio : Node
     {
         using var client = new System.Net.Http.HttpClient();
         client.DefaultRequestHeaders.Add("Referer", referer ?? "");
-        client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+        // 🔧 修复：使用平台自适应的 User-Agent
+        client.DefaultRequestHeaders.Add("User-Agent", GetUserAgent());
         client.DefaultRequestHeaders.Add("Accept-Encoding", "identity");
         client.DefaultRequestHeaders.Add("Accept", "*/*");
 
@@ -52,10 +70,11 @@ public partial class DownloadAudio : Node
         AddChild(http);
         try
         {
+            // 🔧 修复：使用平台自适应的 User-Agent
             var headers = new[]
             {
                 $"Referer: {referer ?? ""}",
-                "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                $"User-Agent: {GetUserAgent()}",
                 "Accept-Encoding: identity",
                 "Accept: */*",
                 "Accept-Language: zh-CN,zh;q=0.9,en;q=0.8"
@@ -164,7 +183,8 @@ public partial class DownloadAudio : Node
         if (!long.TryParse(sidStr, out long sid))
             throw new ArgumentException("AU 号格式不正确，应为数字。", nameof(auId));
 
-        string userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+        // 🔧 修复：使用平台自适应的 User-Agent
+        string userAgent = GetUserAgent();
         string referer = BuildAudioPageUrl(auId);
         string[] headers = [$"User-Agent: {userAgent}", $"Referer: {referer}"];
 
@@ -257,7 +277,8 @@ public partial class DownloadAudio : Node
             using (var client = new System.Net.Http.HttpClient())
             {
                 client.DefaultRequestHeaders.Add("Referer", referer ?? "");
-                client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+                // 🔧 修复：使用平台自适应的 User-Agent
+                client.DefaultRequestHeaders.Add("User-Agent", GetUserAgent());
                 client.DefaultRequestHeaders.Add("Accept-Encoding", "identity");
                 client.DefaultRequestHeaders.Add("Accept", "*/*");
 
@@ -340,7 +361,8 @@ public partial class DownloadAudio : Node
         try
         {
             string referer = BuildAudioPageUrl(auId);
-            string userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+            // 🔧 修复：使用平台自适应的 User-Agent
+            string userAgent = GetUserAgent();
 
             // 1. 获取音频详情（title, cover）
             string infoUrl = $"https://www.bilibili.com/audio/music-service-c/web/song/info?sid={sid}";
@@ -388,7 +410,8 @@ public partial class DownloadAudio : Node
     {
         using (var client = new System.Net.Http.HttpClient())
         {
-            client.DefaultRequestHeaders.Add("User-Agent", userAgent ?? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+            // 🔧 修复：使用平台自适应或提供的 User-Agent
+            client.DefaultRequestHeaders.Add("User-Agent", userAgent ?? GetUserAgent());
             client.DefaultRequestHeaders.Add("Accept", "*/*");
             client.DefaultRequestHeaders.Add("Accept-Encoding", "identity");
             if (!string.IsNullOrEmpty(referer))
