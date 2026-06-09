@@ -20,7 +20,7 @@ config/name_localized={
 }
 config/tags=PackedStringArray("播放器", "网络", "软件", "音乐")
 run/main_scene="uid://d3y0m53pwfo5a"
-config/features=PackedStringArray("4.7", "C#", "GL Compatibility")
+config/features=PackedStringArray("4.6", "C#", "GL Compatibility")
 run/max_fps=60
 run/low_processor_mode=true
 run/low_processor_mode_sleep_usec=16000
