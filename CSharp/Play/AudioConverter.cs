@@ -13,42 +13,126 @@ public partial class AudioConverter
     private const int FramesPerBlock = 1024;
     private const int BytesPerFrame = 4;
     private const int PcmBlockSize = FramesPerBlock * BytesPerFrame;
-    private static string GetDebugFfmpegPath()
+
+#if DEBUG
+    private const string DebugFfmpegPath = @"D:\MSYS2\home\By.chi\ffmpeg-master\ffmpeg.exe";
+    private const string DebugFfprobePath = @"D:\MSYS2\home\By.chi\ffmpeg-master\ffprobe.exe";
+#endif
+
+    /// <summary>
+    /// macOS：执行 shell 命令（which / brew）
+    /// </summary>
+    private static string RunBashCommand(string command)
     {
-        if (OperatingSystem.IsWindows())
+        try
         {
-            return @"D:\MSYS2\home\By.chi\ffmpeg-master\ffmpeg.exe";
+            var process = new ProcessStartInfo
+            {
+                FileName = "/bin/bash",
+                Arguments = $"-c \"{command}\"",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            using var p = Process.Start(process);
+            string output = p.StandardOutput.ReadToEnd().Trim();
+            p.WaitForExit();
+            return output;
         }
-        else if (OperatingSystem.IsMacOS())
+        catch
         {
-            // macOS 用户需要在 Homebrew 安装 ffmpeg: brew install ffmpeg
-            return "/usr/local/bin/ffmpeg";
+            return string.Empty;
         }
-        else if (OperatingSystem.IsLinux())
-        {
-            // Linux 用户需要在系统包管理器安装 ffmpeg
-            return "/usr/bin/ffmpeg";
-        }
-        throw new NotSupportedException($"不支持的操作系统");
     }
 
-    private static string GetDebugFfprobePath()
+    /// <summary>
+    /// macOS：自动安装 ffmpeg
+    /// </summary>
+    private static void InstallFFmpegOnMac()
     {
-        if (OperatingSystem.IsWindows())
+        GD.Print("macOS 未检测到 ffmpeg，尝试自动安装：brew install ffmpeg");
+        RunBashCommand("brew install ffmpeg");
+
+        // 安装后再次检测
+        string ffmpeg = RunBashCommand("which ffmpeg");
+        string ffprobe = RunBashCommand("which ffprobe");
+
+        if (!string.IsNullOrEmpty(ffmpeg) && !string.IsNullOrEmpty(ffprobe))
         {
-            return @"D:\MSYS2\home\By.chi\ffmpeg-master\ffprobe.exe";
+            GD.Print("✅ ffmpeg 自动安装成功");
         }
-        else if (OperatingSystem.IsMacOS())
+        else
         {
-            return "/usr/local/bin/ffprobe";
+            GD.PrintErr("❌ 自动安装失败，请手动安装：brew install ffmpeg");
         }
-        else if (OperatingSystem.IsLinux())
-        {
-            return "/usr/bin/ffprobe";
-        }
-        throw new NotSupportedException($"不支持的操作系统");
     }
 
+    // ==================== 路径获取（核心修改） ====================
+    public static string FfmpegPath
+    {
+        get
+        {
+#if DEBUG
+            // DEBUG模式下Windows用本地路径，其他系统走系统ffmpeg
+            if (OperatingSystem.IsWindows())
+                return DebugFfmpegPath;
+#endif
+            // Windows：使用本地打包的 ffmpeg
+            if (OperatingSystem.IsWindows())
+                return Path.Combine(FfmpegBasePath, GetExecutableName("ffmpeg"));
+
+            // macOS：优先使用系统 ffmpeg（which 查找）
+            if (OperatingSystem.IsMacOS())
+            {
+                string systemPath = RunBashCommand("which ffmpeg");
+                if (!string.IsNullOrEmpty(systemPath))
+                    return systemPath;
+
+                // 找不到 → 自动安装
+                InstallFFmpegOnMac();
+
+                // 安装后再查一次
+                systemPath = RunBashCommand("which ffmpeg");
+                if (!string.IsNullOrEmpty(systemPath))
+                    return systemPath;
+            }
+
+            // 兜底：使用本地 ffmpeg
+            return Path.Combine(FfmpegBasePath, GetExecutableName("ffmpeg"));
+        }
+    }
+
+    public static string FfprobePath
+    {
+        get
+        {
+#if DEBUG
+            // DEBUG模式下Windows用本地路径，其他系统走系统ffprobe
+            if (OperatingSystem.IsWindows())
+                return DebugFfprobePath;
+#endif
+            if (OperatingSystem.IsWindows())
+                return Path.Combine(FfmpegBasePath, GetExecutableName("ffprobe"));
+
+            if (OperatingSystem.IsMacOS())
+            {
+                string systemPath = RunBashCommand("which ffprobe");
+                if (!string.IsNullOrEmpty(systemPath))
+                    return systemPath;
+
+                // 安装后再查
+                systemPath = RunBashCommand("which ffprobe");
+                if (!string.IsNullOrEmpty(systemPath))
+                    return systemPath;
+            }
+
+            return Path.Combine(FfmpegBasePath, GetExecutableName("ffprobe"));
+        }
+    }
+
+    // ==================== 原有基础方法 ====================
     public static string FfmpegBasePath
     {
         get
@@ -63,43 +147,33 @@ public partial class AudioConverter
         return OperatingSystem.IsWindows() ? baseName + ".exe" : baseName;
     }
 
-    public static string FfmpegPath
-    {
-        get
-        {
-#if DEBUG
-            return GetDebugFfmpegPath();
-#else
-            return Path.Combine(FfmpegBasePath, GetExecutableName("ffmpeg"));
-#endif
-        }
-    }
-
-    public static string FfprobePath
-    {
-        get
-        {
-#if DEBUG
-            return GetDebugFfprobePath();
-#else
-            return Path.Combine(FfmpegBasePath, GetExecutableName("ffprobe"));
-#endif
-        }
-    }
-
     public static bool CheckFFmpegAvailable()
     {
-        bool ffmpegExists = File.Exists(FfmpegPath);
-        bool ffprobeExists = File.Exists(FfprobePath);
+        try
+        {
+            bool ffmpegExists = File.Exists(FfmpegPath);
+            bool ffprobeExists = File.Exists(FfprobePath);
 
-        if (!ffmpegExists)
-            GD.PrintErr($"[AudioConverter] ffmpeg 未找到: {FfmpegPath}");
-        if (!ffprobeExists)
-            GD.PrintErr($"[AudioConverter] ffprobe 未找到: {FfprobePath}");
+            if (!ffmpegExists || !ffprobeExists)
+            {
+                // macOS 额外提示
+                if (OperatingSystem.IsMacOS())
+                {
+                    GD.PrintErr($"FFmpeg 缺失！请安装：brew install ffmpeg");
+                    GD.PrintErr($"ffmpeg 路径：{FfmpegPath}");
+                    GD.PrintErr($"ffprobe 路径：{FfprobePath}");
+                }
+            }
 
-        return ffmpegExists && ffprobeExists;
+            return ffmpegExists && ffprobeExists;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
+    // ==================== 以下为原有逻辑，完全不变 ====================
     public static Process StartFFmpegPipe()
     {
         var startInfo = new ProcessStartInfo
@@ -116,7 +190,6 @@ public partial class AudioConverter
         var process = new Process { StartInfo = startInfo };
         process.Start();
 
-        // 异步读取 stderr，防止阻塞
         _ = Task.Run(() => ReadErrorAsync(process, CancellationToken.None));
         return process;
     }
@@ -136,12 +209,6 @@ public partial class AudioConverter
         }
     }
 
-    /// <summary>
-    /// 异步解码音频文件，产出 44.1kHz 16bit 立体声 PCM 块
-    /// </summary>
-    /// <param name="filePath">音频文件路径</param>
-    /// <param name="startSeconds">开始时间（秒）</param>
-    /// <param name="cancellationToken">取消令牌</param>
     public static async IAsyncEnumerable<byte[]> DecodeAudioToPcm44100Async(
         string filePath,
         double startSeconds,
@@ -166,7 +233,6 @@ public partial class AudioConverter
         using var process = new Process { StartInfo = startInfo };
         process.Start();
 
-        // 异步消费 stderr
         var stderrTask = Task.Run(() => ReadErrorAsync(process, cancellationToken), cancellationToken);
 
         using var outputStream = process.StandardOutput.BaseStream;
@@ -200,9 +266,6 @@ public partial class AudioConverter
         }
     }
 
-    /// <summary>
-    /// 获取音频时长（秒），失败返回 0
-    /// </summary>
     public static async Task<double> GetAudioDurationAsync(string filePath, CancellationToken cancellationToken = default)
     {
         var args = $"-v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"{filePath}\"";
@@ -219,7 +282,6 @@ public partial class AudioConverter
         using var process = new Process { StartInfo = startInfo };
         process.Start();
 
-        // 异步读取输出和错误
         var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
         await process.WaitForExitAsync(cancellationToken);

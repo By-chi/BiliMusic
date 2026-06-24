@@ -108,23 +108,26 @@ func update() -> void:
 	musicNameLabel.text = CSharpFunc.ExtractSongName(video_info.get(\"title\", \"未知\"))
 
 var tween_music_name: Tween
+var _music_name_initial_pos: Vector2
 
 func _ready() -> void:
 	Player.seeked.connect(set_stream_position)
 	Player.song_changed.connect(func(_video_info: Dictionary):
 		set_stream_position(0.01)
 	)
+	# 保存初始位置用于浮动计算
+	_music_name_initial_pos = musicNameLabel.position
 	tween_music_name = musicNameLabel.create_tween()
 	tween_music_name.set_loops()
 	tween_music_name.tween_method(music_name_update_offset, 0.0, TAU, music_name_cycle_duration) \\
 		.set_trans(Tween.TRANS_LINEAR)
 
 func music_name_update_offset(angle: float) -> void:
-	musicNameLabel.offset_transform_position = Vector2(
+	musicNameLabel.position = _music_name_initial_pos + Vector2(
 		sin(angle * music_name_freq_x) * 18.0,
 		sin(angle * music_name_freq_y) * 4.0
 	)
-	musicNameLabel.offset_transform_rotation = sin(angle * music_name_freq_rot) * deg_to_rad(2.0)
+	musicNameLabel.rotation = sin(angle * music_name_freq_rot) * deg_to_rad(2.0)
 
 func _process(delta: float) -> void:
 	# 封面旋转与标题浮动（仅播放时运行）
@@ -159,11 +162,11 @@ func _refresh_lyrics() -> void:
 		if last_highlight_index >= 0 and last_highlight_index < labels.size():
 			var old_lbl := labels[last_highlight_index]
 			if is_instance_valid(old_lbl):
-				old_lbl.offset_transform_scale = Vector2.ONE
+				old_lbl.scale = Vector2.ONE
 		if new_hl >= 0 and new_hl < labels.size():
 			var new_lbl := labels[new_hl]
 			if is_instance_valid(new_lbl):
-				new_lbl.offset_transform_scale = Vector2.ONE * highlight_font_scale
+				new_lbl.scale = Vector2.ONE * highlight_font_scale
 		last_highlight_index = new_hl
 
 	var hl_idx := FocusLyricLinePosition - 1

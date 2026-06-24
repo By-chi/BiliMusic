@@ -460,7 +460,7 @@ func _exit_tree() -> void:
 		_save_thread.wait_to_finish()
 
 # 主线程每帧检查加载队列，按冷却时间逐个处理
-func _process(delta: float) -> void:	
+func _process(_delta: float) -> void:
 	var now = Time.get_ticks_msec()
 	if not _cache_load_queue.is_empty() and now - _last_load_process_time >= CACHE_LOAD_COOLDOWN_MS:
 		_last_load_process_time = now
@@ -484,7 +484,7 @@ func _process_one_cache_load_task() -> void:
 		push_error("缓存文件丢失，将重新下载 (", link, ")")
 		_get_cover_url(link, width, height, func(url):
 			if url.is_empty():
-				GdScriptFunc._safe_callback(link, null, callback)
+				GdScriptFunc.safe_callback(link, null, callback)
 				return
 			_download_cover(url, link, width, height, callback)
 		)
@@ -492,13 +492,13 @@ func _process_one_cache_load_task() -> void:
 		var img := Image.new()
 		if img.load(cached_path) == OK:
 			var texture := ImageTexture.create_from_image(img)
-			GdScriptFunc._safe_callback(link, texture, callback)
+			GdScriptFunc.safe_callback(link, texture, callback)
 		else:
 			push_error("缓存图片损坏，将重新下载 (", link, ")")
 			DirAccess.remove_absolute(cached_path)
 			_get_cover_url(link, width, height, func(url):
 				if url.is_empty():
-					GdScriptFunc._safe_callback(link, null, callback)
+					GdScriptFunc.safe_callback(link, null, callback)
 					return
 				_download_cover(url, link, width, height, callback)
 			)
@@ -576,7 +576,7 @@ func _request(url: String, callback: Callable, extra: Variant = null, method: in
 # 搜索，keyword 为"bilibili音乐周榜"时走榜单接口,
 # 关于tids有:
 # 3,音乐主区(默认)    130,音乐综合    29,音乐现场    59,演奏    31,翻唱    193,MV    30,VOCALOID·UTAU    194,电音    28,原创音乐
-func search_bilibili(callback: Callable, keyword: String, num: int = 10, order = 0, page := 1, author: String = "", tids:=3) -> void:
+func search_bilibili(callback: Callable, keyword: String, num: int = 10, order = 0, page := 1, author: String = "", _tids:=3) -> void:
 	if keyword == "bilibili音乐周榜":
 		_fetch_music_rank_static(callback)
 		return
@@ -599,7 +599,7 @@ func search_bilibili(callback: Callable, keyword: String, num: int = 10, order =
 	url = await _sign_wbi_url(url)
 	_request(url, _on_search_response, [callback, author])
 
-func _on_search_response(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray, extra: Variant) -> void:
+func _on_search_response(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray, extra: Variant) -> void:
 	var extra_arr: Array = extra
 	var callback: Callable = extra_arr[0]
 	var author_filter: String = extra_arr[1] if extra_arr.size() > 1 else ""
@@ -761,7 +761,7 @@ func fetch_cover(link: String, callback: Callable, width: int = 160, height: int
 
 	_get_cover_url(link, width, height, func(thumbnail_url: String):
 		if thumbnail_url.is_empty():
-			GdScriptFunc._safe_callback(link, null, callback)
+			GdScriptFunc.safe_callback(link, null, callback)
 			return
 		_download_cover(thumbnail_url, link, width, height, callback)
 	)
@@ -770,7 +770,7 @@ func _get_cover_url(bvid: String, width: int, height: int, next: Callable) -> vo
 	var url = "https://api.bilibili.com/x/web-interface/view?bvid=" + bvid
 	_request(url, _on_cover_url_received, [bvid, width, height, next])
 
-func _on_cover_url_received(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray, extra: Variant) -> void:
+func _on_cover_url_received(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray, extra: Variant) -> void:
 	var extra_arr: Array = extra
 	var bvid: String = extra_arr[0]
 	var width: int = extra_arr[1]
@@ -810,16 +810,16 @@ func _download_cover(image_url: String, bvid: String, width: int, height: int, c
 		http.queue_free()
 		if response_code != 200:
 			push_error("下载封面失败 (", bvid, "): ", response_code)
-			GdScriptFunc._safe_callback(bvid, null, callback)
+			GdScriptFunc.safe_callback(bvid, null, callback)
 			return
 
 		var image := Image.new()
 		if image.load_jpg_from_buffer(body) != OK and image.load_png_from_buffer(body) != OK:
 			push_error("图片数据解析失败 (", bvid, ")")
-			GdScriptFunc._safe_callback(bvid, null, callback)
+			GdScriptFunc.safe_callback(bvid, null, callback)
 			return
 		var texture := ImageTexture.create_from_image(image)
-		GdScriptFunc._safe_callback(bvid, texture, callback)
+		GdScriptFunc.safe_callback(bvid, texture, callback)
 
 		# 投递到后台保存队列
 		_save_mutex.lock()
@@ -837,14 +837,14 @@ func _download_cover(image_url: String, bvid: String, width: int, height: int, c
 	if err != OK:
 		push_error("封面下载请求失败 (", bvid, "): ", err)
 		http.queue_free()
-		GdScriptFunc._safe_callback(bvid, null, callback)
+		GdScriptFunc.safe_callback(bvid, null, callback)
 
 # 通过 BV 号获取视频详细信息
 func fetch_video_info(bvid: String, callback: Callable) -> void:
 	var url = "https://api.bilibili.com/x/web-interface/view?bvid=" + bvid
 	_request(url, _on_video_info_response, [bvid, callback])
 
-func _on_video_info_response(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray, extra: Variant) -> void:
+func _on_video_info_response(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray, extra: Variant) -> void:
 	var extra_arr: Array = extra
 	var bvid: String = extra_arr[0]
 	var callback: Callable = extra_arr[1]
@@ -1133,7 +1133,7 @@ func _try_download_candidate(index: int, candidates: Array, bvid: String, callba
 		http.queue_free()
 		_try_download_candidate(index + 1, candidates, bvid, callback, skip_correction, save_path)
 
-func _generate_bilibili_lrc(subtitle_content: Dictionary, bvid: String, callback: Callable, save_path: String = "") -> void:
+func _generate_bilibili_lrc(subtitle_content: Dictionary, _bvid: String, callback: Callable, save_path: String = "") -> void:
 	var body = subtitle_content.get("body", [])
 	if body.is_empty():
 		callback.call({})
@@ -1162,7 +1162,7 @@ func _generate_bilibili_lrc(subtitle_content: Dictionary, bvid: String, callback
 			continue
 		var minutes = int(from_sec / 60)
 		var seconds = int(from_sec) % 60
-		var milliseconds = int((from_sec - int(from_sec)) * 100)
+		var milliseconds = int(round((from_sec - int(from_sec)) * 100))
 		lrc_text += "[%02d:%02d.%02d]%s\n" % [minutes, seconds, milliseconds, content]
 
 	var file = FileAccess.open(lrc_path, FileAccess.WRITE)
@@ -1333,7 +1333,7 @@ func _fetch_subtitle_with_cid(bvid: String, cid: int, callback: Callable, save_p
 	url = await _sign_wbi_url(url)
 	_request(url, _on_subtitle_player_info_received, [bvid, cid, callback, save_path])
 
-func _on_subtitle_player_info_received(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray, extra: Variant) -> void:
+func _on_subtitle_player_info_received(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray, extra: Variant) -> void:
 	var extra_arr: Array = extra
 	var bvid: String = extra_arr[0]
 	var callback: Callable = extra_arr[2]
@@ -1542,7 +1542,7 @@ func start_qr_login(login_callback: Callable) -> void:
 
 var on_qr_login_result: Callable
 
-func _on_qr_generated(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+func _on_qr_generated(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	if response_code != 200: return
 	var json = JSON.new()
 	if json.parse(body.get_string_from_utf8()) != OK: return
