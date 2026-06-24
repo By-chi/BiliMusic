@@ -488,7 +488,7 @@ expand_icon = true
 [node name="Import" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=109681081]
 custom_minimum_size = Vector2(0, 60)
 layout_mode = 2
-tooltip_text = "做一个音乐收藏家"
+tooltip_text = "从外部导入音乐"
 text = "导入音频"
 icon = ExtResource("5_e6irg")
 expand_icon = true

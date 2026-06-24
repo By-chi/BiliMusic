@@ -295,7 +295,6 @@ public partial class CSharpFunc : Node
         return;
 #endif
 
-        // 🔧 修复：添加平台检查
         if (!OperatingSystem.IsWindows())
         {
             GD.PrintErr("[SetRunOnStartup] 开机启动功能仅在 Windows 平台上支持");
@@ -347,7 +346,6 @@ public partial class CSharpFunc : Node
 
     public override void _Ready()
     {
-        // 🔧 修复：添加平台检查，避免在非 Windows 系统编译失败
         if (OperatingSystem.IsWindows())
         {
             try

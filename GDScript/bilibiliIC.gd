@@ -460,7 +460,7 @@ func _exit_tree() -> void:
 		_save_thread.wait_to_finish()
 
 # 主线程每帧检查加载队列，按冷却时间逐个处理
-func _process(delta: float) -> void:
+func _process(delta: float) -> void:	
 	var now = Time.get_ticks_msec()
 	if not _cache_load_queue.is_empty() and now - _last_load_process_time >= CACHE_LOAD_COOLDOWN_MS:
 		_last_load_process_time = now
@@ -1456,12 +1456,14 @@ func _get_wbi_key() -> Dictionary:
 
 	var result: Array = await http.request_completed
 	http.queue_free()
-
+	print("请求结果码:", result[0])
+	print("系统时间:", Time.get_unix_time_from_system())
 	var response_code: int = result[1]
 	var body_str: String = (result[3] as PackedByteArray).get_string_from_utf8()
 
 	if response_code != 200:
 		push_error("WBI 密钥接口 HTTP ", response_code)
+		
 		return _wbi_key_cache
 
 	var json := JSON.new()
@@ -1751,7 +1753,7 @@ func fetch_user_avatar(callback: Callable) -> void:
 			img_request.queue_free()
 
 			var img = Image.new()
-			if img.load_png_from_buffer(img_body) == OK or img.load_jpg_from_buffer(img_body) == OK:
+			if img.load_jpg_from_buffer(img_body) == OK or img.load_png_from_buffer(img_body) == OK:
 				var tex = ImageTexture.create_from_image(img)
 				callback.call(tex)
 			else:

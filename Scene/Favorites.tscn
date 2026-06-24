@@ -28,7 +28,7 @@ var _current_fav_dir: String = \"\"
 var _last_showing_favorites: bool = true
 
 # 多选支持
-var selected_items: Array = []
+var selected_items: Array[Node] = []
 
 # 下载队列
 var _download_queue: Array = []
@@ -37,11 +37,11 @@ var _is_downloading: bool = false
 # 双击检测（无定时器，即时响应）
 var _last_clicked_node: Node = null
 var _last_click_time: int = 0
-const DOUBLE_CLICK_THRESHOLD = 400  # 毫秒
+const DOUBLE_CLICK_THRESHOLD :int= 400  # 毫秒
 
 # 剪贴板
 var _clipboard_type: String = \"\"   # \"\" | \"cut\" | \"copy\"
-var _clipboard_data = []
+var _clipboard_data :Array= []
 
 # 选择模式（外部控制 OK 按钮显示）
 var is_select_mode: bool = false
@@ -69,18 +69,18 @@ func set_select_mode(enable: bool) -> void:
 # 按钮状态更新
 # ------------------------------------------------------------
 func _update_buttons_state() -> void:
-	var has_selection = not selected_items.is_empty()
-	var clipboard_valid = not _clipboard_type.is_empty() and not _clipboard_data.is_empty()
+	var has_selection :bool= not selected_items.is_empty()
+	var clipboard_valid :bool= not _clipboard_type.is_empty() and not _clipboard_data.is_empty()
 
 	# ---------- 添加按钮 ----------
 	# 只在收藏夹列表视图（文件夹层面）时可用
 	_set_button_disabled(add_button, not _is_showing_favorites)
 
 	# ---------- 下载按钮 ----------
-	var download_enabled = false
+	var download_enabled :bool= false
 	if not _is_showing_favorites and has_selection:
 		# 文件视图：检查选中项中是否有网络视频
-		for node in selected_items:
+		for node:Node in selected_items:
 			if \"link\" in node and node.video_info.get(\"is_network\", true):
 				download_enabled = true
 				break
@@ -100,8 +100,8 @@ func _update_buttons_state() -> void:
 	if ok_button:
 		if is_select_mode and _is_showing_favorites:
 			ok_button.visible = true
-			var has_folder = false
-			for node in selected_items:
+			var has_folder :bool= false
+			for node:Node in selected_items:
 				if \"directory_name\" in node:
 					has_folder = true
 					break
@@ -138,7 +138,7 @@ func _rebuild_current_view() -> void:
 			_load_all_video_cards()
 
 func _clear_grid() -> void:
-	for child in grid_container.get_children():
+	for child:Node in grid_container.get_children():
 		child.queue_free()
 	selected_items.clear()
 
@@ -150,8 +150,8 @@ func _lazy_update_decks() -> void:
 	if new_decks == null:
 		new_decks = []
 
-	var existing = {}
-	for child in grid_container.get_children():
+	var existing :Dictionary= {}
+	for child:Node in grid_container.get_children():
 		if child.has_method(\"queue_free\"):
 			existing[child.directory_name] = child
 
