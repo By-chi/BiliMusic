@@ -1,5 +1,6 @@
 [gd_scene format=3 uid="uid://c00vteu0bh0vl"]
 
+[ext_resource type="StyleBox" uid="uid://c0goh5b5wo0iu" path="res://Skin/Light/disabled.stylebox" id="1_l7kha"]
 [ext_resource type="Texture2D" uid="uid://bq8p42egv625x" path="res://UI/Icon/add.svg" id="1_wkvp8"]
 [ext_resource type="Texture2D" uid="uid://dc0cbuam7rj1c" path="res://UI/Icon/Cutting.svg" id="2_70l1a"]
 [ext_resource type="Texture2D" uid="uid://bqfvgqac6s1yr" path="res://UI/Icon/remove.svg" id="2_a53u4"]
@@ -876,17 +877,6 @@ func _execute_cut_delete() -> void:
 				GdScriptFunc.set_data(\"Favorites\", source_dir, new_list)
 "
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_0inii"]
-content_margin_left = 5.0
-content_margin_top = 5.0
-content_margin_right = 5.0
-content_margin_bottom = 5.0
-bg_color = Color(0.9490196, 0.9529412, 0.98039216, 1)
-corner_radius_top_left = 15
-corner_radius_top_right = 15
-corner_radius_bottom_right = 15
-corner_radius_bottom_left = 15
-
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_1siev"]
 content_margin_left = 20.0
 content_margin_top = 130.0
@@ -955,57 +945,57 @@ offset_bottom = 99.0
 grow_horizontal = 2
 theme_override_constants/separation = 20
 
-[node name="Add" type="Button" parent="Bar" unique_id=2043052242]
+[node name="Add" type="Button" parent="Bar" unique_id=2043052242 groups=["disabled"]]
 custom_minimum_size = Vector2(70, 70)
 layout_mode = 2
 tooltip_text = "添加文件夹"
 theme_override_colors/icon_disabled_color = Color(6.758958, 0.8067969, 0.55357623, 1)
-theme_override_styles/disabled = SubResource("StyleBoxFlat_0inii")
+theme_override_styles/disabled = ExtResource("1_l7kha")
 icon = ExtResource("1_wkvp8")
 expand_icon = true
 
-[node name="Cut" type="Button" parent="Bar" unique_id=1756933694]
+[node name="Cut" type="Button" parent="Bar" unique_id=1756933694 groups=["disabled"]]
 custom_minimum_size = Vector2(70, 70)
 layout_mode = 2
 tooltip_text = "剪切"
 theme_override_colors/icon_disabled_color = Color(6.758958, 0.8067969, 0.55357623, 1)
-theme_override_styles/disabled = SubResource("StyleBoxFlat_0inii")
+theme_override_styles/disabled = ExtResource("1_l7kha")
 icon = ExtResource("2_70l1a")
 expand_icon = true
 
-[node name="Copy" type="Button" parent="Bar" unique_id=141322814]
+[node name="Copy" type="Button" parent="Bar" unique_id=141322814 groups=["disabled"]]
 custom_minimum_size = Vector2(70, 70)
 layout_mode = 2
 tooltip_text = "复制"
 theme_override_colors/icon_disabled_color = Color(6.758958, 0.8067969, 0.55357623, 1)
-theme_override_styles/disabled = SubResource("StyleBoxFlat_0inii")
+theme_override_styles/disabled = ExtResource("1_l7kha")
 icon = ExtResource("3_3pacr")
 expand_icon = true
 
-[node name="Paste" type="Button" parent="Bar" unique_id=1791995644]
+[node name="Paste" type="Button" parent="Bar" unique_id=1791995644 groups=["disabled"]]
 custom_minimum_size = Vector2(70, 70)
 layout_mode = 2
 tooltip_text = "粘贴"
 theme_override_colors/icon_disabled_color = Color(6.758958, 0.8067969, 0.55357623, 1)
-theme_override_styles/disabled = SubResource("StyleBoxFlat_0inii")
+theme_override_styles/disabled = ExtResource("1_l7kha")
 icon = ExtResource("4_o8iwe")
 expand_icon = true
 
-[node name="Remove" type="Button" parent="Bar" unique_id=167491011]
+[node name="Remove" type="Button" parent="Bar" unique_id=167491011 groups=["disabled"]]
 custom_minimum_size = Vector2(70, 70)
 layout_mode = 2
 tooltip_text = "移除"
 theme_override_colors/icon_disabled_color = Color(6.758958, 0.8067969, 0.55357623, 1)
-theme_override_styles/disabled = SubResource("StyleBoxFlat_0inii")
+theme_override_styles/disabled = ExtResource("1_l7kha")
 icon = ExtResource("2_a53u4")
 expand_icon = true
 
-[node name="Download" type="Button" parent="Bar" unique_id=936197800]
+[node name="Download" type="Button" parent="Bar" unique_id=936197800 groups=["disabled"]]
 custom_minimum_size = Vector2(70, 70)
 layout_mode = 2
 tooltip_text = "下载到本地"
 theme_override_colors/icon_disabled_color = Color(6.758958, 0.8067969, 0.55357623, 1)
-theme_override_styles/disabled = SubResource("StyleBoxFlat_0inii")
+theme_override_styles/disabled = ExtResource("1_l7kha")
 icon = ExtResource("3_au07f")
 expand_icon = true
 
@@ -1016,6 +1006,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 offset_top = 127.0
 offset_right = -24.0
+offset_bottom = 187.0
 grow_horizontal = 2
 grow_vertical = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_1siev")

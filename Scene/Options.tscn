@@ -25,6 +25,17 @@ func _ready() -> void:
 					
 					option.get_child(0).connect(\"pressed\",_log_in_out.bind(option))
 					continue
+				if option.name==\"Skin\":
+					var node:OptionButton=option.get_child(0)
+					for dir in ResourceLoader.list_directory(\"res://Skin/\"):
+						node.add_item(dir.trim_suffix(\"/\"))
+					node.selected=GdScriptFunc.get_data(\"Options\",\"Skin\",0)
+					GdScriptFunc.update_skin_theme(node.get_item_text(node.selected))
+					node.item_selected.connect(func(index:int):
+						GdScriptFunc.set_data(\"Options\",\"Skin\",index)
+						GdScriptFunc.update_skin_theme(node.get_item_text(index))
+					)
+					continue
 				match option.get_class():
 					\"CheckButton\":
 						option.button_pressed=GdScriptFunc.get_data(\"Options\",option.name,false)
@@ -148,9 +159,10 @@ offset_right = -26.0
 offset_bottom = -34.0
 grow_horizontal = 2
 grow_vertical = 2
-current_tab = 0
+current_tab = 1
 
 [node name="基础" type="ScrollContainer" parent="TabContainer" unique_id=1036775212]
+visible = false
 layout_mode = 2
 metadata/_tab_index = 0
 
@@ -194,7 +206,6 @@ layout_mode = 2
 text = "开机自启动"
 
 [node name="窗口" type="ScrollContainer" parent="TabContainer" unique_id=264393034]
-visible = false
 layout_mode = 2
 metadata/_tab_index = 1
 
@@ -207,6 +218,24 @@ size_flags_vertical = 3
 layout_mode = 2
 button_pressed = true
 text = "记住窗口状态"
+
+[node name="Skin" type="Label" parent="TabContainer/窗口/VBoxContainer" unique_id=446818005]
+layout_mode = 2
+theme_override_font_sizes/font_size = 35
+text = "播放器皮肤"
+
+[node name="Skin" type="OptionButton" parent="TabContainer/窗口/VBoxContainer/Skin" unique_id=1656933202]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -54.0
+offset_top = -24.0
+offset_bottom = 24.0
+grow_horizontal = 0
+grow_vertical = 2
 
 [node name="储存" type="ScrollContainer" parent="TabContainer" unique_id=1953152351]
 visible = false

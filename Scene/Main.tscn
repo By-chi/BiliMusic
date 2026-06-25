@@ -22,17 +22,6 @@
 [ext_resource type="Texture2D" uid="uid://d25kb6a85uar6" path="res://UI/Icon/next.svg" id="16_4w0o7"]
 [ext_resource type="Texture2D" uid="uid://d2nw6ay41tyxf" path="res://UI/Icon/Expand.svg" id="19_uq86q"]
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_2p7c5"]
-content_margin_left = 0.0
-content_margin_top = 0.0
-content_margin_right = 0.0
-content_margin_bottom = 0.0
-bg_color = Color(0.96862745, 0.9764706, 1, 1)
-corner_radius_top_left = 3
-corner_radius_top_right = 3
-corner_radius_bottom_right = 3
-corner_radius_bottom_left = 3
-
 [sub_resource type="GDScript" id="GDScript_aan6j"]
 script/source = "extends Panel
 @export var page_buttons:Array[Button]
@@ -97,12 +86,12 @@ func _on_search_text_submitted(new_text: String) -> void:
 	change_page(\"Results\")
 "
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_46ucy"]
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_tql3x"]
 content_margin_left = 0.0
 content_margin_top = 0.0
 content_margin_right = 0.0
 content_margin_bottom = 0.0
-bg_color = Color(0.9490196, 0.9529412, 0.98039216, 1)
+bg_color = Color(0.16470589, 0.16470589, 0.16470589, 1)
 corner_radius_top_left = 3
 corner_radius_top_right = 3
 corner_radius_bottom_right = 3
@@ -385,7 +374,6 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 focus_mode = 1
-theme_override_styles/panel = SubResource("StyleBoxFlat_2p7c5")
 script = SubResource("GDScript_aan6j")
 page_buttons = [NodePath("LeftMenu/ScrollContainer/VBoxContainer/Discover"), NodePath("LeftMenu/ScrollContainer/VBoxContainer/Results"), NodePath("LeftMenu/ScrollContainer/VBoxContainer/Favorites"), NodePath("LeftMenu/ScrollContainer/VBoxContainer/Import"), NodePath("LeftMenu/Options")]
 current_page = NodePath("Discover")
@@ -394,14 +382,14 @@ bottom_menu = NodePath("BottomMenu")
 ui_sound = NodePath("AudioStreamPlayer")
 icon = NodePath("LeftMenu/Search/Panel/Icon")
 
-[node name="LeftMenu" type="Panel" parent="." unique_id=1758456242]
+[node name="LeftMenu" type="Panel" parent="." unique_id=1758456242 groups=["panel"]]
 clip_contents = true
 layout_mode = 1
 anchors_preset = 9
 anchor_bottom = 1.0
 offset_left = -283.0
 grow_vertical = 2
-theme_override_styles/panel = SubResource("StyleBoxFlat_46ucy")
+theme_override_styles/panel = SubResource("StyleBoxFlat_tql3x")
 metadata/_edit_use_anchors_ = true
 
 [node name="Search" type="LineEdit" parent="LeftMenu" unique_id=499293569]

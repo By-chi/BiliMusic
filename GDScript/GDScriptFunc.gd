@@ -566,3 +566,68 @@ func set_progress_bar_value(progress_value:int,title_str:="",text_str:="")->void
 		progress_bar_window=preload("res://Scene/ProgressBarWindow.tscn").instantiate()
 		add_child(progress_bar_window)
 	progress_bar_window.update(progress_value,title_str,text_str)
+
+
+
+
+
+
+
+func update_skin_theme(skin_name:String)->void:
+	var dir:="res://Skin/"+skin_name+"/"
+	for file in ResourceLoader.list_directory(dir):
+		if file=="main.theme":
+			apply_theme_from_path(dir+"main.theme")
+			continue
+		var special_style_name:=file.get_basename()
+		if get_tree().has_group(special_style_name):
+			for node in get_tree().get_nodes_in_group(special_style_name):
+				if node is Control:
+					node.remove_theme_stylebox_override(special_style_name)
+					node.add_theme_stylebox_override(special_style_name,load(dir+file))
+
+func apply_theme_from_path(path: String) -> bool:
+	if path.is_empty():
+		push_error("[ThemeManager] 路径不能为空")
+		return false
+
+	if not ResourceLoader.exists(path):
+		push_error("[ThemeManager] 文件不存在: ", path)
+		return false
+
+	# 动态加载主题资源
+	var theme: Theme = ResourceLoader.load(path, "Theme", ResourceLoader.CACHE_MODE_REUSE)
+	if not theme:
+		push_error("[ThemeManager] 加载失败，文件不是有效的 Theme 资源: ", path)
+		return false
+
+	# 应用到整个场景树
+	_apply_theme_globally(theme)
+	return true
+
+
+func apply_theme(theme: Theme):
+	if not theme:
+		push_warning("[ThemeManager] 传入的 Theme 为 null，跳过")
+		return
+	_apply_theme_globally(theme)
+
+
+func _apply_theme_globally(theme: Theme):
+	var root = get_tree().root
+	for child in root.get_children():
+		_apply_recursive(child, theme)
+
+
+## 递归遍历，精准定位并设置 Control 主题
+func _apply_recursive(node: Node, theme: Theme):
+	if node is Control:
+		node.theme = theme
+		return
+	if node is CanvasLayer:
+		for child in node.get_children():
+			_apply_recursive(child, theme)
+		return
+
+	for child in node.get_children():
+		_apply_recursive(child, theme)

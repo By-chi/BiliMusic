@@ -290,22 +290,6 @@ func _on_visibility_changed() -> void:
 	ImportSubtitlesCheckButton.visible = GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\") != null
 "
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_1g1i4"]
-content_margin_left = 0.0
-content_margin_top = 0.0
-content_margin_right = 0.0
-content_margin_bottom = 0.0
-bg_color = Color(0.9215, 0.928625, 0.95, 1)
-border_width_left = 2
-border_width_top = 2
-border_width_right = 2
-border_width_bottom = 2
-border_color = Color(0.5724144, 0.5724144, 0.57241434, 1)
-corner_radius_top_left = 3
-corner_radius_top_right = 3
-corner_radius_bottom_right = 3
-corner_radius_bottom_left = 3
-
 [node name="Page" type="Control" unique_id=585043204 node_paths=PackedStringArray("PathLineEdit", "VideoIDLineEdit", "Tab", "ImportSubtitlesCheckButton")]
 layout_mode = 3
 anchors_preset = 15
@@ -349,12 +333,10 @@ offset_right = -26.0
 offset_bottom = -34.0
 grow_horizontal = 2
 grow_vertical = 2
-current_tab = 1
+current_tab = 0
 
-[node name="本地导入" type="Panel" parent="TabContainer" unique_id=825157242]
-visible = false
+[node name="本地导入" type="Panel" parent="TabContainer" unique_id=825157242 groups=["panel"]]
 layout_mode = 2
-theme_override_styles/panel = SubResource("StyleBoxFlat_1g1i4")
 metadata/_tab_index = 0
 
 [node name="Path" type="LineEdit" parent="TabContainer/本地导入" unique_id=200643175]
@@ -401,9 +383,9 @@ offset_bottom = 62.0
 icon = ExtResource("1_1g1i4")
 expand_icon = true
 
-[node name="BV•AU号" type="Panel" parent="TabContainer" unique_id=248016974]
+[node name="BV•AU号" type="Panel" parent="TabContainer" unique_id=248016974 groups=["panel"]]
+visible = false
 layout_mode = 2
-theme_override_styles/panel = SubResource("StyleBoxFlat_1g1i4")
 metadata/_tab_index = 1
 
 [node name="VideoID" type="LineEdit" parent="TabContainer/BV•AU号" unique_id=495644381]
