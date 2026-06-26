@@ -67,8 +67,8 @@ color_default_color=""
 style_panel="给皮肤系统提供特异性改变"
 style_disabled="给皮肤系统提供特异性改变"
 color_icon_normal_color=""
-color_modulate_icon_hover=""
-color_modulate_icon_pressed=""
+color_icon_pressed_color=""
+color_icon_hover_color=""
 
 [gui]
 

@@ -346,7 +346,7 @@ offset_right = 653.0
 offset_bottom = 103.0
 placeholder_text = "文件路径"
 
-[node name="FileWindowButton" type="Button" parent="TabContainer/本地导入/Path" unique_id=1091846378]
+[node name="FileWindowButton" type="Button" parent="TabContainer/本地导入/Path" unique_id=1091846378 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 layout_mode = 0
 offset_left = 637.0
 offset_right = 701.0
@@ -374,7 +374,7 @@ offset_right = 653.0
 offset_bottom = 193.0
 placeholder_text = "收藏夹名称"
 
-[node name="FavoriteWindowButton" type="Button" parent="TabContainer/本地导入/Favorite" unique_id=1570541580]
+[node name="FavoriteWindowButton" type="Button" parent="TabContainer/本地导入/Favorite" unique_id=1570541580 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 layout_mode = 0
 offset_left = 637.0
 offset_right = 701.0
@@ -403,7 +403,7 @@ offset_right = 653.0
 offset_bottom = 193.0
 placeholder_text = "收藏夹名称"
 
-[node name="FavoriteWindowButton" type="Button" parent="TabContainer/BV•AU号/Favorite" unique_id=517334895]
+[node name="FavoriteWindowButton" type="Button" parent="TabContainer/BV•AU号/Favorite" unique_id=517334895 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 layout_mode = 0
 offset_left = 637.0
 offset_right = 701.0

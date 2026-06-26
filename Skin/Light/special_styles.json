@@ -4,6 +4,6 @@
   "color_font_color": "#373738",
   "color_default_color": "#373738",
   "color_icon_normal_color": "#000000",
-  "color_icon_normal_hover": "#000000",
-  "color_icon_normal_pressed": "#000000",
+  "color_icon_hover_color": "#000000",
+  "color_icon_pressed_color": "#000000",
 }

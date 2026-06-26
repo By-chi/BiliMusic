@@ -440,7 +440,7 @@ size_flags_horizontal = 3
 size_flags_vertical = 3
 theme_override_constants/separation = 10
 
-[node name="Discover" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=380134334 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
+[node name="Discover" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=380134334 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 custom_minimum_size = Vector2(0, 60)
 layout_mode = 2
 tooltip_text = "从众多up主中推荐"
@@ -448,7 +448,7 @@ text = "发现音乐"
 icon = ExtResource("3_h175a")
 expand_icon = true
 
-[node name="Results" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=1597806874 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
+[node name="Results" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=1597806874 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 custom_minimum_size = Vector2(0, 60)
 layout_mode = 2
 tooltip_text = "搜索结果"
@@ -456,7 +456,7 @@ text = "搜索结果"
 icon = ExtResource("4_togfq")
 expand_icon = true
 
-[node name="Favorites" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=963398162 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
+[node name="Favorites" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=963398162 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 custom_minimum_size = Vector2(0, 60)
 layout_mode = 2
 tooltip_text = "做一个音乐收藏家"
@@ -464,7 +464,7 @@ text = "收藏列表"
 icon = ExtResource("4_6a8me")
 expand_icon = true
 
-[node name="Import" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=109681081 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
+[node name="Import" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=109681081 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 custom_minimum_size = Vector2(0, 60)
 layout_mode = 2
 tooltip_text = "从外部导入音乐"
@@ -472,7 +472,7 @@ text = "导入音频"
 icon = ExtResource("5_e6irg")
 expand_icon = true
 
-[node name="Options" type="Button" parent="LeftMenu" unique_id=1648837809 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
+[node name="Options" type="Button" parent="LeftMenu" unique_id=1648837809 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 custom_minimum_size = Vector2(0, 60)
 layout_mode = 1
 anchors_preset = 7
@@ -584,7 +584,7 @@ theme_override_font_sizes/font_size = 16
 text = "AuthorAuthorAuthorAuthorAuthorAuthorAuthor"
 text_overrun_behavior = 5
 
-[node name="Play" type="Button" parent="BottomMenu" unique_id=156709578 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
+[node name="Play" type="Button" parent="BottomMenu" unique_id=156709578 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 custom_minimum_size = Vector2(40, 40)
 layout_mode = 1
 anchors_preset = -1
@@ -606,7 +606,7 @@ flat = true
 icon_alignment = 1
 expand_icon = true
 
-[node name="Next" type="Button" parent="BottomMenu/Play" unique_id=1009654094 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
+[node name="Next" type="Button" parent="BottomMenu/Play" unique_id=1009654094 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 custom_minimum_size = Vector2(33, 33)
 layout_mode = 1
 anchors_preset = 8
@@ -628,7 +628,7 @@ flat = true
 icon_alignment = 1
 expand_icon = true
 
-[node name="PREV" type="Button" parent="BottomMenu/Play" unique_id=978403662 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
+[node name="PREV" type="Button" parent="BottomMenu/Play" unique_id=978403662 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 custom_minimum_size = Vector2(33, 33)
 layout_mode = 1
 anchors_preset = 8
@@ -651,7 +651,7 @@ flat = true
 icon_alignment = 1
 expand_icon = true
 
-[node name="PlayMode" type="Button" parent="BottomMenu" unique_id=1372697597 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
+[node name="PlayMode" type="Button" parent="BottomMenu" unique_id=1372697597 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 custom_minimum_size = Vector2(40, 40)
 layout_mode = 1
 anchors_preset = 6
@@ -670,7 +670,7 @@ icon = ExtResource("12_mr7am")
 flat = true
 expand_icon = true
 
-[node name="Details" type="Button" parent="BottomMenu" unique_id=898439173 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
+[node name="Details" type="Button" parent="BottomMenu" unique_id=898439173 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 custom_minimum_size = Vector2(40, 40)
 layout_mode = 1
 anchors_preset = 6
@@ -708,7 +708,7 @@ theme_override_styles/grabber_area_highlight = SubResource("StyleBoxFlat_kp1vv")
 step = 0.0
 value = 50.0
 
-[node name="Volume" type="Button" parent="BottomMenu" unique_id=663841792 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
+[node name="Volume" type="Button" parent="BottomMenu" unique_id=663841792 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 layout_mode = 1
 anchors_preset = 6
 anchor_left = 1.0
