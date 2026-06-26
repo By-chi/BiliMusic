@@ -140,12 +140,11 @@ mouse_filter = 0
 theme_override_font_sizes/font_size = 50
 text = "设置"
 
-[node name="SubLabel" type="Label" parent="Label" unique_id=2118856395]
+[node name="SubLabel" type="Label" parent="Label" unique_id=2118856395 groups=["color_font_color"]]
 layout_mode = 1
 offset_top = 78.0
 offset_right = 201.0
 offset_bottom = 112.0
-theme_override_colors/font_color = Color(0.22352941, 0.23137255, 0.23921569, 1)
 theme_override_font_sizes/font_size = 24
 text = "自定义你的播放器"
 

@@ -191,24 +191,25 @@ func flush():
 			_save_timer.timeout.disconnect(_do_save)
 		_save_timer = null
 	_do_save()
-# 入口函数：在指定坐标显示右键菜单
+# 入口函数：在指定坐标显示右键菜单,右键菜单应用不了皮肤(即使我已经写了适配代码,还是不行)
 func open_right_click_menu_window(pos: Vector2, data: Array[Dictionary]) -> void:
 	var menu := PopupMenu.new()
 	menu.name = "ContextMenu"
 	add_child(menu)  # 将菜单添加到当前节点下，以便显示
-
 	# 递归构建菜单内容
 	_build_menu_from_data(menu, data)
-
+	apply_theme_and_styles_to_node(menu)
 	# 弹出菜单并设置位置
 	menu.position = pos
 	menu.popup()
 
 	# 菜单关闭后自动销毁
 	menu.popup_hide.connect(menu.queue_free)
+	menu.notification(Control.NOTIFICATION_THEME_CHANGED)
 func open_metadata_manager_window(directory_name:String,link:String) -> void:
 	var metadata_manager_window:Window=preload("res://Scene/MetadataManager.tscn").instantiate()
 	add_child(metadata_manager_window)
+	apply_theme_and_styles_to_node(metadata_manager_window)
 	metadata_manager_window.update(directory_name,link)
 # 递归构建菜单项
 func _build_menu_from_data(menu: PopupMenu, data: Array[Dictionary]) -> void:
@@ -226,7 +227,7 @@ func _build_menu_from_data(menu: PopupMenu, data: Array[Dictionary]) -> void:
 		var checked  = item_dict.get("checked", false)
 		var children = item_dict.get("children", [])
 
-		# 拼接快捷键到标签（用 \t 分隔，显示时快捷键会靠右）
+		# 拼接快捷键到标签(用 \t 分隔，显示时快捷键会靠右)
 		var display_label = label
 		if shortcut != "":
 			if label != "":
@@ -246,6 +247,7 @@ func _build_menu_from_data(menu: PopupMenu, data: Array[Dictionary]) -> void:
 				var sub_menu := PopupMenu.new()
 				sub_menu.name = "SubMenu_%d" % menu.get_child_count()
 				menu.add_child(sub_menu)
+				apply_theme_and_styles_to_node(sub_menu)
 				_build_menu_from_data(sub_menu, children)
 
 				# 添加子菜单项，不接收返回值
@@ -272,7 +274,7 @@ func _build_menu_from_data(menu: PopupMenu, data: Array[Dictionary]) -> void:
 				var idx = menu.item_count - 1
 				_apply_common_item_props(menu, idx, enabled, icon, tooltip, item_dict)
 
-	# 连接信号（只连接一次）
+	# 连接信号(只连接一次)
 	if not menu.id_pressed.is_connected(_on_menu_item_clicked):
 		menu.id_pressed.connect(_on_menu_item_clicked.bind(menu))
 
@@ -298,7 +300,7 @@ func _on_menu_item_clicked(id: int, menu: PopupMenu) -> void:
 		elif action is String and has_method(action):
 			call(action, item_dict)
 
-# 辅助方法：设置图标（支持 Texture2D 对象或资源路径字符串）
+# 辅助方法：设置图标(支持 Texture2D 对象或资源路径字符串)
 func _set_item_icon(menu: PopupMenu, idx: int, icon) -> void:
 	var texture: Texture2D
 	if icon is Texture2D:
@@ -307,13 +309,14 @@ func _set_item_icon(menu: PopupMenu, idx: int, icon) -> void:
 		texture = load(icon) as Texture2D
 	if texture:
 		menu.set_item_icon(idx, texture)
-# 打开收藏夹选择窗口（选择模式）
+# 打开收藏夹选择窗口(选择模式)
 func open_select_favorites_window() -> Array:
 	var window = Window.new()
 	add_child(window)
 	var favorites_page = preload("res://Scene/Favorites.tscn").instantiate()
 	favorites_page.offset_left = 10
 	window.add_child(favorites_page)
+	apply_theme_and_styles_to_node(window)
 	window.size = Vector2i(1290, 901)
 	window.min_size = Vector2(800, 600)
 	window.popup_centered()
@@ -327,13 +330,14 @@ func open_select_favorites_window() -> Array:
 
 	return await favorites_page.favorites_selected
 
-# 打开普通收藏夹管理窗口（普通模式）
+# 打开普通收藏夹管理窗口(普通模式)
 func open_normal_favorites_window() -> bool:
 	var window = Window.new()
 	add_child(window)
 	var favorites_page = preload("res://Scene/Favorites.tscn").instantiate()
 	favorites_page.offset_left = 10
 	window.add_child(favorites_page)
+	apply_theme_and_styles_to_node(window)
 	window.size = Vector2i(1290, 901)
 	window.min_size = Vector2(800, 600)
 	window.popup_centered()
@@ -344,7 +348,7 @@ func open_normal_favorites_window() -> bool:
 		window.queue_free()
 	)
 
-	# 确保普通模式下选择模式关闭（默认即为 false，可省略但建议显式调用）
+	# 确保普通模式下选择模式关闭(默认即为 false，可省略但建议显式调用)
 	favorites_page.set_select_mode(false)
 
 	await favorites_page.tree_exiting
@@ -565,69 +569,249 @@ func set_progress_bar_value(progress_value:int,title_str:="",text_str:="")->void
 	if progress_bar_window==null:
 		progress_bar_window=preload("res://Scene/ProgressBarWindow.tscn").instantiate()
 		add_child(progress_bar_window)
+		apply_theme_and_styles_to_node(progress_bar_window)
 	progress_bar_window.update(progress_value,title_str,text_str)
 
 
 
 
+var current_skin_name: String = ""
+
+## 切换皮肤(全树应用)
+func update_skin_theme(skin_name: String) -> void:
+	current_skin_name = skin_name
+	var dir := "res://Skin/" + skin_name + "/"
+
+	# 1. 加载主主题
+	var main_theme_path = dir + "main.theme"
+	if ResourceLoader.exists(main_theme_path):
+		var main_theme = ResourceLoader.load(main_theme_path, "Theme", ResourceLoader.CACHE_MODE_REUSE)
+		if main_theme:
+			_apply_theme_to_tree(get_tree().root, main_theme)
+		else:
+			push_warning("[ThemeManager] 加载 main.theme 失败: ", main_theme_path)
+	else:
+		push_warning("[ThemeManager] 未找到 main.theme: ", main_theme_path)
+
+	# 2. 应用特殊样式(从配置读取)
+	var config = _load_special_styles_config(dir)
+	_apply_special_styles_global(config)
 
 
+## 全树应用主题(不带动画)
+func apply_theme(theme: Theme) -> void:
+	if not theme:
+		push_warning("[ThemeManager] 传入的 Theme 为 null，跳过")
+		return
+	_apply_theme_to_tree(get_tree().root, theme)
 
-func update_skin_theme(skin_name:String)->void:
-	var dir:="res://Skin/"+skin_name+"/"
-	for file in ResourceLoader.list_directory(dir):
-		if file=="main.theme":
-			apply_theme_from_path(dir+"main.theme")
-			continue
-		var special_style_name:=file.get_basename()
-		if get_tree().has_group(special_style_name):
-			for node in get_tree().get_nodes_in_group(special_style_name):
-				if node is Control:
-					node.remove_theme_stylebox_override(special_style_name)
-					node.add_theme_stylebox_override(special_style_name,load(dir+file))
 
+## 通过路径加载主题
 func apply_theme_from_path(path: String) -> bool:
 	if path.is_empty():
 		push_error("[ThemeManager] 路径不能为空")
 		return false
-
 	if not ResourceLoader.exists(path):
 		push_error("[ThemeManager] 文件不存在: ", path)
 		return false
-
-	# 动态加载主题资源
 	var theme: Theme = ResourceLoader.load(path, "Theme", ResourceLoader.CACHE_MODE_REUSE)
 	if not theme:
 		push_error("[ThemeManager] 加载失败，文件不是有效的 Theme 资源: ", path)
 		return false
-
-	# 应用到整个场景树
-	_apply_theme_globally(theme)
+	apply_theme(theme)
 	return true
 
 
-func apply_theme(theme: Theme):
-	if not theme:
-		push_warning("[ThemeManager] 传入的 Theme 为 null，跳过")
+## 对动态加载节点仅应用特殊样式(不改变主题)
+func apply_special_style_to_node(node: Node) -> void:
+	if current_skin_name.is_empty():
 		return
-	_apply_theme_globally(theme)
+	var dir := "res://Skin/" + current_skin_name + "/"
+	var config = _load_special_styles_config(dir)
+	_apply_special_styles_recursive(node, config)
 
 
-func _apply_theme_globally(theme: Theme):
-	var root = get_tree().root
-	for child in root.get_children():
-		_apply_recursive(child, theme)
+## 对指定子树应用主题 特殊样式(缩小版 update)
+func apply_theme_and_styles_to_node(node: Node) -> void:
+	if current_skin_name.is_empty():
+		return
+	var dir := "res://Skin/" + current_skin_name + "/"
+
+	# 应用主题
+	var main_theme_path = dir + "main.theme"
+	if ResourceLoader.exists(main_theme_path):
+		var main_theme = ResourceLoader.load(main_theme_path, "Theme", ResourceLoader.CACHE_MODE_REUSE)
+		if main_theme:
+			_apply_theme_to_tree(node, main_theme)
+		else:
+			push_warning("[ThemeManager] 加载 main.theme 失败: ", main_theme_path)
+	# 应用特殊样式
+	var config = _load_special_styles_config(dir)
+	_apply_special_styles_recursive(node, config)
 
 
-## 递归遍历，精准定位并设置 Control 主题
-func _apply_recursive(node: Node, theme: Theme):
+## 递归应用主题(遇到 Control 设置 theme 并返回)
+func _apply_theme_to_tree(node: Node, theme: Theme) -> void:
 	if node is Control:
 		node.theme = theme
 		return
 	if node is CanvasLayer:
 		for child in node.get_children():
-			_apply_recursive(child, theme)
+			_apply_theme_to_tree(child, theme)
 		return
-
 	for child in node.get_children():
-		_apply_recursive(child, theme)
+		_apply_theme_to_tree(child, theme)
+
+## 加载特殊样式配置(json 格式)
+func _load_special_styles_config(dir: String) -> Dictionary:
+	var config_path = dir + "special_styles.json"
+	print("[ThemeManager] 尝试加载配置: ", config_path)
+	if not ResourceLoader.exists(config_path):
+		print("[ThemeManager] 配置文件不存在: ", config_path)
+		return {}
+	var file = FileAccess.open(config_path, FileAccess.READ)
+	if file == null:
+		push_error("[ThemeManager] 无法打开配置文件: ", config_path)
+		return {}
+	var content = file.get_as_text()
+	file.close()
+	if content.strip_edges().is_empty():
+		print("[ThemeManager] 配置文件为空: ", config_path)
+		return {}
+	var json = JSON.new()
+	var error = json.parse(content)
+	if error != OK:
+		push_error("[ThemeManager] 解析 special_styles.json 失败: ", json.get_error_message(), " 内容: ", content)
+		return {}
+	var data = json.data
+	if typeof(data) != TYPE_DICTIONARY:
+		push_error("[ThemeManager] 配置数据不是字典类型，实际类型: ", typeof(data))
+		return {}
+	print("[ThemeManager] 成功加载配置，共 ", data.size(), " 个键: ", data.keys())
+	return data
+
+
+## 全局应用特殊样式(遍历所有组)
+func _apply_special_styles_global(config: Dictionary) -> void:
+	if config.is_empty():
+		print("[ThemeManager] 配置为空，跳过全局特殊样式应用")
+		return
+	print("[ThemeManager] 开始全局应用特殊样式，共 ", config.size(), " 个配置项")
+	for group_name in config.keys():
+		print("[ThemeManager] 处理组: ", group_name, " 值: ", config[group_name])
+		if get_tree().has_group(group_name):
+			var nodes = get_tree().get_nodes_in_group(group_name)
+			print("[ThemeManager] 组 '", group_name, "' 找到 ", nodes.size(), " 个节点")
+			var value = config[group_name]
+			for node in nodes:
+				if node is Control:
+					_apply_single_override(node, group_name, value)
+				else:
+					print("[ThemeManager] 节点 ", node.name, " 不是 Control，跳过")
+		else:
+			print("[ThemeManager] 场景中不存在组: ", group_name)
+
+
+## 递归为节点及其子节点应用特殊样式(用于局部更新)
+func _apply_special_styles_recursive(node: Node, config: Dictionary) -> void:
+	if config.is_empty():
+		print("[ThemeManager] 配置为空，跳过递归应用")
+		return
+	if node is Control:
+		var node_groups = node.get_groups()
+		if node_groups.is_empty():
+			print("[ThemeManager] 节点 ", node.name, " 没有加入任何组")
+		else:
+			print("[ThemeManager] 节点 ", node.name, " 所属组: ", node_groups)
+		for group_name in node_groups:
+			if config.has(group_name):
+				print("[ThemeManager] 节点 ", node.name, " 匹配配置组: ", group_name)
+				_apply_single_override(node, group_name, config[group_name])
+	for child in node.get_children():
+		_apply_special_styles_recursive(child, config)
+
+
+## 为单个节点应用一个覆盖(根据组名解析类型和覆盖名称)
+func _apply_single_override(node: Control, group_name: String, value) -> void:
+	print("[ThemeManager] 尝试为节点 ", node.name, " 应用覆盖，组: ", group_name, " 值: ", value)
+	var parts = group_name.split("_", true, 1)  # 只分割第一个下划线
+	if parts.size() != 2:
+		push_warning("[ThemeManager] 无效的组名格式(缺少前缀): ", group_name, " 实际分割: ", parts)
+		return
+	var type_prefix = parts[0]
+	var override_name = parts[1]
+	print("[ThemeManager] 解析前缀: ", type_prefix, " 覆盖名称: ", override_name)
+
+	match type_prefix:
+		"style":
+			var style: StyleBox = _load_resource(value)
+			if style:
+				node.add_theme_stylebox_override(override_name, style)
+				print("[ThemeManager] 成功应用 style 覆盖: ", override_name)
+			else:
+				push_warning("[ThemeManager] 加载 StyleBox 失败，值: ", value)
+		"color":
+			var color = _parse_color(value)
+			if color != null and color != Color.TRANSPARENT:
+				node.add_theme_color_override(override_name, color)
+				print("[ThemeManager] 成功应用 color 覆盖: ", override_name, " 颜色: ", color)
+			else:
+				push_warning("[ThemeManager] 解析颜色失败，值: ", value)
+		"font":
+			var font: Font = _load_resource(value)
+			if font:
+				node.add_theme_font_override(override_name, font)
+				print("[ThemeManager] 成功应用 font 覆盖: ", override_name)
+			else:
+				push_warning("[ThemeManager] 加载 Font 失败，值: ", value)
+		"font_size":
+			var size = int(value)
+			node.add_theme_font_size_override(override_name, size)
+			print("[ThemeManager] 成功应用 font_size 覆盖: ", override_name, " 大小: ", size)
+		"icon":
+			var texture: Texture2D = _load_resource(value)
+			if texture:
+				node.add_theme_icon_override(override_name, texture)
+				print("[ThemeManager] 成功应用 icon 覆盖: ", override_name)
+			else:
+				push_warning("[ThemeManager] 加载 Icon 失败，值: ", value)
+		_:
+			push_warning("[ThemeManager] 未知的类型前缀: ", type_prefix, " 在组名: ", group_name)
+
+
+## 加载资源(支持路径字符串或直接资源对象)
+func _load_resource(value):
+	if value is Resource:
+		print("[ThemeManager] _load_resource 直接获得资源: ", value.resource_path)
+		return value
+	if typeof(value) == TYPE_STRING and (value.begins_with("res://") or value.begins_with("user://")):
+		if ResourceLoader.exists(value):
+			var resource = ResourceLoader.load(value, "", ResourceLoader.CACHE_MODE_REUSE)
+			if resource:
+				print("[ThemeManager] _load_resource 成功加载: ", value)
+				return resource
+			else:
+				push_warning("[ThemeManager] ResourceLoader.load 返回 null: ", value)
+		else:
+			push_warning("[ThemeManager] 资源路径不存在: ", value)
+	else:
+		push_warning("[ThemeManager] _load_resource 不支持的参数类型: ", typeof(value), " 值: ", value)
+	return null
+
+
+## 解析颜色(支持 "#RRGGBB" 或 "#RRGGBBAA")
+func _parse_color(value) -> Color:
+	if value is Color:
+		print("[ThemeManager] _parse_color 直接获得颜色: ", value)
+		return value
+	if typeof(value) == TYPE_STRING:
+		var color_str = value.strip_edges()
+		if color_str.begins_with("#"):
+			var color = Color(color_str)
+			print("[ThemeManager] _parse_color 解析颜色成功: ", color, " 从: ", color_str)
+			return color
+		# 可添加其他格式支持，例如 "red"
+		push_warning("[ThemeManager] _parse_color 不支持的字符串颜色格式: ", color_str)
+	else:
+		push_warning("[ThemeManager] _parse_color 不支持的参数类型: ", typeof(value))
+	return Color.TRANSPARENT

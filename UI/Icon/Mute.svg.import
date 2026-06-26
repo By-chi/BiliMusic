@@ -14,5 +14,9 @@ dest_files=["res://.godot/imported/Mute.svg-a1a64780d7121f36bd5f7ccba666cb28.dpi
 
 base_scale=1.0
 saturation=1.0
-color_map={}
+color_map={
+Color(0, 0, 0, 1): Color(1, 1, 1, 1)
+}
+fix_alpha_border=false
+premult_alpha=false
 compress=true

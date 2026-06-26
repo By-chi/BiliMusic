@@ -117,6 +117,7 @@ func update_callback(videos: Array, execution_number := 0) -> void:
 		if rsults_list.get_child_count() <= i:
 			video_transverse_card = preload(\"res://Scene/VideoTransverseCard.tscn\").instantiate()
 			rsults_list.add_child(video_transverse_card)
+			GdScriptFunc.apply_theme_and_styles_to_node(video_transverse_card)
 		else:
 			video_transverse_card = rsults_list.get_child(i)
 		var video: Dictionary = videos[i]
@@ -188,7 +189,7 @@ func _on_tids_item_selected(_index: int) -> void:
 	update_page(current_keyword)
 "
 
-[node name="Page" type="Control" unique_id=585043204 node_paths=PackedStringArray("rsults_list", "page_edit", "label", "sub_label", "SortModeButton", "TidsButton", "loading", "error", "obstacle")]
+[node name="Page2" type="Control" unique_id=585043204 node_paths=PackedStringArray("rsults_list", "page_edit", "label", "sub_label", "SortModeButton", "TidsButton", "loading", "error", "obstacle")]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -218,12 +219,11 @@ theme_override_font_sizes/font_size = 50
 text = "搜索"
 text_overrun_behavior = 5
 
-[node name="SubLabel" type="Label" parent="Label" unique_id=345127570]
+[node name="SubLabel" type="Label" parent="Label" unique_id=345127570 groups=["color_font_color"]]
 layout_mode = 1
 offset_top = 78.0
 offset_right = 201.0
 offset_bottom = 113.0
-theme_override_colors/font_color = Color(0.22352941, 0.23137255, 0.23921569, 1)
 theme_override_font_sizes/font_size = 24
 text = "请搜索"
 

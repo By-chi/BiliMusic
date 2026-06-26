@@ -314,12 +314,11 @@ mouse_filter = 0
 theme_override_font_sizes/font_size = 50
 text = "导入音乐"
 
-[node name="SubLabel" type="Label" parent="Label" unique_id=345127570]
+[node name="SubLabel" type="Label" parent="Label" unique_id=345127570 groups=["color_font_color"]]
 layout_mode = 1
 offset_top = 78.0
 offset_right = 201.0
 offset_bottom = 112.0
-theme_override_colors/font_color = Color(0.22352941, 0.23137255, 0.23921569, 1)
 theme_override_font_sizes/font_size = 24
 text = "从其他地方丰富你的收藏"
 
@@ -335,7 +334,7 @@ grow_horizontal = 2
 grow_vertical = 2
 current_tab = 0
 
-[node name="本地导入" type="Panel" parent="TabContainer" unique_id=825157242 groups=["panel"]]
+[node name="本地导入" type="Panel" parent="TabContainer" unique_id=825157242 groups=["style_panel"]]
 layout_mode = 2
 metadata/_tab_index = 0
 
@@ -383,7 +382,7 @@ offset_bottom = 62.0
 icon = ExtResource("1_1g1i4")
 expand_icon = true
 
-[node name="BV•AU号" type="Panel" parent="TabContainer" unique_id=248016974 groups=["panel"]]
+[node name="BV•AU号" type="Panel" parent="TabContainer" unique_id=248016974 groups=["style_panel"]]
 visible = false
 layout_mode = 2
 metadata/_tab_index = 1

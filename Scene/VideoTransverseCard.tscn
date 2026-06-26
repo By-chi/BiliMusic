@@ -168,14 +168,13 @@ autowrap_mode = 0
 threaded = true
 progress_bar_delay = -1
 
-[node name="Author" type="RichTextLabel" parent="." unique_id=2115600722]
+[node name="Author" type="RichTextLabel" parent="." unique_id=2115600722 groups=["color_default_color"]]
 layout_mode = 1
 offset_left = 96.0
 offset_top = 41.0
 offset_right = 511.0
 offset_bottom = 66.0
 mouse_filter = 1
-theme_override_colors/default_color = Color(0.21684542, 0.21552005, 0.22141024, 1)
 theme_override_font_sizes/normal_font_size = 14
 theme_override_font_sizes/bold_font_size = 14
 theme_override_font_sizes/bold_italics_font_size = 14
@@ -186,26 +185,24 @@ scroll_active = false
 autowrap_mode = 0
 threaded = true
 
-[node name="Play" type="Label" parent="." unique_id=1545101235]
+[node name="Play" type="Label" parent="." unique_id=1545101235 groups=["color_font_color"]]
 layout_mode = 1
 offset_left = 96.0
 offset_top = 66.0
 offset_right = 216.0
 offset_bottom = 89.0
 mouse_filter = 1
-theme_override_colors/font_color = Color(0.21684542, 0.21552005, 0.22141024, 1)
 theme_override_font_sizes/font_size = 16
 text = "▶ 114514"
 text_overrun_behavior = 6
 
-[node name="Duration" type="Label" parent="." unique_id=636884962]
+[node name="Duration" type="Label" parent="." unique_id=636884962 groups=["color_font_color"]]
 layout_mode = 1
 offset_left = 216.0
 offset_top = 68.0
 offset_right = 305.0
 offset_bottom = 91.0
 mouse_filter = 1
-theme_override_colors/font_color = Color(0.21684542, 0.21552005, 0.22141024, 1)
 theme_override_font_sizes/font_size = 16
 text = "0:00"
 text_overrun_behavior = 6

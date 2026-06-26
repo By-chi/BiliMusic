@@ -1558,6 +1558,7 @@ func _display_qrcode(content: String) -> void:
 	qr_window=preload("res://Scene/Log_in.tscn").instantiate()
 	qr_window.close_requested.connect(_on_qr_window_closed)
 	add_child(qr_window)
+	GdScriptFunc.apply_theme_and_styles_to_node(qr_window)
 	var encoded = content.uri_encode()
 	var qr_api = "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=" + encoded
 	var img_request = HTTPRequest.new()

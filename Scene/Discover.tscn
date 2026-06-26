@@ -22,6 +22,7 @@ func _ready() -> void:
 		
 		up_nodes.append(node)
 		list.add_child(node)
+		GdScriptFunc.apply_theme_and_styles_to_node(node)
 		node.get_node(\"Link\").pressed.connect(func():
 			get_node(\"/root/Main\")._on_search_text_submitted(node.name)
 		)
@@ -62,7 +63,7 @@ func _instantiate_and_setup_card(video: Dictionary, list_node: BoxContainer) -> 
 		return
 	var video_card := preload(\"res://Scene/VideoCard.tscn\").instantiate()
 	list_node.add_child(video_card)
-	
+	GdScriptFunc.apply_theme_and_styles_to_node(video_card)
 	# 赋值逻辑
 	video_card.video_info = video
 	video_card.title = video.get(\"title\",\"\")
@@ -264,12 +265,11 @@ mouse_filter = 0
 theme_override_font_sizes/font_size = 50
 text = "发现音乐"
 
-[node name="SubLabel" type="Label" parent="ScrollContainer/VBoxContainer/Label" unique_id=345127570]
+[node name="SubLabel" type="Label" parent="ScrollContainer/VBoxContainer/Label" unique_id=345127570 groups=["color_font_color"]]
 layout_mode = 1
 offset_top = 78.0
 offset_right = 201.0
 offset_bottom = 112.0
-theme_override_colors/font_color = Color(0.22352941, 0.23137255, 0.23921569, 1)
 theme_override_font_sizes/font_size = 24
 text = "从众多UP主中推荐"
 

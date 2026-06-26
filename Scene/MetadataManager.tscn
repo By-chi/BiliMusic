@@ -307,6 +307,8 @@ func _on_close_requested() -> void:
 	queue_free()
 "
 
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_gptc6"]
+
 [node name="Window" type="Window" unique_id=1319607576 node_paths=PackedStringArray("cover_texture_rect", "title_line_edit", "author_line_edit", "link_line_edit", "description_line_edit", "bv_label")]
 oversampling_override = 1.0
 title = "管理音乐元数据"
@@ -320,6 +322,14 @@ author_line_edit = NodePath("ScrollContainer/VBoxContainer/Author/Author")
 link_line_edit = NodePath("ScrollContainer/VBoxContainer/Link/Link")
 description_line_edit = NodePath("ScrollContainer/VBoxContainer/Description/Description")
 bv_label = NodePath("ScrollContainer/VBoxContainer/BV/BV")
+
+[node name="Panel" type="Panel" parent="." unique_id=733162528 groups=["style_panel"]]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_gptc6")
 
 [node name="ScrollContainer" type="ScrollContainer" parent="." unique_id=1655877729]
 anchors_preset = 15

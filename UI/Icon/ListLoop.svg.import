@@ -14,5 +14,9 @@ dest_files=["res://.godot/imported/ListLoop.svg-158d8b96092bd955d0f976798bd1f3e0
 
 base_scale=2.0
 saturation=1.0
-color_map={}
+color_map={
+Color(0, 0, 0, 1): Color(1, 1, 1, 1)
+}
+fix_alpha_border=false
+premult_alpha=false
 compress=true

@@ -300,7 +300,7 @@ texture = ExtResource("1_fxre3")
 expand_mode = 5
 stretch_mode = 6
 
-[node name="Play" type="Button" parent="BottomMenu" unique_id=1277233588]
+[node name="Play" type="Button" parent="BottomMenu" unique_id=1277233588 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
 custom_minimum_size = Vector2(40, 40)
 layout_mode = 1
 anchors_preset = -1
@@ -367,7 +367,7 @@ flat = true
 icon_alignment = 1
 expand_icon = true
 
-[node name="PlayMode" type="Button" parent="BottomMenu" unique_id=1212575384]
+[node name="PlayMode" type="Button" parent="BottomMenu" unique_id=1212575384 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
 custom_minimum_size = Vector2(40, 40)
 layout_mode = 1
 anchors_preset = 6
@@ -402,7 +402,7 @@ theme_override_styles/grabber_area_highlight = SubResource("StyleBoxFlat_viocg")
 step = 0.0
 value = 50.0
 
-[node name="Volume" type="Button" parent="BottomMenu" unique_id=228953958]
+[node name="Volume" type="Button" parent="BottomMenu" unique_id=228953958 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
 layout_mode = 1
 anchors_preset = 6
 anchor_left = 1.0

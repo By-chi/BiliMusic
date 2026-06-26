@@ -164,7 +164,7 @@ func _lazy_update_decks() -> void:
 		else:
 			var deck = _create_deck_node(dir_name)
 			grid_container.add_child(deck)
-
+			GdScriptFunc.apply_theme_and_styles_to_node(deck)
 	for dir_name in existing.keys():
 		if not new_decks.has(dir_name):
 			existing[dir_name].queue_free()
@@ -210,7 +210,7 @@ func _lazy_update_video_cards() -> void:
 		else:
 			var card = _create_video_card_node(video_data)
 			grid_container.add_child(card)
-
+			GdScriptFunc.apply_theme_and_styles_to_node(card)
 	for link in existing.keys():
 		var still_exists = false
 		for v in new_videos:
@@ -262,13 +262,13 @@ func _load_all_decks() -> void:
 	for dir_name in dir_names:
 		var deck = _create_deck_node(dir_name)
 		grid_container.add_child(deck)
-
+		GdScriptFunc.apply_theme_and_styles_to_node(deck)
 func _load_all_video_cards() -> void:
 	var videos: Array = GdScriptFunc.get_data(\"Favorites\", _current_fav_dir, [])
 	for v in videos:
 		var video_card = _create_video_card_node(v)
 		grid_container.add_child(video_card)
-
+		GdScriptFunc.apply_theme_and_styles_to_node(video_card)
 func _set_cover(texture: Texture2D, video_card: Control) -> void:
 	set_cover(\"\", texture, video_card)
 
@@ -674,6 +674,7 @@ func _on_add_pressed() -> void:
 	deck.text_node.call_deferred(\"grab_focus\")
 	deck.pressed.connect(_on_deck_pressed.bind(deck))
 	grid_container.add_child(deck)
+	GdScriptFunc.apply_theme_and_styles_to_node(deck)
 	await get_tree().process_frame
 	grid_container.update_minimum_size()
 	scroll_container.update_minimum_size()
@@ -925,12 +926,11 @@ mouse_filter = 0
 theme_override_font_sizes/font_size = 50
 text = "收藏列表"
 
-[node name="SubLabel" type="Label" parent="Label" unique_id=345127570]
+[node name="SubLabel" type="Label" parent="Label" unique_id=345127570 groups=["color_font_color"]]
 layout_mode = 1
 offset_top = 78.0
 offset_right = 201.0
 offset_bottom = 112.0
-theme_override_colors/font_color = Color(0.22352941, 0.23137255, 0.23921569, 1)
 theme_override_font_sizes/font_size = 24
 text = "做一个音乐收藏家"
 
@@ -945,7 +945,7 @@ offset_bottom = 99.0
 grow_horizontal = 2
 theme_override_constants/separation = 20
 
-[node name="Add" type="Button" parent="Bar" unique_id=2043052242 groups=["disabled"]]
+[node name="Add" type="Button" parent="Bar" unique_id=2043052242 groups=["style_disabled"]]
 custom_minimum_size = Vector2(70, 70)
 layout_mode = 2
 tooltip_text = "添加文件夹"
@@ -954,7 +954,7 @@ theme_override_styles/disabled = ExtResource("1_l7kha")
 icon = ExtResource("1_wkvp8")
 expand_icon = true
 
-[node name="Cut" type="Button" parent="Bar" unique_id=1756933694 groups=["disabled"]]
+[node name="Cut" type="Button" parent="Bar" unique_id=1756933694 groups=["style_disabled"]]
 custom_minimum_size = Vector2(70, 70)
 layout_mode = 2
 tooltip_text = "剪切"
@@ -963,7 +963,7 @@ theme_override_styles/disabled = ExtResource("1_l7kha")
 icon = ExtResource("2_70l1a")
 expand_icon = true
 
-[node name="Copy" type="Button" parent="Bar" unique_id=141322814 groups=["disabled"]]
+[node name="Copy" type="Button" parent="Bar" unique_id=141322814 groups=["style_disabled"]]
 custom_minimum_size = Vector2(70, 70)
 layout_mode = 2
 tooltip_text = "复制"
@@ -972,7 +972,7 @@ theme_override_styles/disabled = ExtResource("1_l7kha")
 icon = ExtResource("3_3pacr")
 expand_icon = true
 
-[node name="Paste" type="Button" parent="Bar" unique_id=1791995644 groups=["disabled"]]
+[node name="Paste" type="Button" parent="Bar" unique_id=1791995644 groups=["style_disabled"]]
 custom_minimum_size = Vector2(70, 70)
 layout_mode = 2
 tooltip_text = "粘贴"
@@ -981,7 +981,7 @@ theme_override_styles/disabled = ExtResource("1_l7kha")
 icon = ExtResource("4_o8iwe")
 expand_icon = true
 
-[node name="Remove" type="Button" parent="Bar" unique_id=167491011 groups=["disabled"]]
+[node name="Remove" type="Button" parent="Bar" unique_id=167491011 groups=["style_disabled"]]
 custom_minimum_size = Vector2(70, 70)
 layout_mode = 2
 tooltip_text = "移除"
@@ -990,7 +990,7 @@ theme_override_styles/disabled = ExtResource("1_l7kha")
 icon = ExtResource("2_a53u4")
 expand_icon = true
 
-[node name="Download" type="Button" parent="Bar" unique_id=936197800 groups=["disabled"]]
+[node name="Download" type="Button" parent="Bar" unique_id=936197800 groups=["style_disabled"]]
 custom_minimum_size = Vector2(70, 70)
 layout_mode = 2
 tooltip_text = "下载到本地"

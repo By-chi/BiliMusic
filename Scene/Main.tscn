@@ -86,16 +86,7 @@ func _on_search_text_submitted(new_text: String) -> void:
 	change_page(\"Results\")
 "
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_tql3x"]
-content_margin_left = 0.0
-content_margin_top = 0.0
-content_margin_right = 0.0
-content_margin_bottom = 0.0
-bg_color = Color(0.16470589, 0.16470589, 0.16470589, 1)
-corner_radius_top_left = 3
-corner_radius_top_right = 3
-corner_radius_bottom_right = 3
-corner_radius_bottom_left = 3
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_bf81u"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_uq86q"]
 corner_radius_top_left = 30
@@ -146,8 +137,7 @@ _data = {
 &"start": SubResource("Animation_togfq")
 }
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_aan6j"]
-bg_color = Color(0.9490196, 0.9529412, 0.98039216, 1)
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_aa3qu"]
 
 [sub_resource type="GDScript" id="GDScript_6a8me"]
 script/source = "# 仅处理界面显示与用户输入，实际播放逻辑调用 Player 中枢
@@ -303,6 +293,7 @@ func _on_details_pressed() -> void:
 	if play_window==null:
 		play_window=preload(\"res://Scene/WindowPlayback.tscn\").instantiate()
 		get_tree().root.add_child(play_window)
+		GdScriptFunc.apply_theme_and_styles_to_node(play_window)
 	play_window.show()
 	hide()
 	play_window.update(list_name,cover,Player.get_current_video_info())
@@ -382,14 +373,14 @@ bottom_menu = NodePath("BottomMenu")
 ui_sound = NodePath("AudioStreamPlayer")
 icon = NodePath("LeftMenu/Search/Panel/Icon")
 
-[node name="LeftMenu" type="Panel" parent="." unique_id=1758456242 groups=["panel"]]
+[node name="LeftMenu" type="Panel" parent="." unique_id=1758456242 groups=["style_panel"]]
 clip_contents = true
 layout_mode = 1
 anchors_preset = 9
 anchor_bottom = 1.0
 offset_left = -283.0
 grow_vertical = 2
-theme_override_styles/panel = SubResource("StyleBoxFlat_tql3x")
+theme_override_styles/panel = SubResource("StyleBoxFlat_bf81u")
 metadata/_edit_use_anchors_ = true
 
 [node name="Search" type="LineEdit" parent="LeftMenu" unique_id=499293569]
@@ -449,7 +440,7 @@ size_flags_horizontal = 3
 size_flags_vertical = 3
 theme_override_constants/separation = 10
 
-[node name="Discover" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=380134334]
+[node name="Discover" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=380134334 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
 custom_minimum_size = Vector2(0, 60)
 layout_mode = 2
 tooltip_text = "从众多up主中推荐"
@@ -457,7 +448,7 @@ text = "发现音乐"
 icon = ExtResource("3_h175a")
 expand_icon = true
 
-[node name="Results" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=1597806874]
+[node name="Results" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=1597806874 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
 custom_minimum_size = Vector2(0, 60)
 layout_mode = 2
 tooltip_text = "搜索结果"
@@ -465,7 +456,7 @@ text = "搜索结果"
 icon = ExtResource("4_togfq")
 expand_icon = true
 
-[node name="Favorites" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=963398162]
+[node name="Favorites" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=963398162 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
 custom_minimum_size = Vector2(0, 60)
 layout_mode = 2
 tooltip_text = "做一个音乐收藏家"
@@ -473,7 +464,7 @@ text = "收藏列表"
 icon = ExtResource("4_6a8me")
 expand_icon = true
 
-[node name="Import" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=109681081]
+[node name="Import" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=109681081 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
 custom_minimum_size = Vector2(0, 60)
 layout_mode = 2
 tooltip_text = "从外部导入音乐"
@@ -481,7 +472,7 @@ text = "导入音频"
 icon = ExtResource("5_e6irg")
 expand_icon = true
 
-[node name="Options" type="Button" parent="LeftMenu" unique_id=1648837809]
+[node name="Options" type="Button" parent="LeftMenu" unique_id=1648837809 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
 custom_minimum_size = Vector2(0, 60)
 layout_mode = 1
 anchors_preset = 7
@@ -523,7 +514,7 @@ layout_mode = 1
 visible = false
 layout_mode = 1
 
-[node name="BottomMenu" type="Panel" parent="." unique_id=1456727291 node_paths=PackedStringArray("cover_node", "title_label", "author_label", "play_button", "volume_button", "progress_bar", "volume_progress_bar", "volume_background", "volume_exit_timer", "play_mode_button")]
+[node name="BottomMenu" type="Panel" parent="." unique_id=1456727291 node_paths=PackedStringArray("cover_node", "title_label", "author_label", "play_button", "volume_button", "progress_bar", "volume_progress_bar", "volume_background", "volume_exit_timer", "play_mode_button") groups=["style_panel"]]
 visible = false
 layout_mode = 1
 anchors_preset = 12
@@ -534,7 +525,7 @@ offset_left = 283.0
 offset_top = -99.0
 grow_horizontal = 2
 grow_vertical = 0
-theme_override_styles/panel = SubResource("StyleBoxFlat_aan6j")
+theme_override_styles/panel = SubResource("StyleBoxFlat_aa3qu")
 script = SubResource("GDScript_6a8me")
 cover_node = NodePath("Cover")
 title_label = NodePath("Title")
@@ -578,7 +569,7 @@ theme_override_font_sizes/font_size = 24
 text = "TitleTitleTitleTitleTitleTitleTitleTitleTitleTitle"
 text_overrun_behavior = 5
 
-[node name="Author" type="Label" parent="BottomMenu" unique_id=891646003]
+[node name="Author" type="Label" parent="BottomMenu" unique_id=891646003 groups=["color_font_color"]]
 layout_mode = 1
 anchors_preset = -1
 anchor_right = 0.43600002
@@ -593,7 +584,7 @@ theme_override_font_sizes/font_size = 16
 text = "AuthorAuthorAuthorAuthorAuthorAuthorAuthor"
 text_overrun_behavior = 5
 
-[node name="Play" type="Button" parent="BottomMenu" unique_id=156709578]
+[node name="Play" type="Button" parent="BottomMenu" unique_id=156709578 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
 custom_minimum_size = Vector2(40, 40)
 layout_mode = 1
 anchors_preset = -1
@@ -615,7 +606,7 @@ flat = true
 icon_alignment = 1
 expand_icon = true
 
-[node name="Next" type="Button" parent="BottomMenu/Play" unique_id=1009654094]
+[node name="Next" type="Button" parent="BottomMenu/Play" unique_id=1009654094 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
 custom_minimum_size = Vector2(33, 33)
 layout_mode = 1
 anchors_preset = 8
@@ -637,7 +628,7 @@ flat = true
 icon_alignment = 1
 expand_icon = true
 
-[node name="PREV" type="Button" parent="BottomMenu/Play" unique_id=978403662]
+[node name="PREV" type="Button" parent="BottomMenu/Play" unique_id=978403662 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
 custom_minimum_size = Vector2(33, 33)
 layout_mode = 1
 anchors_preset = 8
@@ -660,7 +651,7 @@ flat = true
 icon_alignment = 1
 expand_icon = true
 
-[node name="PlayMode" type="Button" parent="BottomMenu" unique_id=1372697597]
+[node name="PlayMode" type="Button" parent="BottomMenu" unique_id=1372697597 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
 custom_minimum_size = Vector2(40, 40)
 layout_mode = 1
 anchors_preset = 6
@@ -679,7 +670,7 @@ icon = ExtResource("12_mr7am")
 flat = true
 expand_icon = true
 
-[node name="Details" type="Button" parent="BottomMenu" unique_id=898439173]
+[node name="Details" type="Button" parent="BottomMenu" unique_id=898439173 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
 custom_minimum_size = Vector2(40, 40)
 layout_mode = 1
 anchors_preset = 6
@@ -717,7 +708,7 @@ theme_override_styles/grabber_area_highlight = SubResource("StyleBoxFlat_kp1vv")
 step = 0.0
 value = 50.0
 
-[node name="Volume" type="Button" parent="BottomMenu" unique_id=663841792]
+[node name="Volume" type="Button" parent="BottomMenu" unique_id=663841792 groups=["color_icon_normal_color", "color_modulate_icon_hover", "color_modulate_icon_pressed"]]
 layout_mode = 1
 anchors_preset = 6
 anchor_left = 1.0
