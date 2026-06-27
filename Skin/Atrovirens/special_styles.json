@@ -1,0 +1,10 @@
+{
+  "style_disabled": "res://Skin/Atrovirens/disabled.stylebox",
+  "style_panel": "res://Skin/Atrovirens/panel.stylebox",
+  "color_font_color": "#E2F0EA",
+  "color_default_color": "#E2F0EA",
+  "color_icon_normal_color": "#5e9c7a",
+  "color_icon_hover_color": "#5e9c7a",
+  "color_icon_pressed_color": "#5e9c7a",
+  "color_icon_hover_pressed_color": "#5e9c7a",
+}

@@ -1,6 +1,6 @@
 {
-  "style_disabled": "res://Skin/Light/disabled.stylebox",
-  "style_panel": "res://Skin/Light/panel.stylebox",
+  "style_disabled": "res://Skin/Cloud Nine/disabled.stylebox",
+  "style_panel": "res://Skin/Cloud Nine/panel.stylebox",
   "color_font_color": "#373738",
   "color_default_color": "#373738",
   "color_icon_normal_color": "#000000",

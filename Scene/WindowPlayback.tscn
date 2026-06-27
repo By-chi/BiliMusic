@@ -8,7 +8,6 @@
 [ext_resource type="Texture2D" uid="uid://dtory6dhisyt6" path="res://UI/Icon/Shuffle.svg" id="4_qurl1"]
 [ext_resource type="Texture2D" uid="uid://b3xsbub1ghib" path="res://UI/Icon/RepeatOne.svg" id="4_rsqnk"]
 [ext_resource type="Texture2D" uid="uid://bdopxjml2yacq" path="res://UI/Icon/Volume.svg" id="6_xv1qo"]
-[ext_resource type="Texture2D" uid="uid://d2h6u5vsahrtp" path="res://UI/Icon/Mute.svg" id="7_nfqx6"]
 
 [sub_resource type="GDScript" id="GDScript_ae35q"]
 script/source = "extends Window
@@ -149,9 +148,11 @@ func pause()->void:
 	play_button.set_pressed_no_signal(false)
 func _on_volume_toggled(toggled_on: bool):
 	if toggled_on:
+		volume_button.icon=preload(\"res://UI/Icon/Mute.svg\")
 		Player.volume_linear = 0
 		volume_progress_bar.set_value_no_signal(0)
 	else:
+		volume_button.icon=preload(\"res://UI/Icon/Volume.svg\")
 		Player.volume_linear = volume * 0.01
 		volume_progress_bar.set_value_no_signal(volume)
 
@@ -204,14 +205,6 @@ corner_detail = 3
 expand_margin_top = 3.0
 expand_margin_bottom = 3.0
 
-[sub_resource type="StyleBoxTexture" id="StyleBoxTexture_1ynu6"]
-texture = ExtResource("6_xv1qo")
-
-[sub_resource type="StyleBoxTexture" id="StyleBoxTexture_4a6w0"]
-texture = ExtResource("7_nfqx6")
-
-[sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_g2umt"]
-
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_xk6jt"]
 bg_color = Color(0, 0, 0, 0.42352942)
 corner_radius_top_left = 8
@@ -262,7 +255,7 @@ min_size = Vector2i(1000, 800)
 script = SubResource("GDScript_ae35q")
 bottom_menu = NodePath("BottomMenu")
 
-[node name="BottomMenu" type="Panel" parent="." unique_id=1488671911 node_paths=PackedStringArray("cover_node", "play_button", "volume_button", "progress_bar", "volume_progress_bar", "volume_background", "volume_exit_timer", "play_mode_button")]
+[node name="BottomMenu" type="Panel" parent="." unique_id=1488671911 node_paths=PackedStringArray("cover_node", "play_button", "volume_button", "progress_bar", "volume_progress_bar", "volume_background", "volume_exit_timer", "play_mode_button") groups=["style_panel"]]
 z_index = 1
 anchors_preset = 12
 anchor_top = 1.0
@@ -300,7 +293,7 @@ texture = ExtResource("1_fxre3")
 expand_mode = 5
 stretch_mode = 6
 
-[node name="Play" type="Button" parent="BottomMenu" unique_id=1277233588 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
+[node name="Play" type="Button" parent="BottomMenu" unique_id=1277233588 groups=["color_icon_hover_color", "color_icon_hover_pressed_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 custom_minimum_size = Vector2(40, 40)
 layout_mode = 1
 anchors_preset = -1
@@ -322,7 +315,7 @@ flat = true
 icon_alignment = 1
 expand_icon = true
 
-[node name="Next" type="Button" parent="BottomMenu/Play" unique_id=1167225884]
+[node name="Next" type="Button" parent="BottomMenu/Play" unique_id=1167225884 groups=["color_icon_hover_color", "color_icon_hover_pressed_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 custom_minimum_size = Vector2(33, 33)
 layout_mode = 1
 anchors_preset = 8
@@ -344,7 +337,7 @@ flat = true
 icon_alignment = 1
 expand_icon = true
 
-[node name="PREV" type="Button" parent="BottomMenu/Play" unique_id=791728535]
+[node name="PREV" type="Button" parent="BottomMenu/Play" unique_id=791728535 groups=["color_icon_hover_color", "color_icon_hover_pressed_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 custom_minimum_size = Vector2(33, 33)
 layout_mode = 1
 anchors_preset = 8
@@ -402,7 +395,8 @@ theme_override_styles/grabber_area_highlight = SubResource("StyleBoxFlat_viocg")
 step = 0.0
 value = 50.0
 
-[node name="Volume" type="Button" parent="BottomMenu" unique_id=228953958 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
+[node name="Volume" type="Button" parent="BottomMenu" unique_id=228953958 groups=["color_icon_hover_color", "color_icon_hover_pressed_color", "color_icon_normal_color", "color_icon_pressed_color"]]
+custom_minimum_size = Vector2(40, 40)
 layout_mode = 1
 anchors_preset = 6
 anchor_left = 1.0
@@ -416,13 +410,9 @@ offset_bottom = 19.0
 grow_horizontal = 0
 grow_vertical = 2
 focus_mode = 1
-theme_override_styles/normal = SubResource("StyleBoxTexture_1ynu6")
-theme_override_styles/pressed = SubResource("StyleBoxTexture_4a6w0")
-theme_override_styles/hover = SubResource("StyleBoxTexture_1ynu6")
-theme_override_styles/hover_pressed = SubResource("StyleBoxTexture_4a6w0")
-theme_override_styles/disabled = SubResource("StyleBoxTexture_4a6w0")
-theme_override_styles/focus = SubResource("StyleBoxEmpty_g2umt")
 toggle_mode = true
+icon = ExtResource("6_xv1qo")
+flat = true
 expand_icon = true
 
 [node name="Background" type="Panel" parent="BottomMenu/Volume" unique_id=1308513906]
@@ -432,10 +422,10 @@ anchor_left = 1.0
 anchor_top = 0.5
 anchor_right = 1.0
 anchor_bottom = 0.5
-offset_left = -29.999956
-offset_top = -179.00003
-offset_right = 3.0000458
-offset_bottom = -24.00003
+offset_left = -35.0
+offset_top = -179.0
+offset_right = -2.0
+offset_bottom = -24.0
 grow_horizontal = 0
 grow_vertical = 2
 scale = Vector2(1e-05, 1e-05)

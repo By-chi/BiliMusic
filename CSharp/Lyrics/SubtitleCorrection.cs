@@ -63,8 +63,8 @@ public partial class SubtitleCorrection : Node
     }
 
     private async Task<string> ProcessSubtitleInternal(
-    Godot.Collections.Dictionary subtitleContent,
-    string m4sPath, string trackName, string outputDir, string requestId = null)
+        Godot.Collections.Dictionary subtitleContent,
+        string m4sPath, string trackName, string outputDir, string requestId = null)
     {
         var biliSubs = ParseBiliSubs(subtitleContent);
         GD.Print($"[Process] 解析到 B 站字幕 {biliSubs.Count} 条");
@@ -87,7 +87,9 @@ public partial class SubtitleCorrection : Node
         {
             string cleaned = SubtitleUtils.CleanLrcMeta(rawLrc);
             var externalSubs = ParseLrcToSubtitleItems(cleaned);
-            var biliSubsList = biliSubs.Select(s => new LyricsAlignment.SubtitleItem
+            
+            // 转为 SubtitleItem 列表（用于评估和对齐映射）
+            var biliItems = biliSubs.Select(s => new LyricsAlignment.SubtitleItem
             {
                 StartTime = TimeSpan.FromSeconds(s.from),
                 EndTime = TimeSpan.FromSeconds(s.to),
@@ -95,43 +97,51 @@ public partial class SubtitleCorrection : Node
             }).ToList();
 
             var aligner = new LyricsAlignment.LyricsAligner();
-            var alignmentResult = aligner.Evaluate(biliSubsList, externalSubs);
-            GD.Print($"[对齐评估] TextScore={alignmentResult.TextScore:F4}, TimeScore={alignmentResult.TimeScore:F4}, OverallScore={alignmentResult.OverallScore:F4}, Offset={alignmentResult.EstimatedOffsetSeconds:F2}s, IsMatch={alignmentResult.IsMatch}");
+            var alignmentResult = aligner.Evaluate(biliItems, externalSubs);
+            GD.Print($"[对齐评估] TextScore={alignmentResult.TextScore:F4}, TimeScore={alignmentResult.TimeScore:F4}, WeightedScore={alignmentResult.WeightedOverallScore:F4}, Offset={alignmentResult.EstimatedOffsetSeconds:F2}s, IsMatch={alignmentResult.IsMatch}");
 
             if (alignmentResult.TextScore >= MinTextScoreForMatch)
             {
                 try
                 {
-                    double offset = double.IsNaN(alignmentResult.EstimatedOffsetSeconds) ? 0 : alignmentResult.EstimatedOffsetSeconds;
-                    if (Math.Abs(offset) <= SmallOffsetThreshold)
-                    {
-                        string correctedLrc = ApplyOffsetToLrc(cleaned, offset);
-                        await File.WriteAllTextAsync(finalLrcPath, correctedLrc, Encoding.UTF8);
-                        GD.Print($"[Process] 偏移 {offset:F2}s ≤ 阈值，已直接使用外部歌词时间轴");
-                    }
-                    else
-                    {
-                        string biliCombined = string.Join(" ", biliSubs.Select(s => s.content));
-                        string extCombined = string.Join(" ", externalSubs.Select(s => s.Text));
+                    // 获取句子级对齐映射（B 站行索引 → 外部行索引）
+                    var mapping = aligner.GetSentenceAlignment(biliItems, externalSubs);
 
-                        if (!SubtitleUtils.IsSameLanguage(biliCombined, extCombined))
+                    var sb = new StringBuilder();
+                    var extTexts = externalSubs.Select(e => SubtitleUtils.ToSimplified(e.Text)).ToList();
+                    var biliSimpTexts = biliSubs.Select(s => SubtitleUtils.ToSimplified(s.content)).ToList();
+
+                    // 每个 B 站行只保留第一个匹配到的外部行
+                    var biliToExt = new Dictionary<int, int>();
+                    foreach (var (bIdx, eIdx) in mapping)
+                    {
+                        if (!biliToExt.ContainsKey(bIdx))
+                            biliToExt[bIdx] = eIdx;
+                    }
+
+                    for (int i = 0; i < biliSubs.Count; i++)
+                    {
+                        string text;
+                        if (biliToExt.TryGetValue(i, out int extIdx) && extIdx < extTexts.Count)
                         {
-                            // 语言不一致：直接使用外部歌词，不修改时间轴
-                            GD.Print("[Process] 语言不一致，直接使用外部歌词（原始时间轴）");
-                            await File.WriteAllTextAsync(finalLrcPath, cleaned, Encoding.UTF8);
-                            return finalLrcPath;
+                            text = extTexts[extIdx];   // 使用对应的外部歌词文本
+                        }
+                        else
+                        {
+                            text = biliSimpTexts[i];   // 无匹配时回退到 B 站文本
                         }
 
-                        // 语言一致时才做融合（B站时间轴 + 外部文本）
-                        string mergedLrc = MergeWithBiliSubs(cleaned, biliSubs, 0);
-                        await File.WriteAllTextAsync(finalLrcPath, mergedLrc, Encoding.UTF8);
-                        GD.Print($"[Process] 偏移 {offset:F2}s > 阈值，已用 B 站时间轴 + 外部文本");
+                        var ts = TimeSpan.FromSeconds(biliSubs[i].from);
+                        sb.AppendLine($"[{ts.Minutes:D2}:{ts.Seconds:D2}.{ts.Milliseconds:D2}]{text}");
                     }
+
+                    await File.WriteAllTextAsync(finalLrcPath, sb.ToString(), Encoding.UTF8);
+                    GD.Print($"[Process] 已基于文本对齐使用 B 站时间轴 + 外部歌词文本");
                 }
                 catch (Exception ex)
                 {
-                    GD.PrintErr($"[Process] 处理匹配分支时发生异常: {ex}");
-                    // 异常时回退到B站字幕
+                    GD.PrintErr($"[Process] 对齐替换失败: {ex}");
+                    // 异常时回退到 B 站字幕
                     string fallbackLrc = ConvertBiliSubsToLrc(biliSubs, true);
                     await File.WriteAllTextAsync(finalLrcPath, fallbackLrc, Encoding.UTF8);
                 }
@@ -148,7 +158,52 @@ public partial class SubtitleCorrection : Node
         await File.WriteAllTextAsync(finalLrcPath, biliLrc, Encoding.UTF8);
         return finalLrcPath;
     }
+    /// <summary>
+    /// 使用外部歌词的文本内容，替换B站字幕的时间轴中的文本，尽量完整保留外部文本。
+    /// </summary>
+    private static string ReplaceTimeTexts(string cleanedLrc, List<BiliSubtitleItem> biliSubs)
+    {
+        // 1提取外部歌词的文本（按行，保留空格，仅Trim）
+        var extTexts = new List<string>();
+        foreach (Match m in Regex.Matches(cleanedLrc, 
+                @"^\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)", RegexOptions.Multiline))
+        {
+            string text = m.Groups[4].Value.Trim();
+            if (!string.IsNullOrEmpty(text))
+                extTexts.Add(text);
+        }
 
+        if (extTexts.Count == 0 || biliSubs.Count == 0)
+            return ConvertBiliSubsToLrc(biliSubs, true); // 回退
+
+        //  对所有文本进行繁简转换
+        var simpBiliTexts = biliSubs.Select(s => SubtitleUtils.ToSimplified(s.content).Trim()).ToList();
+        var simpExtTexts = extTexts.Select(SubtitleUtils.ToSimplified).ToList();
+
+        //  构建输出：B站时间戳 + 外部文本（按顺序填充）
+        var sb = new StringBuilder();
+        int extIndex = 0;
+        for (int i = 0; i < biliSubs.Count; i++)
+        {
+            string textToUse;
+            if (extIndex < simpExtTexts.Count)
+            {
+                textToUse = simpExtTexts[extIndex];
+                extIndex++;
+            }
+            else
+            {
+                // 外部歌词行不够，使用原B站字幕文本（或留空）
+                textToUse = simpBiliTexts[i];
+            }
+
+            var ts = TimeSpan.FromSeconds(biliSubs[i].from);
+            sb.AppendLine($"[{ts.Minutes:D2}:{ts.Seconds:D2}.{ts.Milliseconds:D2}]{textToUse}");
+        }
+
+        //  如果外部歌词行数多于B站字幕，丢弃剩余外部行（或可选择追加到最后一个时间戳，但会破坏对齐）
+        return sb.ToString();
+    }
     private static string MergeWithBiliSubs(string cleanedLrc, List<BiliSubtitleItem> biliSubs, double offsetSeconds)
     {
         // 1. 提取外部歌词文本（保留原始空格，仅 Trim）
@@ -370,6 +425,7 @@ namespace LyricsAlignment
         public double TextScore { get; set; }
         public double TimeScore { get; set; }
         public double OverallScore => TextScore + TimeScore;
+        public double WeightedOverallScore { get; set; }      // 加权分
         public double EstimatedOffsetSeconds { get; set; }
         public bool IsMatch { get; set; }
         public List<SegmentAlignmentInfo> Segments { get; set; } = new();
@@ -389,10 +445,12 @@ namespace LyricsAlignment
         public double SegmentGapThreshold { get; set; } = 5.0;
         public double SearchWindowSeconds { get; set; } = 3.0;
         public int SakoeChibaWindowSize { get; set; } = 15;
-        public double TimeWeight { get; set; } = 0.4;
+        public double TimeWeight { get; set; } = 1.0;
         public double TextWeight { get; set; } = 1.0;
         public double MaxOffsetForTimeScore { get; set; } = 3.0;
-        public double MatchThreshold { get; set; } = 1.2;
+        public double MatchThreshold { get; set; } = 0.6;
+        public double TextScoreWeight { get; set; } = 0.3;  // 文本占比30%
+        public double TimeScoreWeight { get; set; } = 0.7;  // 时间占比70%
     }
 
     internal class TimedToken
@@ -412,7 +470,59 @@ namespace LyricsAlignment
     {
         private readonly AlignmentOptions _options;
         public LyricsAligner(AlignmentOptions options = null) => _options = options ?? new AlignmentOptions();
+        // 放在 LyricsAlignment 命名空间的 LyricsAligner 类内部
+        public List<(int biliIndex, int extIndex)> GetSentenceAlignment(
+            IReadOnlyList<SubtitleItem> bilibiliSubs,
+            IReadOnlyList<SubtitleItem> externalSubs)
+        {
+            var biliTokens = TokenizeAndPhoneticize(bilibiliSubs);
+            var extTokens = TokenizeAndPhoneticize(externalSubs);
 
+            if (biliTokens.Count == 0 || extTokens.Count == 0)
+                return [];
+
+            var segments = BuildSegments(bilibiliSubs, externalSubs);
+            var mapping = new List<(int biliIndex, int extIndex)>();
+
+            foreach (var seg in segments)
+            {
+                var bSegTokens = biliTokens
+                    .Where(t => t.Time >= seg.BStartSec && t.Time <= seg.BEndSec)
+                    .ToList();
+                var eSegTokens = extTokens
+                    .Where(t => t.Time >= seg.EStartSec && t.Time <= seg.EEndSec)
+                    .ToList();
+
+                if (bSegTokens.Count == 0 || eSegTokens.Count == 0)
+                    continue;
+
+                var bFeatures = BuildFeatureVectors(bSegTokens);
+                var eFeatures = BuildFeatureVectors(eSegTokens);
+                var bSeq = bFeatures.Select(f => _options.TextWeight * f[0] + _options.TimeWeight * f[1]).ToArray();
+                var eSeq = eFeatures.Select(f => _options.TextWeight * f[0] + _options.TimeWeight * f[1]).ToArray();
+
+                var dtw = new Dtw(bSeq, eSeq);
+                var path = dtw.GetPath();
+
+                foreach (var pair in path)
+                {
+                    int bTokIdx = pair.Item1;
+                    int eTokIdx = pair.Item2;
+
+                    if (bTokIdx < bSegTokens.Count && eTokIdx < eSegTokens.Count)
+                    {
+                        int bLine = bSegTokens[bTokIdx].LineIndex;
+                        int eLine = eSegTokens[eTokIdx].LineIndex;
+                        mapping.Add((bLine, eLine));
+                    }
+                }
+            }
+
+            // 去重并按 B 站行索引排序
+            return [.. mapping
+                .Distinct()
+                .OrderBy(x => x.biliIndex)];
+        }
         public AlignmentResult Evaluate(IReadOnlyList<SubtitleItem> bilibiliSubs, IReadOnlyList<SubtitleItem> externalSubs)
         {
             if (bilibiliSubs == null || bilibiliSubs.Count == 0)
@@ -485,12 +595,16 @@ namespace LyricsAlignment
             double timeScore = 0;
             if (!double.IsNaN(overallOffset))
                 timeScore = Math.Max(0, 1 - Math.Abs(overallOffset) / _options.MaxOffsetForTimeScore);
-            bool isMatch = (textScore + timeScore) >= _options.MatchThreshold;
+            double weightedScore = textScore * _options.TextScoreWeight + timeScore * _options.TimeScoreWeight;
+            bool isMatch = weightedScore >= _options.MatchThreshold;
 
             return new AlignmentResult
             {
-                TextScore = textScore, TimeScore = timeScore,
-                EstimatedOffsetSeconds = overallOffset, IsMatch = isMatch,
+                TextScore = textScore,
+                TimeScore = timeScore,
+                WeightedOverallScore = weightedScore,   // 新加权分
+                EstimatedOffsetSeconds = overallOffset,
+                IsMatch = isMatch,
                 Segments = segResults
             };
         }

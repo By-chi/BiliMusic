@@ -918,6 +918,18 @@ copy_button = NodePath("Bar/Copy")
 paste_button = NodePath("Bar/Paste")
 add_button = NodePath("Bar/Add")
 
+[node name="Panel" type="Panel" parent="." unique_id=1960210643]
+z_index = -1
+layout_mode = 1
+anchors_preset = -1
+anchor_left = -0.24031007
+anchor_right = 1.0
+anchor_bottom = 1.1564928
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+metadata/_edit_use_anchors_ = true
+
 [node name="Label" type="Label" parent="." unique_id=921580403]
 layout_mode = 0
 offset_right = 1290.0
@@ -1040,8 +1052,8 @@ anchor_top = 1.0
 anchor_right = 0.5
 anchor_bottom = 1.0
 offset_left = -40.0
-offset_top = -70.0
 offset_right = 40.0
+offset_bottom = 70.0
 grow_horizontal = 2
 grow_vertical = 0
 theme_override_colors/font_disabled_color = Color(0.16078432, 0.16078432, 0.16078432, 1)

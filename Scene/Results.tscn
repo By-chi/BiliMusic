@@ -16,7 +16,7 @@ script/source = "extends Control
 @export var TidsButton: OptionButton
 @export var loading: Control
 @export var error: TextureRect
-@export var obstacle: ColorRect
+@export var obstacle: Panel
 
 var current_execution_number := 0
 var current_count := 0
@@ -384,7 +384,7 @@ grow_horizontal = 0
 grow_vertical = 2
 text = "下一页"
 
-[node name="Obstacle" type="ColorRect" parent="." unique_id=112343300]
+[node name="Obstacle" type="Panel" parent="." unique_id=511775319]
 visible = false
 layout_mode = 1
 anchors_preset = -1
@@ -394,7 +394,6 @@ offset_left = 63.0
 offset_top = 146.0
 offset_right = -36.0
 offset_bottom = -82.0
-color = Color(0.96862745, 0.9764706, 1, 1)
 
 [node name="Loading" type="Control" parent="." unique_id=2119322998]
 visible = false

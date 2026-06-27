@@ -69,6 +69,7 @@ style_disabled="给皮肤系统提供特异性改变"
 color_icon_normal_color=""
 color_icon_pressed_color=""
 color_icon_hover_color=""
+color_icon_hover_pressed_color=""
 
 [gui]
 

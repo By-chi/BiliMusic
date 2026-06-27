@@ -161,12 +161,12 @@ func _refresh_lyrics() -> void:
 	if new_hl != last_highlight_index:
 		if last_highlight_index >= 0 and last_highlight_index < labels.size():
 			var old_lbl := labels[last_highlight_index]
-			if is_instance_valid(old_lbl):
-				old_lbl.scale = Vector2.ONE
+			if is_instance_valid(old_lbl): #offset_transform_scale 是godot4.7的方法,所以使用godot打开的可能会被改成scale,效果不同,如果要在低版本实现,需要覆盖字体大小
+				old_lbl.offset_transform_scale = Vector2.ONE
 		if new_hl >= 0 and new_hl < labels.size():
 			var new_lbl := labels[new_hl]
 			if is_instance_valid(new_lbl):
-				new_lbl.scale = Vector2.ONE * highlight_font_scale
+				new_lbl.offset_transform_scale = Vector2.ONE * highlight_font_scale
 		last_highlight_index = new_hl
 
 	var hl_idx := FocusLyricLinePosition - 1
@@ -347,7 +347,7 @@ func init_lyrics_from_data(data: Variant) -> void:
 	lyric_label_template.add_theme_font_size_override(\"font_size\", normal_font_size)
 	lyric_label_template.add_theme_color_override(\"font_color\", Color.WHITE)
 	lyric_label_template.add_theme_constant_override(\"line_spacing\", -20)
-	lyric_label_template.set_anchors_and_offsets_preset(
+	lyric_label_template.set_anchors_and_offsets_preset(     #在godot4.7,这里没有意义
 		Control.PRESET_TOP_WIDE,
 		Control.PRESET_MODE_KEEP_SIZE
 	)
