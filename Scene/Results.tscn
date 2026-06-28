@@ -117,7 +117,6 @@ func update_callback(videos: Array, execution_number := 0) -> void:
 		if rsults_list.get_child_count() <= i:
 			video_transverse_card = preload(\"res://Scene/VideoTransverseCard.tscn\").instantiate()
 			rsults_list.add_child(video_transverse_card)
-			GdScriptFunc.apply_theme_and_styles_to_node(video_transverse_card)
 		else:
 			video_transverse_card = rsults_list.get_child(i)
 		var video: Dictionary = videos[i]
@@ -152,6 +151,7 @@ func update_callback(videos: Array, execution_number := 0) -> void:
 		tw.tween_property(video_transverse_card, \"modulate:a\", 1.0, 0.25)
 		tw.tween_property(video_transverse_card, \"scale\", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		
+	GdScriptFunc.apply_theme_and_styles_to_node(rsults_list)
 	# 移除多余的旧卡片
 	while rsults_list.get_child_count() > total_needed:
 		var extra_card = rsults_list.get_child(-1)

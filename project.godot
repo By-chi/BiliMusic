@@ -23,7 +23,7 @@ run/main_scene="uid://d3y0m53pwfo5a"
 config/features=PackedStringArray("4.7", "C#", "GL Compatibility")
 run/max_fps=60
 run/low_processor_mode=true
-run/low_processor_mode_sleep_usec=16000
+run/low_processor_mode_sleep_usec=16667
 run/delta_smoothing=false
 boot_splash/bg_color=Color(0.96862745, 0.9764706, 1, 1)
 boot_splash/stretch_mode=4
@@ -74,7 +74,6 @@ color_icon_hover_pressed_color=""
 [gui]
 
 common/snap_controls_to_pixels=false
-theme/custom="uid://boa17oq83cbf4"
 
 [input]
 

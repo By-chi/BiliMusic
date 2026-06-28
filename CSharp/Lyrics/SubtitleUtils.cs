@@ -60,11 +60,23 @@ public static class SubtitleUtils
         return sb.ToString();
     }
 
+    public static string NormalizeText(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        text = ToSimplified(text);
+        text = Regex.Replace(text, @"\s+", "");
+        text = Regex.Replace(text, @"[\p{P}\p{S}]", "");
+        return text;
+    }
+
     public static double CalculateSimilarity(string a, string b)
     {
-        a = ToSimplified(a).Replace(" ", "").Replace("\n", "");
-        b = ToSimplified(b).Replace(" ", "").Replace("\n", "");
+        a = NormalizeText(a);
+        b = NormalizeText(b);
         if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return 0;
+
+        if (a.Length < 2 || b.Length < 2)
+            return a == b ? 1.0 : 0.0;
 
         var setA = new HashSet<string>();
         var setB = new HashSet<string>();
@@ -74,6 +86,219 @@ public static class SubtitleUtils
         int inter = setA.Intersect(setB).Count();
         int union = setA.Union(setB).Count();
         return union == 0 ? 0 : (double)inter / union;
+    }
+
+    public static List<(double time, string text)> AlignBilibiliToExternalMulti(
+        List<string> externalLines,
+        List<(double time, string text)> bilibiliEntries,
+        double similarityThreshold = 0.4,
+        double fallbackThreshold = 0.3)
+    {
+        GD.Print("[DEBUG-ALIGN] ========== 开始最终对齐（跳过前奏） ==========");
+        if (externalLines == null || externalLines.Count == 0)
+            return new List<(double time, string text)>();
+        if (bilibiliEntries == null || bilibiliEntries.Count == 0)
+            return externalLines.Select(line => (0.0, line)).ToList();
+
+        var biliItems = bilibiliEntries
+            .Select(x => (time: x.time, norm: NormalizeText(x.text), raw: x.text))
+            .Where(x => !string.IsNullOrWhiteSpace(x.norm) && x.norm.Length >= 2
+                        && !Regex.IsMatch(x.norm, @"^[\d\.\,\;\:\!?\-\+\(\)\[\]\{\}\s]+$"))
+            .ToList();
+
+        int nExt = externalLines.Count;
+        int nBili = biliItems.Count;
+        var result = new List<(double time, string text)>(nExt);
+        var usedBiliIndices = new HashSet<int>();
+        double lastMatchedTime = -1.0;
+
+        // *** 新增：计算全局起始索引，跳过 B 站前奏（英文独白等） ***
+        int globalStartIdx = 0;
+        if (externalLines.Count > 0)
+        {
+            string firstExtNorm = NormalizeText(externalLines[0]);
+            for (int k = 0; k < nBili; k++)
+            {
+                if (CalculateSimilarity(firstExtNorm, biliItems[k].norm) > 0.2)
+                {
+                    globalStartIdx = k;
+                    break;
+                }
+            }
+            if (globalStartIdx > 0)
+            {
+                // 将最后匹配时间设为前一帧的时间，让算法自动跳过前面的行
+                lastMatchedTime = biliItems[globalStartIdx - 1].time;
+                GD.Print($"   => 跳过前奏，从 B站[{globalStartIdx}] 开始 ({biliItems[globalStartIdx].time:F2}s)");
+            }
+        }
+
+        for (int i = 0; i < nExt; i++)
+        {
+            string extNorm = NormalizeText(externalLines[i]);
+            GD.Print($"\n[DEBUG-ALIGN] 外部[{i}] '{externalLines[i]}'");
+
+            double bestSimUnused = 0;
+            int bestStartUnused = -1, bestEndUnused = -1;
+
+            // 1. 搜索未使用的行
+            for (int k = 0; k < nBili; k++)
+            {
+                if (usedBiliIndices.Contains(k)) continue;
+                if (biliItems[k].time <= lastMatchedTime) continue;
+
+                var merged = new StringBuilder();
+                int end = k;
+                while (end < nBili && !usedBiliIndices.Contains(end))
+                {
+                    if (merged.Length > 0) merged.Append(" ");
+                    merged.Append(biliItems[end].norm);
+                    double sim = CalculateSimilarity(extNorm, merged.ToString());
+                    if (sim >= similarityThreshold)
+                    {
+                        if (bestStartUnused == -1 || k < bestStartUnused || (k == bestStartUnused && sim > bestSimUnused))
+                        {
+                            bestSimUnused = sim;
+                            bestStartUnused = k;
+                            bestEndUnused = end;
+                        }
+                    }
+                    else if (sim > bestSimUnused && bestStartUnused == -1)
+                    {
+                        bestSimUnused = sim;
+                        bestStartUnused = k;
+                        bestEndUnused = end;
+                    }
+                    if (merged.Length > extNorm.Length * 2.5 && end > k) break;
+                    end++;
+                }
+            }
+
+            // 2. 如果达标，直接使用
+            if (bestStartUnused >= 0 && bestSimUnused >= similarityThreshold)
+            {
+                result.Add((biliItems[bestStartUnused].time, externalLines[i]));
+                for (int u = bestStartUnused; u <= bestEndUnused; u++)
+                    usedBiliIndices.Add(u);
+                lastMatchedTime = biliItems[bestStartUnused].time;
+                GD.Print($"   => 匹配未使用 B站[{bestStartUnused}..{bestEndUnused}] 时间={biliItems[bestStartUnused].time:F2}s sim={bestSimUnused:F3}");
+                continue;
+            }
+
+            // 3. Fallback 未使用行
+            if (bestStartUnused >= 0 && bestSimUnused >= fallbackThreshold)
+            {
+                result.Add((biliItems[bestStartUnused].time, externalLines[i]));
+                for (int u = bestStartUnused; u <= bestEndUnused; u++)
+                    usedBiliIndices.Add(u);
+                lastMatchedTime = biliItems[bestStartUnused].time;
+                GD.Print($"   => Fallback未使用 B站[{bestStartUnused}..{bestEndUnused}] 时间={biliItems[bestStartUnused].time:F2}s sim={bestSimUnused:F3}");
+                continue;
+            }
+
+            // 4. 尝试重用已使用的行（时间 >= lastMatchedTime）
+            double bestSimReuse = 0;
+            int bestStartReuse = -1, bestEndReuse = -1;
+            for (int k = 0; k < nBili; k++)
+            {
+                if (biliItems[k].time < lastMatchedTime) continue;
+
+                var merged = new StringBuilder();
+                int end = k;
+                while (end < nBili)
+                {
+                    if (merged.Length > 0) merged.Append(" ");
+                    merged.Append(biliItems[end].norm);
+                    double sim = CalculateSimilarity(extNorm, merged.ToString());
+                    if (sim >= similarityThreshold)
+                    {
+                        if (bestStartReuse == -1 || k < bestStartReuse || (k == bestStartReuse && sim > bestSimReuse))
+                        {
+                            bestSimReuse = sim;
+                            bestStartReuse = k;
+                            bestEndReuse = end;
+                        }
+                    }
+                    else if (sim > bestSimReuse && bestStartReuse == -1)
+                    {
+                        bestSimReuse = sim;
+                        bestStartReuse = k;
+                        bestEndReuse = end;
+                    }
+                    if (merged.Length > extNorm.Length * 2.5 && end > k) break;
+                    end++;
+                }
+            }
+
+            if (bestStartReuse >= 0 && bestSimReuse >= similarityThreshold)
+            {
+                result.Add((biliItems[bestStartReuse].time, externalLines[i]));
+                lastMatchedTime = biliItems[bestStartReuse].time;
+                GD.Print($"   => 匹配重用 B站[{bestStartReuse}..{bestEndReuse}] 时间={biliItems[bestStartReuse].time:F2}s sim={bestSimReuse:F3}");
+            }
+            else if (bestStartReuse >= 0 && bestSimReuse >= fallbackThreshold)
+            {
+                result.Add((biliItems[bestStartReuse].time, externalLines[i]));
+                lastMatchedTime = biliItems[bestStartReuse].time;
+                GD.Print($"   => Fallback重用 B站[{bestStartReuse}..{bestEndReuse}] 时间={biliItems[bestStartReuse].time:F2}s sim={bestSimReuse:F3}");
+            }
+            else
+            {
+                double interpTime;
+                // *** 新增：第一句插值时，使用跳过前奏后的第一个时间 ***
+                if (result.Count == 0 && globalStartIdx > 0)
+                    interpTime = biliItems[globalStartIdx].time;
+                else
+                    interpTime = InterpolateTime(i, result, bilibiliEntries, externalLines);
+
+                result.Add((interpTime, externalLines[i]));
+                GD.Print($"   => 无达标匹配 (未使用best={bestSimUnused:F3}, 重用best={bestSimReuse:F3})，插值时间={interpTime:F2}s");
+            }
+        }
+
+        return result;
+    }
+
+    private static double InterpolateTime(int index,
+        List<(double time, string text)> alignedSoFar,
+        List<(double time, string text)> bilibiliEntries,
+        List<string> externalLines)
+    {
+        int prevIndex = -1;
+        for (int k = index - 1; k >= 0; k--)
+        {
+            if (k < alignedSoFar.Count && alignedSoFar[k].time >= 0)
+            {
+                prevIndex = k;
+                break;
+            }
+        }
+
+        if (prevIndex >= 0)
+        {
+            double prevTime = alignedSoFar[prevIndex].time;
+            double avgInterval = 3.0;
+            int matchedCount = 0;
+            double totalInterval = 0;
+            for (int m = 1; m < alignedSoFar.Count; m++)
+            {
+                double diff = alignedSoFar[m].time - alignedSoFar[m - 1].time;
+                if (diff > 0 && diff < 30)
+                {
+                    totalInterval += diff;
+                    matchedCount++;
+                }
+            }
+            if (matchedCount > 0)
+                avgInterval = totalInterval / matchedCount;
+
+            int lineDiff = index - prevIndex;
+            return prevTime + lineDiff * avgInterval;
+        }
+
+        if (bilibiliEntries.Count > 0)
+            return bilibiliEntries[0].time;
+        return 0;
     }
 
     public static bool ContainsTimestamps(string lrc) =>
@@ -89,11 +314,9 @@ public static class SubtitleUtils
             string line = rawLine.Trim();
             if (string.IsNullOrEmpty(line)) continue;
 
-            // 跳过元数据标签行（ti/ar/al/by/offset/length 等）
             if (Regex.IsMatch(line, @"^\[(ti|ar|al|by|offset|length):", RegexOptions.IgnoreCase))
                 continue;
 
-            // 提取标准时间戳行
             var m = Regex.Match(line, @"^\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)");
             if (!m.Success) continue;
 
@@ -105,9 +328,9 @@ public static class SubtitleUtils
         }
         return sb.ToString().Trim();
     }
+
     public static bool IsSameLanguage(string textA, string textB)
     {
-        // 简单判断：统计中文字符占比，若一方 >70% 且另一方 <30%，则视为语言不一致
         static double ChineseRatio(string s)
         {
             int cnt = 0, total = 0;
@@ -121,12 +344,11 @@ public static class SubtitleUtils
 
         double rA = ChineseRatio(textA);
         double rB = ChineseRatio(textB);
-
-        // 双方都是中文或双方都是非中文，视为语言一致
         bool aIsChinese = rA > 0.5;
         bool bIsChinese = rB > 0.5;
         return aIsChinese == bIsChinese;
     }
+
     private static bool IsMetaDataLine(string text)
     {
         if (string.IsNullOrWhiteSpace(text)) return true;
@@ -144,7 +366,15 @@ public static class SubtitleUtils
     }
 
     private static readonly string[] MetaKeywords = {
-        "作词","作曲","作词人","作曲人","词曲","词曲作者","曲作者","词作者",
+        "男","女","合","童","独","领","齐","轮","对","重","高","低","主","伴","和",
+        "男声","女声","合唱","独唱","对唱","重唱",
+        "念白","独白","旁白","Rap","说唱",
+        "前奏","间奏","尾奏","过门","桥段",
+        "渐慢","渐强","渐弱","回原速","自由延长",
+        "掌声","笑声","哭声","吼声","嘘声","哨声",
+        "电话音","电台音","模糊音","失真音",
+        "进鼓","进贝斯","进吉他","进弦乐","DROP",
+        "词", "曲","作词","作曲","作词人","作曲人","词曲","词曲作者","曲作者","词作者",
         "编曲","编曲人","改编","重新编曲","译词","填词","原词","原著",
         "制作人","音乐制作人","制作","制作公司","制作室","联合制作人","执行制作人","助理制作人",
         "监制","出品","出品人","出品方","出品公司","总监制","总策划","执行监制",
@@ -188,7 +418,7 @@ public static class SubtitleUtils
         "碟片号","光盘号","ISWC","作品编码",
         "歌词制作","歌词编辑","歌词贡献","歌词整理","歌词翻译","翻译","歌词校对","校对",
         "歌词提供","滚动歌词","LRC制作","LRC","QRC","KRC","逐字歌词","动态歌词","同步歌词",
-        "Lyric by","Lyrics by","歌词：","歌词:","歌词上传","歌词贡献者","听写歌词","歌词时间戳",
+        "Lyric by","Lyrics by","歌词","歌词:","歌词上传","歌词贡献者","听写歌词","歌词时间戳",
         "来自","QQ音乐","网易云音乐","酷狗","酷我","虾米","咪咕音乐","千千音乐",
         "Spotify","Apple Music","YouTube","Tidal","Amazon Music","Deezer","Pandora",
         "KKBOX","Melon","Genie","LINE MUSIC","汽水音乐",
@@ -198,6 +428,20 @@ public static class SubtitleUtils
         "原唱","翻唱","原曲","采样","引用","采样来源",
         "封面设计","插画","摄影","造型","化妆","发型","美术设计","平面设计","文案",
         "提供","场地提供","乐器提供","服装提供","赞助","致敬","纪念",
+        "京二胡","革胡","低音革胡","坠琴","排鼓","堂鼓","云锣","铙钹","编钟","编磬",
+        "工尺谱","减字谱","管风琴","羽管键琴","马林巴","颤音琴","钟琴","钢片琴",
+        "前奏","间奏","尾奏","主歌","副歌","桥段","过门","总谱","分谱","配器","扒带","制谱","抄谱","谱务",
+        "分轨","干声","湿声","相位","响度","动态","拟音","动效","贴唱","多轨","同期录音","分轨混音",
+        "舞台监督","灯光师","舞美设计","道具设计","服装设计","造型设计","化妆师","发型师",
+        "邻接权","表演权","广播权","信息网络传播权","改编权","署名权",
+        "开盘带","DAT","MD","LD","VCD","SVCD","黑胶母盘","白板碟","宣传碟","见本盘",
+        "打榜","榜单","乐评人","乐评","首发","独家首发","上线平台","推荐位",
+        "戏曲指导","身段指导","唱腔设计","音乐设计","配乐指导","对白录音","动效录音","拟音棚",
+        "录音制作者","录音制作者权","词曲代理","版权代理方","著作权集体管理",
+        "混音助理","母带助理","录音文书","发行代号","条形码","厂牌编号","库存号",
+        "盒装","套装","精装版","简装版","引进版","原装进口","港版","台版","大陆版",
+        "演奏用琴","乐器提供","琴弦提供","鼓皮提供","音响工程","监听环境","声学设计",
+        "Composed by","Composed",
         "Composer","Songwriter","Lyricist","Words by","Music by","Written by",
         "Arranger","Orchestrated by","Programmed by","Sound Design by",
         "Producer","Co-Producer","Executive Producer","Associate Producer","Line Producer",
@@ -223,4 +467,22 @@ public static class SubtitleUtils
         "Explicit","Clean","Instrumental","Off Vocal","Karaoke","OP","ED","Insert Song","Character Song",
         "Image Song","Theme Song","Ending Theme","Opening Theme","OP/SP"
     };
+
+    public static List<string> ExtractLyricLinesFromLrc(string cleanedLrc)
+    {
+        var lines = cleanedLrc.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var lyricList = new List<string>();
+        foreach (var line in lines)
+        {
+            var m = Regex.Match(line, @"^\[\d{2}:\d{2}\.\d{2,3}\](.*)");
+            if (!m.Success) continue;
+            string text = m.Groups[1].Value.Trim();
+            if (string.IsNullOrEmpty(text)) continue;
+            if (IsMetaDataLine(text)) continue;
+            lyricList.Add(text);
+        }
+        if (lyricList.Count > 0 && lyricList[0].Contains(" - ") && lyricList[0].Length < 80)
+            lyricList.RemoveAt(0);
+        return lyricList;
+    }
 }

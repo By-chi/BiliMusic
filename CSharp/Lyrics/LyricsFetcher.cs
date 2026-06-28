@@ -17,7 +17,6 @@ public class LyricsFetcher
         List<string> biliTexts = null,
         double? targetDurationSeconds = null)
     {
-        // 搜索阶段
         List<SongInfo> songs = null;
         foreach (var source in _sources)
         {
@@ -37,7 +36,6 @@ public class LyricsFetcher
             return null;
         }
 
-        // 最佳歌曲匹配
         SongInfo bestSong;
         if (biliTexts != null && biliTexts.Count > 0)
         {
@@ -62,7 +60,6 @@ public class LyricsFetcher
         }
         GD.Print($"[LyricsFetcher] 选定歌曲: ID={bestSong.Id}, {bestSong.Name} - {bestSong.Artist}");
 
-        // 歌词获取阶段
         foreach (var source in _sources)
         {
             GD.Print($"[LyricsFetcher] 尝试从 {source.GetType().Name} 获取歌词...");

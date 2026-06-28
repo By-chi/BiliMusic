@@ -620,19 +620,23 @@ func apply_theme_from_path(path: String) -> bool:
 		return false
 	apply_theme(theme)
 	return true
-
-
+func update_marks_theme_and_styles()->void:
+	for i in theme_and_styles_marks:
+		if i==null&&i.is_queued_for_deletion():
+			continue
+		apply_theme_and_styles_to_node(i)
 ## 对动态加载节点仅应用特殊样式(不改变主题)
-func apply_special_style_to_node(node: Node) -> void:
+func apply_special_style_to_node(node: Node,mark:=true) -> void:
 	if current_skin_name.is_empty():
 		return
+		
 	var dir := "res://Skin/" + current_skin_name + "/"
 	var config = _load_special_styles_config(dir)
 	_apply_special_styles_recursive(node, config)
 
-
+var theme_and_styles_marks:Array[Node]
 ## 对指定子树应用主题 特殊样式(缩小版 update)
-func apply_theme_and_styles_to_node(node: Node) -> void:
+func apply_theme_and_styles_to_node(node: Node,mark:=true) -> void:
 	if current_skin_name.is_empty():
 		return
 	var dir := "res://Skin/" + current_skin_name + "/"
@@ -643,6 +647,8 @@ func apply_theme_and_styles_to_node(node: Node) -> void:
 		var main_theme = ResourceLoader.load(main_theme_path, "Theme", ResourceLoader.CACHE_MODE_REUSE)
 		if main_theme:
 			_apply_theme_to_tree(node, main_theme)
+			if theme_and_styles_marks.find(node)==-1:
+				theme_and_styles_marks.append(node)
 		else:
 			push_warning("[ThemeManager] 加载 main.theme 失败: ", main_theme_path)
 	# 应用特殊样式
@@ -691,14 +697,13 @@ func _load_special_styles_config(dir: String) -> Dictionary:
 func _apply_special_styles_global(config: Dictionary) -> void:
 	if config.is_empty():
 		return
-	print(get_tree().has_group("color_icon_hover_pressed_color"))
 	for group_name in config.keys():
 		if get_tree().has_group(group_name):
 			var nodes = get_tree().get_nodes_in_group(group_name)
 			var value = config[group_name]
 			for node in nodes:
 				if node is Control:
-					printt(node.get_path(),group_name)
+					#printt(node.get_path(),group_name)
 					_apply_single_override(node, group_name, value)
 
 

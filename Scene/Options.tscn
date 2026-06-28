@@ -34,6 +34,7 @@ func _ready() -> void:
 					node.item_selected.connect(func(index:int):
 						GdScriptFunc.set_data(\"Options\",\"Skin\",index)
 						GdScriptFunc.update_skin_theme(node.get_item_text(index))
+						GdScriptFunc.update_marks_theme_and_styles()
 					)
 					continue
 				match option.get_class():

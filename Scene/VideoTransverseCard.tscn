@@ -3,17 +3,6 @@
 [ext_resource type="Texture2D" uid="uid://cbbcwl3udcy28" path="res://UI/Icon/Share.svg" id="1_jchgq"]
 [ext_resource type="Texture2D" uid="uid://xnvpcuxqr5u0" path="res://UI/Icon/ShadouMuYou.png" id="1_olim5"]
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_0inii"]
-content_margin_left = 20.0
-content_margin_top = 5.0
-content_margin_right = 5.0
-content_margin_bottom = 5.0
-bg_color = Color(0.9490196, 0.9529412, 0.98039216, 1)
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_right = 8
-corner_radius_bottom_left = 8
-
 [sub_resource type="GDScript" id="GDScript_jchgq"]
 script/source = "extends BaseVideoCard
 
@@ -111,12 +100,6 @@ clip_children = 2
 custom_minimum_size = Vector2(0, 90)
 offset_right = 713.0
 offset_bottom = 90.0
-theme_override_styles/pressed = SubResource("StyleBoxFlat_0inii")
-theme_override_styles/hover = SubResource("StyleBoxFlat_0inii")
-theme_override_styles/hover_pressed = SubResource("StyleBoxFlat_0inii")
-theme_override_styles/hover_pressed_mirrored = SubResource("StyleBoxFlat_0inii")
-theme_override_styles/disabled = SubResource("StyleBoxFlat_0inii")
-theme_override_styles/focus = SubResource("StyleBoxFlat_0inii")
 script = SubResource("GDScript_jchgq")
 play_label = NodePath("Play")
 share_button = NodePath("Share")

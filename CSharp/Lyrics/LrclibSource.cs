@@ -18,7 +18,6 @@ public class LrclibSource : ILyricsSource
 
     public async Task<List<SongInfo>> SearchAsync(string keyword)
     {
-        // 将 keyword 作为 track_name，artist_name 留空进行模糊搜索
         string url = $"{SearchUrl}?track_name={Uri.EscapeDataString(keyword)}";
         try
         {
@@ -43,15 +42,8 @@ public class LrclibSource : ILyricsSource
 
     public async Task<string> GetLyricAsync(SongInfo song)
     {
-        // 从 SongInfo 中提取曲名和歌手名（Id 格式为 "TrackName|ArtistName"）
         string trackName = song.Name;
         string artistName = song.Artist;
-        return await GetSyncedLyricsAsync(trackName, artistName);
-    }
-
-    /// <summary>精确获取同步歌词（优先 syncedLyrics，其次 plainLyrics）</summary>
-    public async Task<string> GetSyncedLyricsAsync(string trackName, string artistName)
-    {
         string url = $"{SearchUrl}?track_name={Uri.EscapeDataString(trackName)}&artist_name={Uri.EscapeDataString(artistName ?? "")}";
         try
         {
@@ -59,7 +51,6 @@ public class LrclibSource : ILyricsSource
             var results = JsonSerializer.Deserialize<List<LrclibResult>>(json,
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
             if (results == null || results.Count == 0) return null;
-
             var best = results.FirstOrDefault(r => !string.IsNullOrWhiteSpace(r.SyncedLyrics));
             return best?.SyncedLyrics ?? results.FirstOrDefault(r => !string.IsNullOrWhiteSpace(r.PlainLyrics))?.PlainLyrics;
         }
