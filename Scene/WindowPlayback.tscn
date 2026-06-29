@@ -28,7 +28,7 @@ func _ready() -> void:
 	if path!=\"\":
 		performance_node=load(path).instantiate()
 	else:
-		performance_node=preload(\"res://Scene/DefaultCustomBigWindowTheme.tscn\").instantiate()
+		performance_node=preload(\"res://BigWindowTheme/DefaultCustomBigWindowTheme.tscn\").instantiate()
 	performance_node.bottomMenu=bottom_menu
 	add_child(performance_node)
 	move_child(performance_node,0)

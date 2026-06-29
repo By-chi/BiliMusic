@@ -317,6 +317,28 @@ public static class SongInfoExtractor
         EnsureSamplesLoaded();
         string trimmed = part.StripEdges();
 
+        // ★ 新增：如果片段被完整书名号包裹，提取内部文本
+        if (trimmed.StartsWith("《") && trimmed.EndsWith("》") && trimmed.Length > 2)
+        {
+            string inner = trimmed[1..^1].Trim();
+            if (!string.IsNullOrEmpty(inner))
+            {
+                // 内部文本同样走一遍清洗和验证
+                string cleanedInner = CleanString(inner);
+                if (!string.IsNullOrEmpty(cleanedInner) &&
+                    !ContainsGenericTag(cleanedInner) &&
+                    (KnownSingers == null || !KnownSingers.Contains(cleanedInner)) &&
+                    IsValidSongName(cleanedInner))
+                {
+                    // 如果已知歌名库有，直接返回；否则通过验证后返回
+                    if (KnownSongNames != null && KnownSongNames.Contains(cleanedInner))
+                        return cleanedInner;
+                    return cleanedInner;
+                }
+            }
+        }
+
+        // 原有逻辑
         if (KnownSongNames != null && KnownSongNames.Contains(trimmed))
             return trimmed;
         if (KnownSingers != null && KnownSingers.Contains(trimmed))
@@ -426,8 +448,9 @@ public static class SongInfoExtractor
         (@"\b(1小时|睡眠|作业用|BGM|背景音乐)\b", RegexOptions.IgnoreCase),
         (@"\b(官方|完整|纯净|人声|提取|分离|AI变声|电音|重混|慢摇)\b", RegexOptions.IgnoreCase),
         // 年/届/周年整体移除（不留单字）
-        (@"\d{2,4}\s*年", RegexOptions.IgnoreCase),
-        (@"第?\d+\s*届", RegexOptions.IgnoreCase),
+        // 残留的孤立“年”“届”“奖”清理（更宽松，即使后面跟其他字符也移除）
+        (@"年(?=\s|[，,。！？、；：""）\)\]】\-\—])", RegexOptions.IgnoreCase),
+        (@"届(?=\s|[，,。！？、；：""）\)\]】\-\—])", RegexOptions.IgnoreCase),
         (@"\d+\s*周年", RegexOptions.IgnoreCase),
         // 残留的孤立“年”“届”清理（前后为空格或标点）
         (@"(?<=\s)年(?=\s|$)", RegexOptions.IgnoreCase),
@@ -515,11 +538,13 @@ public static class SongInfoExtractor
 
     private static bool IsPlaylistTitle(string title)
     {
+        if (title.Contains('《'))
+            return false;
         string normalized = NormalizeStylizedText(title).ToLowerInvariant();
 
         string[] playlistKeywords = {
             "playlist", "playtlist", "歌单", "精选歌单", "氛围感歌单", "循环歌单",
-            "日推歌单", "月度歌单", "播放列表", "英语歌单", "日语歌单", "韩语歌单",
+            "月度歌单", "播放列表", "英语歌单", "日语歌单", "韩语歌单",
             "欧美歌单", "精选合集", "音乐推荐", "电台新星", "周榜", "月榜", "歌单分享",
             "最佳歌单", "心情歌单", "场景歌单", "学习歌单", "工作歌单", "运动歌单"
         };
@@ -546,10 +571,20 @@ public static class SongInfoExtractor
     private static string NormalizeStylizedText(string text)
     {
         if (string.IsNullOrEmpty(text)) return text;
-        // 全角字母数字转换
-        text = Regex.Replace(text, @"[０-９]", m => ((char)(m.Value[0] - '０' + '0')).ToString());
+
+        // ★ 将任何 Unicode 十进制数字（包括数学粗体、等宽、无衬线等）转为半角 0-9
+        text = Regex.Replace(text, @"\p{Nd}", m =>
+        {
+            char c = m.Value[0];
+            if (c >= '0' && c <= '9') return c.ToString();
+            double val = char.GetNumericValue(c);
+            return (val >= 0 && val <= 9) ? ((int)val).ToString() : c.ToString();
+        });
+
+        // 原有全角字母转换
         text = Regex.Replace(text, @"[ａ-ｚ]", m => ((char)(m.Value[0] - 'ａ' + 'a')).ToString());
         text = Regex.Replace(text, @"[Ａ-Ｚ]", m => ((char)(m.Value[0] - 'Ａ' + 'A')).ToString());
+
         return text.Normalize(NormalizationForm.FormKD);
     }
 
