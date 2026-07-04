@@ -22,6 +22,7 @@ func update(list_name:String,cover,video_info:Dictionary)->void:
 	bottom_menu.list_name=list_name
 	bottom_menu.update_callback(video_info)
 	performance_node.update()
+	_on_visibility_changed()
 var performance_node:Node
 func _ready() -> void:
 	var path:String=GdScriptFunc.get_data(\"Options\",\"Custom_Big_Window_Theme\",\"\")
@@ -50,6 +51,11 @@ func _notification(what: int)->void:
 	if performance_node ==null:
 		return
 	performance_node.call(\"set_ECO_mode\",mode==MODE_MINIMIZED)
+
+
+func _on_visibility_changed() -> void:
+	if performance_node !=null&&visible:
+		performance_node.call(\"Start\")
 "
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_bnvvw"]
@@ -454,6 +460,7 @@ wait_time = 0.35
 one_shot = true
 
 [connection signal="close_requested" from="." to="." method="_on_close_requested"]
+[connection signal="visibility_changed" from="." to="." method="_on_visibility_changed"]
 [connection signal="toggled" from="BottomMenu/Play" to="BottomMenu" method="_on_play_toggled"]
 [connection signal="pressed" from="BottomMenu/Play/Next" to="BottomMenu" method="_on_next_pressed"]
 [connection signal="pressed" from="BottomMenu/Play/PREV" to="BottomMenu" method="_on_prev_pressed"]

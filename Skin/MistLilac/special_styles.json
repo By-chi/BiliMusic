@@ -1,0 +1,10 @@
+{
+  "style_disabled": "res://Skin/MistLilac/disabled.stylebox",
+  "style_panel": "res://Skin/MistLilac/panel.stylebox",
+  "color_font_color": "#E6EDF2",
+  "color_default_color": "#E6EDF2",
+  "color_icon_normal_color": "#7A8FA6",
+  "color_icon_hover_color": "#7A8FA6",
+  "color_icon_pressed_color": "#7A8FA6",
+  "color_icon_hover_pressed_color": "#7A8FA6",
+}

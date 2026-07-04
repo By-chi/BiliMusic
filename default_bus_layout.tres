@@ -2,6 +2,7 @@
 
 [sub_resource type="AudioEffectSpectrumAnalyzer" id="AudioEffectSpectrumAnalyzer_j3pel"]
 resource_name = "SpectrumAnalyzer"
+buffer_length = 4.0
 
 [resource]
 bus/1/name = &"Music"
