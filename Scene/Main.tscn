@@ -208,15 +208,15 @@ func set_cover(_bvid: String, texture: Texture2D) -> void:
 	cover = texture
 func update_callback(video_info:Dictionary)->void:
 	progress_bar.value=0
-	title = video_info.get(\"title\",\"无题\")
-	author = video_info.get(\"author\",\"佚名\")
+	title = video_info.get(\"title\",tr(\"无题\"))
+	author = video_info.get(\"author\",tr(\"佚名\"))
 	if video_info.get(\"is_network\", true):
 		BilibiliIc.fetch_cover(video_info[\"link\"], set_cover, 70, 70)
 	elif FileAccess.file_exists(video_info[\"link\"].get_basename()+\".jpg\"):
 		var image = Image.load_from_file(video_info[\"link\"].get_basename()+\".jpg\")
 		_set_cover(ImageTexture.create_from_image(image))
 	else:
-		GdScriptFunc.generate_label_texture(Color.WHITE,video_info.get(\"title\", \"本地文件\"),_set_cover,null,10,Color.BLACK,Vector2i(70,70))
+		GdScriptFunc.generate_label_texture(Color.WHITE,video_info.get(\"title\", tr(\"本地文件\")),_set_cover,null,10,Color.BLACK,Vector2i(70,70))
 # UI逻辑
 func _on_progress_drag_ended(value_changed: bool):
 	if !value_changed: return

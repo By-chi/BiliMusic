@@ -54,7 +54,7 @@ signal favorites_selected(selected_favs: Array[String])
 # ------------------------------------------------------------
 func _ready() -> void:
 	if ok_button and ok_button.text.is_empty():
-		ok_button.text = \"确定\"
+		ok_button.text = tr(\"确定\")
 	call_deferred(\"_on_scroll_container_resized\")
 	update()
 	_update_buttons_state()
@@ -351,22 +351,22 @@ func _show_context_menu_for_node(node: Node) -> void:
 	var menu_data: Array[Dictionary] = []
 
 	# 全选 / 取消全选
-	menu_data.append({\"label\": \"全选\", \"action\": func(d): _select_all(), \"enabled\": true})
-	menu_data.append({\"label\": \"取消全选\", \"action\": func(d): _deselect_all(), \"enabled\": not selected_items.is_empty()})
+	menu_data.append({\"label\": tr(\"全选\"), \"action\": func(d): _select_all(), \"enabled\": true})
+	menu_data.append({\"label\": tr(\"取消全选\"), \"action\": func(d): _deselect_all(), \"enabled\": not selected_items.is_empty()})
 	menu_data.append({\"type\": \"separator\"})
 
 	var has_selection = not selected_items.is_empty()
 	var clipboard_valid = not _clipboard_type.is_empty() and not _clipboard_data.is_empty()
 
 	# 剪切 / 复制
-	menu_data.append({\"label\": \"剪切\", \"action\": func(d): _on_cut_pressed(), \"enabled\": has_selection})
-	menu_data.append({\"label\": \"复制\", \"action\": func(d): _on_copy_pressed(), \"enabled\": has_selection})
+	menu_data.append({\"label\": tr(\"剪切\"), \"action\": func(d): _on_cut_pressed(), \"enabled\": has_selection})
+	menu_data.append({\"label\": tr(\"复制\"), \"action\": func(d): _on_copy_pressed(), \"enabled\": has_selection})
 
 	# 粘贴：只要剪贴板有数据就启用（跨视图逻辑在 _on_paste_pressed 里处理）
-	menu_data.append({\"label\": \"粘贴\", \"action\": func(d): _on_paste_pressed(), \"enabled\": clipboard_valid})
+	menu_data.append({\"label\": tr(\"粘贴\"), \"action\": func(d): _on_paste_pressed(), \"enabled\": clipboard_valid})
 
 	menu_data.append({\"type\": \"separator\"})
-	menu_data.append({\"label\": \"删除\", \"action\": func(d): _delete_selected_items(), \"enabled\": has_selection})
+	menu_data.append({\"label\": tr(\"删除\"), \"action\": func(d): _delete_selected_items(), \"enabled\": has_selection})
 
 	# 若为文件视图，增加下载
 	if not _is_showing_favorites:
@@ -375,11 +375,11 @@ func _show_context_menu_for_node(node: Node) -> void:
 			if \"link\" in item and item.video_info.get(\"is_network\", true):
 				has_network = true
 				break
-		menu_data.append({\"label\": \"下载\", \"action\": func(d): _download_selected_cards(), \"enabled\": has_network})
+		menu_data.append({\"label\": tr(\"下载\"), \"action\": func(d): _download_selected_cards(), \"enabled\": has_network})
 	if \"link\" in node and not _is_showing_favorites:
 		# 当前视图必须是文件视图，且右击的是视频卡片
 		menu_data.append({\"type\": \"separator\"})
-		menu_data.append({\"label\": \"属性\", \"action\": func(d): _on_properties_pressed(node), \"enabled\": true})
+		menu_data.append({\"label\": tr(\"属性\"), \"action\": func(d): _on_properties_pressed(node), \"enabled\": true})
 	GdScriptFunc.open_right_click_menu_window(DisplayServer.mouse_get_position(), menu_data)
 func _on_properties_pressed(node: Node) -> void:
 	GdScriptFunc.open_metadata_manager_window(_current_fav_dir, node.link)
@@ -399,27 +399,27 @@ func _deselect_all() -> void:
 func _download_video(video_card: Control, on_finished: Callable = Callable()) -> void:
 	var video_info: Dictionary = video_card.get(\"video_info\")
 	if video_info.is_empty():
-		GdScriptFunc.set_progress_bar_value(100, \"\", \"下载失败：无视频信息\")
+		GdScriptFunc.set_progress_bar_value(100, \"\", tr(\"下载失败：无视频信息\"))
 		if on_finished.is_valid(): on_finished.call()
 		return
 
 	if video_info.get(\"is_network\", true) == false:
-		GdScriptFunc.set_progress_bar_value(100, \"\", \"本地文件，无需下载\")
+		GdScriptFunc.set_progress_bar_value(100, \"\", tr(\"本地文件，无需下载\"))
 		if on_finished.is_valid(): on_finished.call()
 		return
 
 	var bvid: String = video_info.get(\"link\", \"\")
 	if bvid.is_empty():
-		GdScriptFunc.set_progress_bar_value(100, \"\", \"下载失败：无效链接\")
+		GdScriptFunc.set_progress_bar_value(100, \"\", tr(\"下载失败：无效链接\"))
 		if on_finished.is_valid(): on_finished.call()
 		return
 
-	GdScriptFunc.set_progress_bar_value(10, \"下载\", \"正在获取视频信息...\")
+	GdScriptFunc.set_progress_bar_value(10, tr(\"下载\"), tr(\"正在获取视频信息...\"))
 
 	BilibiliIc.fetch_video_info(bvid, func(full_info: Dictionary):
 		if full_info.is_empty():
 			push_error(\"获取视频信息失败: \" + bvid)
-			GdScriptFunc.set_progress_bar_value(100, \"\", \"获取视频信息失败\")
+			GdScriptFunc.set_progress_bar_value(100, \"\", tr(\"获取视频信息失败\"))
 			if on_finished.is_valid(): on_finished.call()
 			return
 
@@ -427,17 +427,17 @@ func _download_video(video_card: Control, on_finished: Callable = Callable()) ->
 		var author = full_info.get(\"author\", \"\")
 		var description = full_info.get(\"desc\", \"\")
 
-		GdScriptFunc.set_progress_bar_value(20, title, \"信息获取成功，开始下载音频...\")
+		GdScriptFunc.set_progress_bar_value(20, title, tr(\"信息获取成功，开始下载音频...\"))
 
 		_download_audio_async(bvid, func(audio_result: Dictionary):
 			if audio_result.is_empty():
 				push_error(\"下载音频失败: \" + bvid)
-				GdScriptFunc.set_progress_bar_value(100, title, \"音频下载失败\")
+				GdScriptFunc.set_progress_bar_value(100, title, tr(\"音频下载失败\"))
 				if on_finished.is_valid(): on_finished.call()
 				return
 
 			var audio_path: String = audio_result[\"local_path\"]
-			GdScriptFunc.set_progress_bar_value(50, title, \"音频下载完成，正在下载封面...\")
+			GdScriptFunc.set_progress_bar_value(50, title, tr(\"音频下载完成，正在下载封面...\"))
 
 			# 预先计算好歌词路径
 			var lrc_path: String = audio_path.get_basename() + \".lrc\"
@@ -458,7 +458,7 @@ func _download_video(video_card: Control, on_finished: Callable = Callable()) ->
 
 			if not updated:
 				push_error(\"未在收藏夹中找到对应条目: \" + bvid)
-				GdScriptFunc.set_progress_bar_value(100, title, \"更新收藏夹失败\")
+				GdScriptFunc.set_progress_bar_value(100, title, tr(\"更新收藏夹失败\"))
 				if on_finished.is_valid(): on_finished.call()
 				return
 
@@ -514,10 +514,10 @@ func _download_video(video_card: Control, on_finished: Callable = Callable()) ->
 						GdScriptFunc.generate_label_texture(Color.WHITE, title, _set_cover.bind(video_card), null, 50)
 						video_card.custom_minimum_size = Vector2(582.4, 364.0)
 
-				GdScriptFunc.set_progress_bar_value(70, title, \"封面处理完成\")
+				GdScriptFunc.set_progress_bar_value(70, title, tr(\"封面处理完成\"))
 
 				if GdScriptFunc.get_data(\"Options\", \"SubtitleTextCorrection\", false):
-					GdScriptFunc.set_progress_bar_value(80, title, \"正在下载字幕...\")
+					GdScriptFunc.set_progress_bar_value(80, title, tr(\"正在下载字幕...\"))
 					BilibiliIc.fetch_subtitle_auto(bvid, func(subtitle_data: Dictionary):
 						if not subtitle_data.is_empty():
 							for item in fav_list:
@@ -528,12 +528,12 @@ func _download_video(video_card: Control, on_finished: Callable = Callable()) ->
 								video_card.video_info[\"subtitles\"] = {\"path\": lrc_path}
 							GdScriptFunc.set_data(\"Favorites\", _current_fav_dir, fav_list)
 
-						GdScriptFunc.set_progress_bar_value(100, title, \"下载完成\")
+						GdScriptFunc.set_progress_bar_value(100, title, tr(\"下载完成\"))
 						if on_finished.is_valid(): on_finished.call()
 						update.call_deferred()
 					, lrc_path)
 				else:
-					GdScriptFunc.set_progress_bar_value(100, title, \"下载完成\")
+					GdScriptFunc.set_progress_bar_value(100, title, tr(\"下载完成\"))
 					GdScriptFunc.set_data(\"Favorites\", _current_fav_dir, fav_list)
 					if on_finished.is_valid(): on_finished.call()
 					update.call_deferred()
@@ -822,7 +822,7 @@ func _paste_file_to_new_folder(data: Dictionary) -> bool:
 	var file_data = data[\"data\"].duplicate(true)
 	if file_data.is_empty():
 		return false
-	var folder_name = file_data.get(\"title\", \"未命名\")
+	var folder_name = file_data.get(\"title\", tr(\"未命名\"))
 	folder_name = _generate_unique_folder_name(folder_name)
 	var video_list = [file_data]
 	GdScriptFunc.set_data(\"Favorites\", folder_name, video_list)
@@ -856,7 +856,7 @@ func _generate_unique_folder_name(base: String) -> String:
 	var new_name = base
 	var counter = 1
 	while keys.has(new_name):
-		new_name = base + \" - 副本\" + ((\" (\" + str(counter) + \")\") if counter > 1 else \"\")
+		new_name = base + tr(\" - 副本\") + ((\" (\" + str(counter) + \")\") if counter > 1 else \"\")
 		counter += 1
 	return new_name
 
@@ -950,7 +950,7 @@ text = "做一个音乐收藏家"
 layout_mode = 1
 anchors_preset = 10
 anchor_right = 1.0
-offset_left = 220.0
+offset_left = 754.0
 offset_top = 29.0
 offset_right = -16.0
 offset_bottom = 99.0

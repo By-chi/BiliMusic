@@ -90,7 +90,7 @@ func _on_cover_download_pressed() -> void:
 	# 确保音频文件存在，避免封面保存到项目根目录
 	if not FileAccess.file_exists(link):
 		print(\"[MetadataWindow] Audio file not found: \", link)
-		GdScriptFunc.set_progress_bar_value(100, \"失败\", \"请先下载音频再下载封面\")
+		GdScriptFunc.set_progress_bar_value(100, tr(\"失败\"), tr(\"请先下载音频再下载封面\"))
 		return
 
 	# 获取绝对路径以保证 basename 正确
@@ -98,24 +98,24 @@ func _on_cover_download_pressed() -> void:
 	var cover_path = abs_link.get_basename() + \".jpg\"
 	print(\"[MetadataWindow] Cover will be saved to: \", cover_path)
 
-	GdScriptFunc.set_progress_bar_value(10, \"封面下载\", \"正在获取封面...\")
+	GdScriptFunc.set_progress_bar_value(10, tr(\"封面下载\"), tr(\"正在获取封面...\"))
 
 	BilibiliIc.fetch_cover(bv, func(bvid, texture: Texture2D):
 		print(\"[MetadataWindow] Cover fetch callback triggered, texture is null: \", texture == null)
 		if texture:
 			var img = texture.get_image()
-			GdScriptFunc.set_progress_bar_value(50, \"封面下载\", \"正在保存封面...\")
+			GdScriptFunc.set_progress_bar_value(50, tr(\"封面下载\"), tr(\"正在保存封面...\"))
 			var err = img.save_jpg(cover_path)
 			if err == OK:
 				cover_texture_rect.texture = texture
 				print(\"[MetadataWindow] Cover saved to: \", cover_path)
-				GdScriptFunc.set_progress_bar_value(100, \"完成\", \"封面已更新\")
+				GdScriptFunc.set_progress_bar_value(100, tr(\"完成\"), tr(\"封面已更新\"))
 			else:
 				print(\"[MetadataWindow] Cover save failed, error: \", err)
-				GdScriptFunc.set_progress_bar_value(100, \"失败\", \"封面保存失败\")
+				GdScriptFunc.set_progress_bar_value(100, tr(\"失败\"), tr(\"封面保存失败\"))
 		else:
 			print(\"[MetadataWindow] Cover texture is null\")
-			GdScriptFunc.set_progress_bar_value(100, \"失败\", \"封面获取失败\")
+			GdScriptFunc.set_progress_bar_value(100, tr(\"失败\"), tr(\"封面获取失败\"))
 	, 1280, 720)
 func _on_link_download_pressed() -> void:
 	print(\"[MetadataWindow] _on_link_download_pressed called, bv: \", bv)
@@ -127,12 +127,12 @@ func _on_link_download_pressed() -> void:
 	var old_cover_path = old_link.get_basename() + \".jpg\" if not old_link.is_empty() else \"\"
 	var old_lrc_path = old_link.get_basename() + \".lrc\" if not old_link.is_empty() else \"\"
 
-	GdScriptFunc.set_progress_bar_value(10, \"音频下载\", \"正在获取音频信息...\")
+	GdScriptFunc.set_progress_bar_value(10, tr(\"音频下载\"), tr(\"正在获取音频信息...\"))
 	print(\"[MetadataWindow] Starting async audio download for BV: \", bv)
 	_download_audio_async(bv, func(audio_result: Dictionary):
 		print(\"[MetadataWindow] Audio download callback, result: \", audio_result)
 		if audio_result.is_empty():
-			GdScriptFunc.set_progress_bar_value(100, \"失败\", \"音频下载失败\")
+			GdScriptFunc.set_progress_bar_value(100, tr(\"失败\"), tr(\"音频下载失败\"))
 			return
 
 		var new_link = audio_result[\"local_path\"]
@@ -154,14 +154,14 @@ func _on_link_download_pressed() -> void:
 			print(\"[MetadataWindow] WARNING: could not find entry in favorites to update link\")
 
 		if not old_cover_path.is_empty() and FileAccess.file_exists(old_cover_path):
-			GdScriptFunc.set_progress_bar_value(60, \"音频下载\", \"正在迁移封面...\")
+			GdScriptFunc.set_progress_bar_value(60, tr(\"音频下载\"), tr(\"正在迁移封面...\"))
 			var new_cover_path = new_link.get_basename() + \".jpg\"
 			var err = DirAccess.copy_absolute(old_cover_path, new_cover_path)
 			print(\"[MetadataWindow] Migrating cover from \", old_cover_path, \" to \", new_cover_path, \" error: \", err)
 			_load_cover_for_link(new_link)
 
 		if not old_lrc_path.is_empty() and FileAccess.file_exists(old_lrc_path):
-			GdScriptFunc.set_progress_bar_value(80, \"音频下载\", \"正在迁移字幕...\")
+			GdScriptFunc.set_progress_bar_value(80, tr(\"音频下载\"), tr(\"正在迁移字幕...\"))
 			var new_lrc_path = new_link.get_basename() + \".lrc\"
 			var err = DirAccess.copy_absolute(old_lrc_path, new_lrc_path)
 			print(\"[MetadataWindow] Migrating lrc from \", old_lrc_path, \" to \", new_lrc_path, \" error: \", err)
@@ -172,7 +172,7 @@ func _on_link_download_pressed() -> void:
 					print(\"[MetadataWindow] Updated subtitle path in favorites\")
 					break
 
-		GdScriptFunc.set_progress_bar_value(100, \"完成\", \"音频已更新\")
+		GdScriptFunc.set_progress_bar_value(100, tr(\"完成\"), tr(\"音频已更新\"))
 	)
 
 func _on_description_download_pressed() -> void:
@@ -180,17 +180,17 @@ func _on_description_download_pressed() -> void:
 	if bv.is_empty():
 		print(\"[MetadataWindow] bv is empty, aborting description download\")
 		return
-	GdScriptFunc.set_progress_bar_value(10, \"获取信息\", \"正在获取描述...\")
+	GdScriptFunc.set_progress_bar_value(10, tr(\"获取信息\"), tr(\"正在获取描述...\"))
 	BilibiliIc.fetch_video_info(bv, func(info: Dictionary):
 		print(\"[MetadataWindow] Description fetch callback triggered, info size: \", info.size())
 		if info.is_empty():
-			GdScriptFunc.set_progress_bar_value(100, \"失败\", \"获取信息失败\")
+			GdScriptFunc.set_progress_bar_value(100, tr(\"失败\"), tr(\"获取信息失败\"))
 			return
 		var desc = info.get(\"desc\", \"\")
 		description_line_edit.text = desc
 		music_description = desc
 		print(\"[MetadataWindow] Description updated, length: \", desc.length())
-		GdScriptFunc.set_progress_bar_value(100, \"完成\", \"描述已更新\")
+		GdScriptFunc.set_progress_bar_value(100, tr(\"完成\"), tr(\"描述已更新\"))
 	)
 
 
@@ -199,7 +199,7 @@ const TARGET_DIR := \"user://local_music/\"
 
 func _download_audio_async(bvid: String, callback: Callable) -> void:
 	print(\"[MetadataWindow] _download_audio_async called for bvid: \", bvid)
-	GdScriptFunc.set_progress_bar_value(30, \"音频下载\", \"正在下载音频文件...\")
+	GdScriptFunc.set_progress_bar_value(30, tr(\"音频下载\"), tr(\"正在下载音频文件...\"))
 
 	var thread := Thread.new()
 	var result := {
@@ -268,7 +268,7 @@ func _download_audio_async(bvid: String, callback: Callable) -> void:
 			var res = thread.wait_to_finish()
 			check_timer.queue_free()
 			print(\"[MetadataWindow] Thread finished, result: \", res)
-			GdScriptFunc.set_progress_bar_value(50, \"音频下载\", \"音频文件处理完成\")
+			GdScriptFunc.set_progress_bar_value(50, tr(\"音频下载\"), tr(\"音频文件处理完成\"))
 			callback.call(res)
 	)
 	check_timer.start()

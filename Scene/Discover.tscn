@@ -77,7 +77,7 @@ func _instantiate_and_setup_card(video: Dictionary, list_node: BoxContainer) -> 
 		var image = Image.load_from_file(video.link.get_basename()+\".jpg\")
 		_set_cover(ImageTexture.create_from_image(image),video_card)
 	else:
-		GdScriptFunc.generate_label_texture(Color.WHITE,video.get(\"title\", \"本地文件\"),_set_cover.bind(video_card),null,50)
+		GdScriptFunc.generate_label_texture(Color.WHITE,video.get(\"title\", tr(\"本地文件\")),_set_cover.bind(video_card),null,50)
 	
 	# 连接右键事件
 	video_card.gui_input.connect(_on_video_card_gui_input.bind(video_card, video))
@@ -95,13 +95,13 @@ func _on_video_card_gui_input(event: InputEvent, video_card: Control, video_data
 	var menu: Array[Dictionary] = []
 	if not is_collected:
 		menu.append({
-			\"label\": \"收藏\",
+			\"label\": tr(\"收藏\"),
 			\"action\": func(_d): _on_collect(video_data),
 			\"enabled\": true
 		})
 	else:
 		menu.append({
-			\"label\": \"取消收藏\",
+			\"label\": tr(\"取消收藏\"),
 			\"action\": func(_d): _on_cancel_collect(link),
 			\"enabled\": true
 		})

@@ -5,6 +5,7 @@ script/source = "extends Control
 @export var OptionsTabContainer: TabContainer
 @export var ClearCoversCache: Button
 @export var ClearLyricsCache: Button
+@export var BuiltinThemes: Array[String]
 
 var _setting_controls: Dictionary = {}
 
@@ -31,6 +32,8 @@ func _ready() -> void:
 				_setup_skin(option, control as OptionButton)
 			elif option.name == \"Custom_Big_Window_Theme\":
 				_setup_big_window_theme(option, control as OptionButton)
+			elif option.name == \"Language\":
+				_setup_language(option, control as OptionButton)
 			else:
 				_setup_generic(option, control)
 
@@ -38,13 +41,57 @@ func _ready() -> void:
 
 	_update_cache_size()
 
+# ---------- 修复后的语言设置 ----------
+func _setup_language(option: Control, option_button: OptionButton) -> void:
+	# 使用有序数组，确保名称和代码一一对应
+	var lang_names = [\"中文\", \"English\", \"日本語\"]
+	var lang_codes = [\"zh\", \"en\", \"ja\"]
+
+	option_button.clear()
+	for lang_name in lang_names:
+		option_button.add_item(lang_name)
+
+	# 读取保存的语言代码，若没有则使用系统语言
+	var saved_code = GdScriptFunc.get_data(\"Options\", \"Language\", \"\")
+	var current_locale = TranslationServer.get_locale()
+	var final_code = saved_code
+
+	# 确定最终语言代码（确保在列表中）
+	if final_code == \"\" or not (final_code in lang_codes):
+		var matched = false
+		for code in lang_codes:
+			if code == current_locale:
+				final_code = code
+				matched = true
+				break
+		if not matched:
+			final_code = lang_codes[0]  # 默认第一个（中文）
+
+	# 计算选中索引
+	var idx = lang_codes.find(final_code)
+	if idx == -1:
+		idx = 0
+		final_code = lang_codes[idx]
+
+	option_button.selected = idx
+	TranslationServer.set_locale(final_code)
+
+	# 连接切换信号（保存并立即生效）
+	option_button.item_selected.connect(func(index: int):
+		var selected_code = lang_codes[index]
+		GdScriptFunc.set_data(\"Options\", \"Language\", selected_code, true)
+		TranslationServer.set_locale(selected_code)
+	)
+	GdScriptFunc.traverse_iterative(get_tree().root)
+
+# ---------- 其余函数保持不变 ----------
 func _setup_account(option: Control, button: Button) -> void:
 	var sessdata = GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\")
 	if sessdata == null:
-		button.text = \"点击登陆\"
+		button.text = tr(\"点击登陆\")
 		get_node(\"/root/Main\").icon.texture = preload(\"res://UI/Icon/bilibili.svg\")
 	else:
-		button.text = \"退出登陆\"
+		button.text = tr(\"退出登陆\")
 		BilibiliIc.fetch_user_avatar(func(tex: ImageTexture):
 			if tex != null:
 				get_node(\"/root/Main\").icon.texture = tex
@@ -52,72 +99,123 @@ func _setup_account(option: Control, button: Button) -> void:
 	button.pressed.connect(_log_in_out.bind(option))
 
 func _setup_skin(option: Control, option_button: OptionButton) -> void:
-	var dir_path = \"res://Skin/\"
-	var dirs = []
-	if DirAccess.dir_exists_absolute(dir_path):
-		var dir = DirAccess.open(dir_path)
-		dir.list_dir_begin()
-		var item = dir.get_next()
-		while item != \"\":
-			if dir.current_is_dir() and item != \".\" and item != \"..\":
-				dirs.append(item)
-			item = dir.get_next()
-		dir.list_dir_end()
-	dirs.sort()
+	var skin_dict: Dictionary = {}
 
-	var paths = []
-	for d in dirs:
+	var res_path = \"res://Skin/\"
+	var res_dirs: Array = []
+	if DirAccess.dir_exists_absolute(res_path):
+		var dir = DirAccess.open(res_path)
+		if dir:
+			dir.list_dir_begin()
+			var item = dir.get_next()
+			while item != \"\":
+				if dir.current_is_dir() and item != \".\" and item != \"..\":
+					res_dirs.append(item)
+				item = dir.get_next()
+			dir.list_dir_end()
+	res_dirs.sort()
+	for d in res_dirs:
+		skin_dict[d] = res_path.path_join(d) + \"/\"
+
+	var user_path = \"user://Skin/\"
+	if DirAccess.dir_exists_absolute(user_path):
+		var dir = DirAccess.open(user_path)
+		if dir:
+			dir.list_dir_begin()
+			var item = dir.get_next()
+			while item != \"\":
+				if dir.current_is_dir() and item != \".\" and item != \"..\":
+					# 外部同名文件夹覆盖内部
+					skin_dict[item] = user_path.path_join(item) + \"/\"
+				item = dir.get_next()
+			dir.list_dir_end()
+
+	# 转换为并行数组
+	var skin_names: Array = []
+	var skin_paths: Array = []
+	for skin_name in skin_dict:
+		skin_names.append(skin_name)
+		skin_paths.append(skin_dict[skin_name])
+
+	skin_names.sort()
+	var sorted_paths: Array = []
+	for skin_name in skin_names:
+		sorted_paths.append(skin_dict[skin_name])
+
+	for d in skin_names:
 		option_button.add_item(d)
-		paths.append(dir_path + d + \"/\")
 
+	# 恢复上次选中的皮肤
 	var saved_path = GdScriptFunc.get_data(\"Options\", \"Skin\", \"\")
-	if saved_path == \"\":
-		saved_path = dirs[0] if dirs.size() > 0 else \"\"
-	var idx = paths.find(saved_path)
+	if saved_path == \"\" and skin_names.size() > 0:
+		saved_path = sorted_paths[0]
+	var idx = sorted_paths.find(saved_path)
 	if idx == -1:
 		idx = 0
 	option_button.selected = idx
-	var dir_name = dirs[idx] if idx < dirs.size() else \"\"
-	if dir_name != \"\":
-		GdScriptFunc.update_skin_theme(dir_name)
+	var selected_name = skin_names[idx] if idx < skin_names.size() else \"\"
+	var selected_path = sorted_paths[idx] if idx < skin_paths.size() else \"\"
+	if selected_path != \"\":
+		GdScriptFunc.update_skin_theme(selected_name)  # 如果你需要传递路径，需修改该函数
 
 	option_button.item_selected.connect(func(index: int):
-		var selected_path = paths[index]
-		GdScriptFunc.set_data(\"Options\", \"Skin\", selected_path, true)
-		var selected_dir = dirs[index]
-		GdScriptFunc.update_skin_theme(selected_dir)
+		var chosen_path = sorted_paths[index]
+		GdScriptFunc.set_data(\"Options\", \"Skin\", chosen_path, true)
+		var chosen_name = skin_names[index]
+		GdScriptFunc.update_skin_theme(chosen_name)  # 同样可能需要路径
 		GdScriptFunc.update_marks_theme_and_styles()
 	)
 
 func _setup_big_window_theme(option: Control, option_button: OptionButton) -> void:
-	var dir_path = \"res://BigWindowTheme/\"
-	var files = []
-	if DirAccess.dir_exists_absolute(dir_path):
-		var dir = DirAccess.open(dir_path)
-		dir.list_dir_begin()
-		var file = dir.get_next()
-		while file != \"\":
-			if not dir.current_is_dir() and file.ends_with(\".tscn\"):
-				files.append(file)
-			file = dir.get_next()
-		dir.list_dir_end()
-	files.sort()
+	const BUILTIN_DIR = \"res://BigWindowTheme/\"
 
-	var paths = []
-	for f in files:
-		option_button.add_item(f.trim_suffix(\".tscn\"))
-		paths.append(dir_path + f)
+	var theme_dict: Dictionary = {}
+	for theme_name in BuiltinThemes:
+		theme_dict[theme_name] = BUILTIN_DIR.path_join(theme_name + \".tscn\")
+
+	var user_dir = \"user://BigWindowTheme/\"
+	if DirAccess.dir_exists_absolute(user_dir):
+		var dir = DirAccess.open(user_dir)
+		if dir:
+			dir.list_dir_begin()
+			var file = dir.get_next()
+			while file != \"\":
+				if not dir.current_is_dir() and file.ends_with(\".tscn\"):
+					var theme_name = file.trim_suffix(\".tscn\")
+					var theme_path = user_dir.path_join(file)
+					theme_dict[theme_name] = theme_path   # 外部覆盖
+				file = dir.get_next()
+			dir.list_dir_end()
+
+	var theme_names: Array = []
+	var theme_paths: Array = []
+	for theme_name in theme_dict:
+		theme_names.append(theme_name)
+		theme_paths.append(theme_dict[theme_name])
+
+	if theme_names.is_empty():
+		option_button.add_item(tr(\"无可用主题\"))
+		option_button.disabled = true
+		return
+
+	var sorted = theme_names.duplicate()
+	sorted.sort()
+	option_button.clear()
+	for theme_name in sorted:
+		option_button.add_item(theme_name)
+
+	var sorted_paths: Array = []
+	for theme_name in sorted:
+		sorted_paths.append(theme_dict[theme_name])
 
 	var saved_path = GdScriptFunc.get_data(\"Options\", \"Custom_Big_Window_Theme\", \"\")
-	if saved_path == \"\" and files.size() > 0:
-		saved_path = paths[0]
-	var idx = paths.find(saved_path)
+	var idx = sorted_paths.find(saved_path)
 	if idx == -1:
 		idx = 0
 	option_button.selected = idx
 
 	option_button.item_selected.connect(func(index: int):
-		var selected_path = paths[index]
+		var selected_path = sorted_paths[index]
 		GdScriptFunc.set_data(\"Options\", \"Custom_Big_Window_Theme\", selected_path, true)
 	)
 
@@ -148,13 +246,13 @@ func _log_in_out(option: Control) -> void:
 		GdScriptFunc.set_data(\"AccountData\", \"DedeUserID\", null, true)
 		GdScriptFunc.set_data(\"AccountData\", \"DedeUserID__ckMd5\", null, true)
 		GdScriptFunc.set_data(\"AccountData\", \"sid\", null, true)
-		button.text = \"点击登陆\"
+		button.text = tr(\"点击登陆\")
 		get_node(\"/root/Main\").icon.texture = preload(\"res://UI/Icon/bilibili.svg\")
 	else:
 		BilibiliIc.start_qr_login(
 			func(success: bool):
 				if success:
-					button.text = \"退出登陆\"
+					button.text = tr(\"退出登陆\")
 					BilibiliIc.fetch_user_avatar(func(tex: ImageTexture):
 						if tex != null:
 							get_node(\"/root/Main\").icon.texture = tex
@@ -190,11 +288,11 @@ func delete_directory_contents(path: String) -> bool:
 
 func _update_cache_size() -> void:
 	if DirAccess.dir_exists_absolute(\"user://bilibili_cover_cache/\"):
-		var size = CSharpFunc.GetDirectorySize(ProjectSettings.globalize_path(\"user://bilibili_cover_cache/\"))
-		ClearCoversCache.text = \"清理封面缓存(%.2fMB)\" % size
+		var cache_size = CSharpFunc.GetDirectorySize(ProjectSettings.globalize_path(\"user://bilibili_cover_cache/\"))
+		ClearCoversCache.text = tr(\"清理封面缓存(%.2fMB)\") % cache_size
 	if DirAccess.dir_exists_absolute(\"user://lyrics/\"):
-		var size = CSharpFunc.GetDirectorySize(ProjectSettings.globalize_path(\"user://lyrics/\"))
-		ClearLyricsCache.text = \"清理歌词缓存(%.2fMB)\" % size
+		var cache_size = CSharpFunc.GetDirectorySize(ProjectSettings.globalize_path(\"user://lyrics/\"))
+		ClearLyricsCache.text = tr(\"清理歌词缓存(%.2fMB)\") % cache_size
 
 func _on_visibility_changed() -> void:
 	_update_cache_size()
@@ -214,6 +312,7 @@ script = SubResource("GDScript_nmc4f")
 OptionsTabContainer = NodePath("TabContainer")
 ClearCoversCache = NodePath("TabContainer/储存/VBoxContainer/ClearCoversCache")
 ClearLyricsCache = NodePath("TabContainer/储存/VBoxContainer/ClearLyricsCache")
+BuiltinThemes = Array[String](["DefaultCustomBigWindowTheme", "RecordEdgeLines"])
 
 [node name="Label" type="Label" parent="." unique_id=1198818235]
 layout_mode = 0
@@ -300,6 +399,24 @@ text = "开机自启动"
 layout_mode = 2
 button_pressed = true
 text = "记住窗口状态"
+
+[node name="Language" type="Label" parent="TabContainer/常规/VBoxContainer" unique_id=1691698795]
+layout_mode = 2
+theme_override_font_sizes/font_size = 35
+text = "语言"
+
+[node name="Language" type="OptionButton" parent="TabContainer/常规/VBoxContainer/Language" unique_id=1879425096]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -54.0
+offset_top = -24.0
+offset_bottom = 24.0
+grow_horizontal = 0
+grow_vertical = 2
 
 [node name="外观" type="ScrollContainer" parent="TabContainer" unique_id=1953152351]
 visible = false

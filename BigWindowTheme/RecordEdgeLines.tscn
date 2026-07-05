@@ -82,7 +82,7 @@ func update() -> void:
 		var image = Image.load_from_file(video_info.link.get_basename() + \".jpg\")
 		_set_cover(ImageTexture.create_from_image(image))
 	else:
-		GdScriptFunc.generate_label_texture(Color.WHITE, video_info.get(\"title\", \"本地文件\"), _set_cover, null, 10, Color.BLACK, Vector2i(70, 70))
+		GdScriptFunc.generate_label_texture(Color.WHITE, video_info.get(\"title\", tr(\"本地文件\")), _set_cover, null, 10, Color.BLACK, Vector2i(70, 70))
 
 	if video_info.has(\"subtitles\"):
 		var subtitles = video_info[\"subtitles\"]
@@ -141,7 +141,7 @@ func update() -> void:
 		musicNameLabel.modulate = color.blend(Color(1, 1, 1, 0.9))
 	else:
 		musicNameLabel.modulate = color
-	musicNameLabel.text = CSharpFunc.ExtractSongName(video_info.get(\"title\", \"未知\"))
+	musicNameLabel.text = CSharpFunc.ExtractSongName(video_info.get(\"title\", tr(\"未知\")))
 
 var tween_music_name: Tween
 var _music_name_initial_pos: Vector2
@@ -709,7 +709,7 @@ corner_radius_bottom_right = 200
 corner_radius_bottom_left = 200
 corner_detail = 16
 
-[node name="Control" type="Control" unique_id=1917904318 node_paths=PackedStringArray("coverTextureRect", "coverNode", "edgeNode", "musicNameLabel", "BackgroundFlow", "Subtitle", "Background")]
+[node name="Control2" type="Control" unique_id=1917904318 node_paths=PackedStringArray("coverTextureRect", "coverNode", "edgeNode", "musicNameLabel", "BackgroundFlow", "Subtitle", "Background")]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0

@@ -60,8 +60,8 @@ func clear_page() -> void:
 	for i in rsults_list.get_child_count():
 		rsults_list.get_child(i).queue_free()
 		
-	label.text = \"搜索\"
-	sub_label.text = \"请搜索\"
+	label.text = tr(\"搜索\")
+	sub_label.text = tr(\"请搜索\")
 	fade_out(loading, 0.1)
 
 func update_page(keyword: String) -> void:
@@ -82,7 +82,7 @@ func update_page(keyword: String) -> void:
 		return
 		
 	label.text = \"搜索\\\"\" + keyword + \"\\\"\"
-	sub_label.text = \"搜索中\"
+	sub_label.text = tr(\"搜索中\")
 	fade_in(loading, 0.2)
 	
 	BilibiliIc.search_bilibili(update_callback.bind(current_execution_number), keyword, 30, SortModeButton.selected, page_number,\"\",TidsButton.selected)
@@ -97,15 +97,15 @@ func update_callback(videos: Array, execution_number := 0) -> void:
 	if current_count == 0:
 		fade_in(error, 0.3)
 		error.texture = preload(\"res://UI/Icon/nodat.png\")
-		sub_label.text = \"未找任何歌曲\"
+		sub_label.text = tr(\"未找任何歌曲\")
 		return
 	if videos[0].is_empty():
 		fade_in(error, 0.3)
 		error.texture = preload(\"res://UI/Icon/neterror.png\")
-		sub_label.text = \"网络错误\"
+		sub_label.text = tr(\"网络错误\")
 		return
 		
-	sub_label.text = \"已找到\" + str(current_count) + \"首歌曲\"
+	sub_label.text = tr(\"已找到\") + str(current_count) + tr(\"首歌曲\")
 	
 	var total_needed = current_count
 	
@@ -137,7 +137,7 @@ func update_callback(videos: Array, execution_number := 0) -> void:
 			var image = Image.load_from_file(video.link.get_basename()+\".jpg\")
 			_set_cover(ImageTexture.create_from_image(image),video_transverse_card)
 		else:
-			GdScriptFunc.generate_label_texture(Color.WHITE,video.get(\"title\", \"本地文件\"),_set_cover.bind(video_transverse_card),null,10,Color.BLACK,Vector2i(70,70))
+			GdScriptFunc.generate_label_texture(Color.WHITE,video.get(\"title\", tr(\"本地文件\")),_set_cover.bind(video_transverse_card),null,10,Color.BLACK,Vector2i(70,70))
 		# 卡片入场：依次透明+缩放弹入
 		video_transverse_card.modulate.a = 0.0
 		video_transverse_card.scale = Vector2(0.9, 0.9)
@@ -238,7 +238,7 @@ offset_right = -62.0
 offset_bottom = 67.0
 grow_horizontal = 0
 alignment = 1
-autowrap_mode = 3
+text_overrun_behavior = 5
 selected = 0
 item_count = 6
 popup/item_0/text = "综合排序"

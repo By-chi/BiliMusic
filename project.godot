@@ -15,9 +15,6 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 [application]
 
 config/name="BiliMusic"
-config/name_localized={
-"en": ""
-}
 config/tags=PackedStringArray("播放器", "网络", "软件", "音乐")
 run/main_scene="uid://d3y0m53pwfo5a"
 config/features=PackedStringArray("4.7", "C#", "GL Compatibility")
@@ -25,9 +22,6 @@ run/max_fps=60
 run/low_processor_mode=true
 run/low_processor_mode_sleep_usec=16667
 run/delta_smoothing=false
-boot_splash/bg_color=Color(0.96862745, 0.9764706, 1, 1)
-boot_splash/stretch_mode=4
-boot_splash/image="uid://ctw0btub2lsnq"
 config/icon="uid://0n3b8lrdu8ju"
 
 [audio]
@@ -125,6 +119,13 @@ Again={
 [input_devices]
 
 pointing/emulate_touch_from_mouse=true
+
+[internationalization]
+
+locale/translations=PackedStringArray("res://Translate/translations_template.en.translation", "res://Translate/translations_template.ja.translation", "res://Translate/translations_template.zh.translation")
+locale/translations_pot_files=PackedStringArray("res://Scene/Deck.tscn", "res://Scene/Discover.tscn", "res://Scene/Favorites.tscn", "res://Scene/Import.tscn", "res://Scene/Log_in.tscn", "res://Scene/Main.tscn", "res://Scene/MetadataManager.tscn", "res://Scene/Options.tscn", "res://Scene/Player.tscn", "res://Scene/ProgressBarWindow.tscn", "res://Scene/Results.tscn", "res://Scene/UpPpreview.tscn", "res://Scene/VideoCard.tscn", "res://Scene/VideoTransverseCard.tscn", "res://Scene/WindowPlayback.tscn")
+locale/translation_add_builtin_strings_to_pot=true
+locale/fallback="zh"
 
 [physics]
 

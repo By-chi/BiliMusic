@@ -1,5 +1,14 @@
 extends Node
-
+func traverse_iterative(root: Node):
+	var stack = [root]
+	while stack.size() > 0:
+		var node = stack.pop_back()  # 取出最后一个
+		var tr_name:=tr(node.name)
+		if node.name!=tr_name:
+			node.name=tr_name
+		# 将子节点压入栈（顺序无所谓）
+		for child in node.get_children():
+			stack.append(child)
 # 生成特殊字符到 ASCII 的映射表
 func _generate_unicode_map():
 	var map := {}
@@ -320,7 +329,7 @@ func open_select_favorites_window() -> Array:
 	window.size = Vector2i(1290, 901)
 	window.min_size = Vector2(800, 600)
 	window.popup_centered()
-	window.title = "请选择收藏夹"
+	window.title = tr("请选择收藏夹")
 	window.transient = true
 	window.exclusive = true
 	window.close_requested.connect(func():
