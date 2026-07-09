@@ -16,15 +16,74 @@ const CACHE_LOAD_COOLDOWN_MS: int = 50
 const CACHE_QUEUE_MAX_SIZE: int = 40
 
 static var _cached_buvid: String = ""
+# cookie 字段生成与缓存
+static func _get_or_generate_cookie_field(key: String, generator: Callable) -> String:
+	var value = GdScriptFunc.get_data("Network", key, "")
+	if value.is_empty():
+		value = generator.call()
+		GdScriptFunc.set_data("Network", key, value)
+	return value
 
-# 动态生成请求头，buvid3 和 b_nut 根据需要混入
+static func _random_string(length: int = 16) -> String:
+	const CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	var result = ""
+	for i in range(length):
+		result += CHARS[randi() % CHARS.length()]
+	return result
+
+static func _generate_buvid4() -> String:
+	# 格式：UUID + 时间戳 + 随机后缀（模仿真实）
+	var uuid = "%04x%04x-%04x-%04x-%04x-%04x%04x%04x" % [
+		randi() % 0xFFFF, randi() % 0xFFFF,
+		randi() % 0xFFFF, (randi() % 0xFFFF) | 0x4000,
+		(randi() % 0xFFFF) | 0x8000,
+		randi() % 0xFFFF, randi() % 0xFFFF, randi() % 0xFFFF
+	]
+	var timestamp = str(Time.get_unix_time_from_system())
+	var suffix = _random_string(20)
+	return "%s-%s-%s" % [uuid, timestamp, suffix]
+
+static func _generate_fingerprint() -> String:
+	# 模仿真实指纹：随机MD5
+	return _random_string(32).md5_text()
+
+static func _generate_rpdid() -> String:
+	# 格式：随机字符，长度30左右
+	return _random_string(30)
+
+static func _generate_b_lsid() -> String:
+	# 格式：类似 "E9D811FC_19F45923A16"
+	return _random_string(8).to_upper() + "_" + _random_string(12).to_upper()
+# 原始无参版本（保留用于其他接口）
 func _get_headers() -> PackedStringArray:
+	return _get_headers_with_mid(0)
+
+# 新增有参版本
+func _get_headers_with_mid(mid: int = 0) -> PackedStringArray:
 	var cookies = [
 		"buvid3=" + get_or_generate_buvid(),
-		"b_nut=" + generate_fake_b_nut()
+		"buvid4=" + _get_or_generate_cookie_field("buvid4", _generate_buvid4),
+		"b_nut=" + generate_fake_b_nut(),
+		"rpdid=" + _get_or_generate_cookie_field("rpdid", _generate_rpdid),
+		"_uuid=" + _get_or_generate_cookie_field("_uuid", func(): return _random_string(8).to_upper() + "-" + _random_string(4) + "-" + _random_string(4) + "-" + _random_string(4) + "-" + _random_string(12).to_upper() + "infoc"),
+		"theme-tip-show=SHOWED",
+		"theme-avatar-tip-show=SHOWED",
+		"theme-switch-show=SHOWED",
+		"theme_style=dark",
+		"hit-dyn-v2=1",
+		"buvid_fp_plain=undefined",
+		"LIVE_BUVID=AUTO" + str(Time.get_unix_time_from_system()) + "411",
+		"fingerprint=" + _get_or_generate_cookie_field("fingerprint", _generate_fingerprint),
+		"buvid_fp=" + _get_or_generate_cookie_field("buvid_fp", _generate_fingerprint),
+		"PVID=1",
+		"ogv_device_support_dolby=0",
+		"ogv_device_support_hdr=0",
+		"browser_resolution=" + str(DisplayServer.screen_get_size().x) + "-" + str(DisplayServer.screen_get_size().y),
+		"home_feed_column=4",
+		"b_lsid=" + _get_or_generate_cookie_field("b_lsid", _generate_b_lsid)
 	]
 
-	# 登录相关 cookie（如果存在）
+	# 登录相关 cookie（动态获取）
 	var sess = GdScriptFunc.get_data("AccountData", "SESSDATA")
 	if sess != null and sess != "":
 		cookies.append("SESSDATA=" + sess)
@@ -45,13 +104,32 @@ func _get_headers() -> PackedStringArray:
 	if sid != null and sid != "":
 		cookies.append("sid=" + sid)
 
+	var bp_offset = GdScriptFunc.get_data("AccountData", "bp_t_offset")
+	if bp_offset != null and bp_offset != "":
+		cookies.append("bp_t_offset_" + dedeuserid + "=" + bp_offset)
+
 	var cookie = "; ".join(cookies) + ";"
+
+	# 动态 Referer
+	var referer = "https://space.bilibili.com/"
+	if mid != 0:
+		referer += str(mid) + "/upload/video"
+
 	return [
 		"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-		"Referer: https://www.bilibili.com/",
-		"Origin: https://www.bilibili.com",
+		"Referer: " + referer,
+		"Origin: https://space.bilibili.com",
 		"Accept: application/json, text/plain, */*",
 		"Accept-Language: zh-CN,zh;q=0.9,en;q=0.8",
+		"Accept-Encoding: gzip, deflate, br",
+		"Sec-Ch-Ua: \"Not;A=Brand\";v=\"8\", \"Chromium\";v=\"120\", \"Microsoft Edge\";v=\"120\"",
+		"Sec-Ch-Ua-Mobile: ?0",
+		"Sec-Ch-Ua-Platform: \"Windows\"",
+		"Sec-Fetch-Dest: empty",
+		"Sec-Fetch-Mode: cors",
+		"Sec-Fetch-Site: same-site",
+		"Dnt: 1",
+		"Priority: u=1, i",
 		"Cookie: " + cookie
 	]
 func get_csrf() -> String:
@@ -62,7 +140,6 @@ func _get_image_headers() -> PackedStringArray:
 		"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 		"Referer: https://www.bilibili.com"
 	]
-
 # 静态工具方法
 static func generate_fake_b_nut() -> String:
 	return str(Time.get_unix_time_from_system())
@@ -557,37 +634,39 @@ func _save_worker() -> void:
 		else:
 			push_error("[后台线程] 无法写入缓存文件: ", file_path)
 
-# 通用 HTTP 请求包装
-func _request(url: String, callback: Callable, extra: Variant = null, method: int = HTTPClient.METHOD_GET, custom_headers: PackedStringArray = _get_headers()) -> void:
+# 通用 HTTP 请求包装（支持动态 Referer）
+func _request(url: String, callback: Callable, extra: Variant = null, method: int = HTTPClient.METHOD_GET, custom_headers: PackedStringArray = _get_headers(), mid: int = 0) -> void:
 	var http = HTTPRequest.new()
 	add_child(http)
 
-	var wrapped_callback = func(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray):
+	var headers = custom_headers
+	if mid != 0 and custom_headers == _get_headers():
+		headers = _get_headers_with_mid(mid)
+
+	var wrapped_callback = func(result: int, response_code: int, resp_headers: PackedStringArray, body: PackedByteArray):
 		http.queue_free()
-		callback.call(result, response_code, headers, body, extra)
+		callback.call(result, response_code, resp_headers, body, extra)
 
 	http.request_completed.connect(wrapped_callback)
-	var err = http.request(url, custom_headers, method)
+	var err = http.request(url, headers, method)
 	if err != OK:
 		push_error("HTTP请求失败: ", err)
 		http.queue_free()
 		callback.call(HTTPRequest.RESULT_REQUEST_FAILED, 0, [], PackedByteArray(), extra)
-
 # 搜索，keyword 为"bilibili音乐周榜"时走榜单接口,
 # 关于tids有:
 # 3,音乐主区(默认)    130,音乐综合    29,音乐现场    59,演奏    31,翻唱    193,MV    30,VOCALOID·UTAU    194,电音    28,原创音乐
 func search_bilibili(callback: Callable, keyword: String, num: int = 10, order = 0, page := 1, author: String = "", _tids:=3) -> void:
+	
 	if keyword == "bilibili音乐周榜":
 		_fetch_music_rank_static(callback)
 		return
-
 	var order_str: String = ORDER_MAP.get(order, "totalrank") if order is int else order
 	var query = {
 		"keyword": keyword,
 		"page": page,
 		"order": order_str,
 		"page_size": num,
-		
 		"search_type": "video",
 	}
 	var query_string = ""
@@ -1505,33 +1584,50 @@ func _sign_wbi_url(url: String) -> String:
 	for idx: int in MIXIN_KEY_ENC_TAB:
 		wbi_key += combined_key[idx]
 
+	# 解析 URL
 	var uri: String = url.replace("https://api.bilibili.com", "")
 	var query_split: PackedStringArray = uri.split("?", false, 1)
+	var base: String = query_split[0]
 	var query_string: String = query_split[1] if query_split.size() > 1 else ""
 
 	var params: Dictionary = {}
-	for param: String in query_string.split("&"):
-		var kv: PackedStringArray = param.split("=")
+	for param in query_string.split("&"):
+		var kv = param.split("=")
 		if kv.size() == 2:
-			params[kv[0]] = kv[1]
+			params[kv[0]] = kv[1].uri_decode()  # 解码
 
-	var wts: String = str(Time.get_unix_time_from_system())
+	# 移除已有的 w_rid 和 wts（如果有），避免重复
+	params.erase("w_rid")
+	params.erase("wts")
+
+	# 添加新的 wts（整数）
+	var wts: int = Time.get_unix_time_from_system()
 	params["wts"] = wts
 
-	var sorted_params: Array[String] = []
-	for key: String in params:
-		sorted_params.append(key)
-	sorted_params.sort()
+	# 按键名排序
+	var sorted_keys = params.keys()
+	sorted_keys.sort()
 
-	var sorted_query: String = ""
-	for key: String in sorted_params:
+	# 拼接用于签名的字符串（原始值）
+	var sorted_query = ""
+	for key in sorted_keys:
 		if not sorted_query.is_empty():
 			sorted_query += "&"
-		sorted_query += key + "=" + params[key]
+		sorted_query += key + "=" + str(params[key])  # 原始值
 
-	var sign_str: String = sorted_query + wbi_key
-	var w_rid: String = sign_str.md5_text()
-	return url + "&w_rid=" + w_rid + "&wts=" + wts
+	var sign_str = sorted_query + wbi_key
+	var w_rid = sign_str.md5_text()
+
+	# 构建最终 URL，将所有参数编码并添加 w_rid
+	var final_parts = []
+	for key in sorted_keys:
+		var value = str(params[key]).uri_encode()
+		final_parts.append(key + "=" + value)
+	# 添加 w_rid（不编码，它是十六进制）
+	final_parts.append("w_rid=" + w_rid)
+
+	var final_url = "https://api.bilibili.com" + base + "?" + "&".join(final_parts)
+	return final_url
 
 func start_qr_login(login_callback: Callable) -> void:
 	on_qr_login_result = login_callback
@@ -1668,6 +1764,15 @@ func _exchange_cookie(login_url: String) -> void:
 								GdScriptFunc.set_data("AccountData", "DedeUserID__ckMd5", value)
 							"sid":
 								GdScriptFunc.set_data("AccountData", "sid", value)
+							"bp_t_offset":   # 注意：key 可能是 "bp_t_offset_1909594131" 这种动态形式，需要正则匹配
+								var offset_value = value
+								var uid = GdScriptFunc.get_data("AccountData", "DedeUserID", "")
+								if uid != "":
+									GdScriptFunc.set_data("AccountData", "bp_t_offset", offset_value)
+							"bili_ticket":
+								GdScriptFunc.set_data("AccountData", "bili_ticket", value)
+							"bili_ticket_expires":
+								GdScriptFunc.set_data("AccountData", "bili_ticket_expires", value)
 		print("所有登录 cookie 已保存")
 		# Cookie 保存完毕，开始加载头像并延迟关闭
 		_load_avatar_and_delayed_close()

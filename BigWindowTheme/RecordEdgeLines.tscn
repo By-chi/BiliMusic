@@ -46,7 +46,7 @@ script/source = "extends Control
 @export var min_amp_scale: float = 100.0
 @export var max_amp_scale: float = 2000000.0
 @export var enable_a_weighting: bool = false
-@export var a_weight_high_freq_pole: float = 15000.0
+@export var a_weight_high_freq_pole: float = 12194.0
 @export var dynamic_range: bool = true
 @export var max_changed_speed: float = 500.0
 @export var dynamic_update_interval: float = 0.2
@@ -64,6 +64,10 @@ var audio_effect_spectrum_analyzer: AudioEffectSpectrumAnalyzerInstance
 var _smoothed_band_energies: Array[float] = []
 var _smoothed_overall_energy: float = 0.0
 var _amp_scale: float = spectrum_scale
+	#set(value):
+		#if _amp_scale!=value:
+			#_amp_scale=value
+			#printt(\"amp_scale\",value)
 var _current_alpha_attack: float = 0.0
 var _current_alpha_release: float = 0.0
 var _max_frequency: float = 22050.0
@@ -157,7 +161,6 @@ func _ready() -> void:
 
 	_current_max = float(to_hz)
 	_target_max = float(to_hz)
-
 	Player.seeked.connect(set_stream_position)
 	Player.song_changed.connect(func(_video_info: Dictionary):
 		set_stream_position(0.01)
@@ -204,10 +207,9 @@ func _compute_alpha(coefficient: float, delta: float) -> float:
 
 func _get_a_weighting(freq_hz: float) -> float:
 	var f2 := freq_hz * freq_hz
-	var high_pole := a_weight_high_freq_pole
-	var num := high_pole * high_pole * f2 * f2
-	var low_pole := 19.0
-	var den := (f2 + low_pole * low_pole) * sqrt((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9)) * (f2 + high_pole * high_pole)
+	const LOW_POLE  := 20.6
+	var num := a_weight_high_freq_pole * a_weight_high_freq_pole * f2 * f2
+	var den := (f2 + LOW_POLE * LOW_POLE) * sqrt((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9)) * (f2 + a_weight_high_freq_pole * a_weight_high_freq_pole)
 	if den == 0.0:
 		return 0.0
 	return num / den
@@ -239,6 +241,7 @@ func _update_dynamic_range(delta: float) -> void:
 		# 如果找到有效频段，就用它；否则保持上一次的 _target_max（或设为默认顶部值）
 		if found_freq > 0:
 			_target_max = clampf(found_freq, 500.0, 22050.0)
+			printt(\"target_max\",_target_max)
 
 	# 平滑逼近
 	if _current_max < _target_max:
@@ -287,14 +290,15 @@ func _process(delta: float) -> void:
 			smoothed = lerpf(smoothed, raw_energy, _current_alpha_release)
 		_smoothed_band_energies[i] = smoothed
 
-		var a_weight := 1.0
+		var energy_weight := 1.0
 		if enable_a_weighting:
 			var center_freq := (low_freq + high_freq) * 0.5
-			a_weight = _get_a_weighting(center_freq)
+			var amp_gain := _get_a_weighting(center_freq)
+			energy_weight = amp_gain * amp_gain
 
-		raw_heights[i] = clampf(smoothed * _amp_scale * a_weight, 10.0, max_height)
+		raw_heights[i] = clampf(smoothed * _amp_scale * energy_weight, 10.0, max_height)
 
-	# 邻居粘连平滑（支持循环数组和可调半径）
+	# 邻居粘连平滑
 	if enable_neighbor_blend:
 		var blended: Array[float] = []
 		blended.resize(line_count)
@@ -315,9 +319,8 @@ func _process(delta: float) -> void:
 		line_nodes[i].mesh.height = raw_heights[i]
 
 	if Player.sonance:
-		
 		coverNode.rotation += delta * coverTextureRectRotateSpeed
-		edgeNode.rotation=coverNode.rotation
+		edgeNode.rotation = coverNode.rotation
 		if not tween_music_name.is_running():
 			tween_music_name.play()
 	else:
@@ -326,7 +329,6 @@ func _process(delta: float) -> void:
 
 	if Subtitle.visible:
 		_refresh_lyrics()
-
 func _refresh_lyrics() -> void:
 	if _is_animating:
 		return
@@ -730,8 +732,11 @@ line_max_height = 200.0
 from_hz = 400
 to_hz = 2000
 enable_neighbor_blend = true
+target_scaled_energy = 1000.0
+min_amp_scale = 300.0
 enable_a_weighting = true
-dynamic_threshold = 2.0
+a_weight_high_freq_pole = 8000.0
+dynamic_threshold = 3.0
 
 [node name="Background" type="TextureRect" parent="." unique_id=1182331341]
 layout_mode = 1

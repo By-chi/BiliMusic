@@ -3,7 +3,7 @@
 [sub_resource type="GDScript" id="GDScript_61i7r"]
 script/source = "extends Control
 
-@export var list: VBoxContainer
+@export var list_box: VBoxContainer
 @export var scroll_container: ScrollContainer
 @export var ups: Array[Dictionary] = []
 
@@ -21,17 +21,17 @@ func _ready() -> void:
 		node.self_modulate = color
 		
 		up_nodes.append(node)
-		list.add_child(node)
+		list_box.add_child(node)
 		GdScriptFunc.apply_theme_and_styles_to_node(node)
 		node.get_node(\"Link\").pressed.connect(func():
 			get_node(\"/root/Main\")._on_search_text_submitted(node.name)
 		)
-	list.transform_changed.connect(on_list_rolling)
+	list_box.transform_changed.connect(on_list_rolling)
 	on_list_rolling()
 
 # 核心懒加载逻辑
 func on_list_rolling() -> void:
-	var bottom := -list.position.y + scroll_container.size.y
+	var bottom := -list_box.position.y + scroll_container.size.y
 	
 	if bottom >= 169 + up_preview_visible_id * 350:
 		if up_preview_visible_id < up_nodes.size():
@@ -207,7 +207,7 @@ func _notification(what):
 		transform_changed.emit()
 "
 
-[node name="Page2" type="Control" unique_id=585043204 node_paths=PackedStringArray("list", "scroll_container", "time_cd")]
+[node name="Page2" type="Control" unique_id=585043204 node_paths=PackedStringArray("list_box", "scroll_container", "time_cd")]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -218,7 +218,7 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 1
 script = SubResource("GDScript_61i7r")
-list = NodePath("ScrollContainer/VBoxContainer")
+list_box = NodePath("ScrollContainer/VBoxContainer")
 scroll_container = NodePath("ScrollContainer")
 ups = Array[Dictionary]([{
 "key": "JLRS-LeoFM",
@@ -226,6 +226,15 @@ ups = Array[Dictionary]([{
 }, {
 "key": "星痴_Daily_",
 "value": Color(0.76862746, 0.8235294, 0.8784314, 1)
+}, {
+"key": "Yuki_可依",
+"value": Color(0.9764706, 0.93333334, 0.8784314, 1)
+}, {
+"key": "橙子青提",
+"value": Color(0.63529414, 0.26666668, 0.27058825, 1)
+}, {
+"key": "纸鸢ika",
+"value": Color(0.9607843, 0.8392157, 0.84705883, 1)
 }, {
 "key": "FANTASONIC",
 "value": Color(0.2, 0.46666667, 0.72156864, 1)
@@ -235,14 +244,9 @@ ups = Array[Dictionary]([{
 }, {
 "key": "ProjectMili",
 "value": Color(0.3882353, 0.7058824, 0.7137255, 1)
-}, {
-"key": "蛋某人音乐",
-"value": Color(0.17254902, 0.18039216, 0.19215687, 1)
-}, {
-"key": "我爱吃派大星",
-"value": Color(0.6666667, 0.29803923, 0.27058825, 1)
 }])
 time_cd = NodePath("ScrollContainer/CDTimer")
+metadata/_edit_pinned_properties_ = [&"ups"]
 
 [node name="ScrollContainer" type="ScrollContainer" parent="." unique_id=352955920]
 layout_mode = 1

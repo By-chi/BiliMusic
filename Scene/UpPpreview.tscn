@@ -1,5 +1,7 @@
 [gd_scene format=3 uid="uid://b3tcktm1qy5uv"]
 
+[ext_resource type="Texture2D" uid="uid://bc25glmkjfy0t" path="res://UI/Icon/Link.svg" id="1_owjk2"]
+
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_tql3x"]
 content_margin_left = 0.0
 content_margin_top = 0.0
@@ -44,10 +46,15 @@ theme_override_constants/separation = 10
 [node name="Link" type="Button" parent="." unique_id=635102444]
 show_behind_parent = true
 layout_mode = 1
-anchors_preset = 10
+anchors_preset = 1
+anchor_left = 1.0
 anchor_right = 1.0
-offset_bottom = 56.0
-grow_horizontal = 2
+offset_left = -48.0
+offset_top = 17.0
+offset_right = -16.0
+offset_bottom = 49.0
+grow_horizontal = 0
+tooltip_text = "更多相关内容"
 mouse_default_cursor_shape = 2
 theme_override_styles/normal = SubResource("StyleBoxEmpty_i4x8i")
 theme_override_styles/pressed = SubResource("StyleBoxEmpty_i4x8i")
@@ -56,3 +63,5 @@ theme_override_styles/hover_pressed = SubResource("StyleBoxEmpty_i4x8i")
 theme_override_styles/hover_pressed_mirrored = SubResource("StyleBoxEmpty_i4x8i")
 theme_override_styles/disabled = SubResource("StyleBoxEmpty_i4x8i")
 theme_override_styles/focus = SubResource("StyleBoxEmpty_i4x8i")
+icon = ExtResource("1_owjk2")
+expand_icon = true

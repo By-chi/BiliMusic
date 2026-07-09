@@ -36,7 +36,6 @@ public partial class SubtitleCorrection : Node
         SubtitleUtils.LoadTSDictionary();
         _lyricsFetcher = new LyricsFetcher(httpClient,
             new OiapiSource(httpClient),
-            new WwoyunSource(httpClient),
             new NeteaseCloudSource(httpClient),
             new LrclibSource(httpClient)
         );
@@ -88,43 +87,46 @@ public partial class SubtitleCorrection : Node
 
             externalLines = [.. externalLines.Where(line => !line.Contains('-'))];
             GD.Print($"[Process] 过滤后外部歌词行数: {externalLines.Count}");
-            
-            var biliEntries = biliSubs.Select(s => (time: s.from, text: s.content)).ToList();
-            // 在 externalLines 过滤后添加
-            GD.Print("[DEBUG] ========== 过滤后外部歌词 ==========");
-            for (int i = 0; i < externalLines.Count; i++)
-                GD.Print($"[DEBUG Ext {i:D3}] {externalLines[i]}");
-
-            GD.Print("[DEBUG] ========== 过滤后B站字幕（用于对齐） ==========");
-            var biliDebug = biliEntries
-                .Select(x => (time: x.time, norm: SubtitleUtils.NormalizeText(x.text), raw: x.text))
-                .Where(x => !string.IsNullOrWhiteSpace(x.norm) && x.norm.Length >= 2
-                            && !Regex.IsMatch(x.norm, @"^[\d\.\,\;\:\!?\-\+\(\)\[\]\{\}\s]+$"))
-                .ToList();
-            for (int i = 0; i < biliDebug.Count; i++)
-                GD.Print($"[DEBUG Bili {i:D3}] [{biliDebug[i].time:F2}s] {biliDebug[i].raw}  (norm: {biliDebug[i].norm})");
-            // 使用支持多行合并的对齐算法
-            var aligned = SubtitleUtils.AlignBilibiliToExternalMulti(
-                externalLines: externalLines,
-                bilibiliEntries: biliEntries,
-                similarityThreshold: MinTextScoreForMatch
-            );
-
-            if (aligned.Count == externalLines.Count && aligned.Count > 0)
+            if (externalLines.Count > 1 && 
+                string.Join("", externalLines).Contains("暂无歌词"))
             {
-                var sb = new StringBuilder();
-                foreach (var (t, txt) in aligned)
+                var biliEntries = biliSubs.Select(s => (time: s.from, text: s.content)).ToList();
+                // 在 externalLines 过滤后添加
+                GD.Print("[DEBUG] ========== 过滤后外部歌词 ==========");
+                for (int i = 0; i < externalLines.Count; i++)
+                    GD.Print($"[DEBUG Ext {i:D3}] {externalLines[i]}");
+
+                GD.Print("[DEBUG] ========== 过滤后B站字幕（用于对齐） ==========");
+                var biliDebug = biliEntries
+                    .Select(x => (x.time, norm: SubtitleUtils.NormalizeText(x.text), raw: x.text))
+                    .Where(x => !string.IsNullOrWhiteSpace(x.norm) && x.norm.Length >= 2
+                                && !Regex.IsMatch(x.norm, @"^[\d\.\,\;\:\!?\-\+\(\)\[\]\{\}\s]+$"))
+                    .ToList();
+                for (int i = 0; i < biliDebug.Count; i++)
+                    GD.Print($"[DEBUG Bili {i:D3}] [{biliDebug[i].time:F2}s] {biliDebug[i].raw}  (norm: {biliDebug[i].norm})");
+                // 使用支持多行合并的对齐算法
+                var aligned = SubtitleUtils.AlignBilibiliToExternalMulti(
+                    externalLines: externalLines,
+                    bilibiliEntries: biliEntries,
+                    similarityThreshold: MinTextScoreForMatch
+                );
+
+                if (aligned.Count == externalLines.Count && aligned.Count > 0)
                 {
-                    var ts = TimeSpan.FromSeconds(t);
-                    sb.AppendLine($"[{ts.Minutes:D2}:{ts.Seconds:D2}.{ts.Milliseconds:D2}]{txt}");
+                    var sb = new StringBuilder();
+                    foreach (var (t, txt) in aligned)
+                    {
+                        var ts = TimeSpan.FromSeconds(t);
+                        sb.AppendLine($"[{ts.Minutes:D2}:{ts.Seconds:D2}.{ts.Milliseconds:D2}]{txt}");
+                    }
+                    await File.WriteAllTextAsync(finalLrcPath, sb.ToString(), Encoding.UTF8);
+                    GD.Print($"[Process] 新对齐成功，输出 {aligned.Count} 行歌词");
+                    return finalLrcPath;
                 }
-                await File.WriteAllTextAsync(finalLrcPath, sb.ToString(), Encoding.UTF8);
-                GD.Print($"[Process] 新对齐成功，输出 {aligned.Count} 行歌词");
-                return finalLrcPath;
-            }
-            else
-            {
-                GD.Print($"[Process] 对齐行数不匹配，回退 B 站字幕");
+                else
+                {
+                    GD.Print($"[Process] 对齐行数不匹配，回退 B 站字幕");
+                }
             }
         }
 
