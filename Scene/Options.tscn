@@ -312,7 +312,7 @@ script = SubResource("GDScript_nmc4f")
 OptionsTabContainer = NodePath("TabContainer")
 ClearCoversCache = NodePath("TabContainer/储存/VBoxContainer/ClearCoversCache")
 ClearLyricsCache = NodePath("TabContainer/储存/VBoxContainer/ClearLyricsCache")
-BuiltinThemes = Array[String](["DefaultCustomBigWindowTheme", "RecordEdgeLines"])
+BuiltinThemes = Array[String](["DefaultCustomBigWindowTheme", "RecordEdgeLines", "WaveCrease"])
 
 [node name="Label" type="Label" parent="." unique_id=1198818235]
 layout_mode = 0

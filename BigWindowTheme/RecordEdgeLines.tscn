@@ -26,31 +26,10 @@ script/source = "extends Control
 @export var LyricRotationDegree: float = 0.3
 @export var highlight_font_scale: float = 1.4
 @export var normal_font_size: int = 40
-@export var line_count: int = 90
-@export var line_max_height: float = 400
-@export var from_hz: int = 20
-@export var to_hz: int = 22050
 @export var music_name_cycle_duration: float = 6
 @export var music_name_freq_x: float = 1
 @export var music_name_freq_y: float = 2
 @export var music_name_freq_rot: float = 1
-@export var enable_neighbor_blend: bool = false   # 是否开启邻居粘连
-@export var blend_radius: int = 1                  # 平滑半径，1 表示平均自身及左右各1条（共3条）
-@export var spectrum_scale: float = 9000.0
-@export var attack_coefficient: float = 0.15
-@export var release_coefficient: float = 0.5
-@export var auto_adjust_amp_scale: bool = true
-@export var target_scaled_energy: float = 300.0
-@export var amp_scale_adjust_speed: float = 0.1
-@export var volume_threshold: float = 0.001
-@export var min_amp_scale: float = 100.0
-@export var max_amp_scale: float = 2000000.0
-@export var enable_a_weighting: bool = false
-@export var a_weight_high_freq_pole: float = 12194.0
-@export var dynamic_range: bool = true
-@export var max_changed_speed: float = 500.0
-@export var dynamic_update_interval: float = 0.2
-@export var dynamic_threshold: float = 0.5
 
 var bottomMenu: Panel
 var subject_color := Color.WHITE
@@ -60,20 +39,70 @@ var _is_animating: bool = false
 var _enter_tween: Tween
 var _saved_index: int = 0
 
-var audio_effect_spectrum_analyzer: AudioEffectSpectrumAnalyzerInstance
-var _smoothed_band_energies: Array[float] = []
-var _smoothed_overall_energy: float = 0.0
-var _amp_scale: float = spectrum_scale
-	#set(value):
-		#if _amp_scale!=value:
-			#_amp_scale=value
-			#printt(\"amp_scale\",value)
-var _current_alpha_attack: float = 0.0
-var _current_alpha_release: float = 0.0
-var _max_frequency: float = 22050.0
-var _current_max: float = 22050.0
-var _target_max: float = 22050.0
-var _dynamic_update_timer: float = 0.0
+var tween_music_name: Tween
+var _music_name_initial_pos: Vector2
+
+var line_nodes: Array[MeshInstance2D]
+
+func _ready() -> void:
+	_music_name_initial_pos = musicNameLabel.position
+	tween_music_name = musicNameLabel.create_tween()
+	tween_music_name.set_loops()
+	tween_music_name.tween_method(music_name_update_offset, 0.0, TAU, music_name_cycle_duration) \\
+		.set_trans(Tween.TRANS_LINEAR)
+
+	Player.seeked.connect(set_stream_position)
+	Player.song_changed.connect(func(_video_info: Dictionary):
+		set_stream_position(0.01)
+	)
+
+	generate_lines()
+	update()
+
+func generate_lines() -> void:
+	line_nodes.clear()
+	var o := edgeNode.size / 2
+	# AudioSpectrumCalculator 为自动加载单例，直接访问其导出变量
+	var line_count: int = AudioSpectrumCalculator.lineCount
+	for i in line_count:
+		var a := TAU * (i / float(line_count))
+		var pos := o + o.x * Vector2(cos(a), sin(a))
+		var line := MeshInstance2D.new()
+		line.mesh = CapsuleMesh.new()
+		line.mesh.radius = 4
+		line.rotation = a + PI / 2
+		line.position = pos
+		line.show_behind_parent = true
+		edgeNode.add_child(line)
+		line_nodes.append(line)
+
+func music_name_update_offset(angle: float) -> void:
+	musicNameLabel.position = _music_name_initial_pos + Vector2(
+		sin(angle * music_name_freq_x) * 18.0,
+		sin(angle * music_name_freq_y) * 4.0
+	)
+	musicNameLabel.rotation = sin(angle * music_name_freq_rot) * deg_to_rad(2.0)
+
+func _process(delta: float) -> void:
+	# 频谱计算完全交给自动加载的 AudioSpectrumCalculator
+	var max_height := edgeNode.size.x * 2.0
+	var heights: PackedFloat32Array = AudioSpectrumCalculator.Update(delta, Player.sonance, max_height)
+	for i in heights.size():
+		line_nodes[i].mesh.height = heights[i]
+
+	# 封面旋转
+	if Player.sonance:
+		coverNode.rotation += delta * coverTextureRectRotateSpeed
+		edgeNode.rotation = coverNode.rotation
+		if not tween_music_name.is_running():
+			tween_music_name.play()
+	else:
+		if tween_music_name.is_running():
+			tween_music_name.pause()
+
+	if Subtitle.visible:
+		_refresh_lyrics()
+
 
 func update() -> void:
 	Subtitle.hide()
@@ -139,261 +168,19 @@ func update() -> void:
 	else:
 		Subtitle.hide()
 
-	coverTextureRect.texture = bottomMenu.cover
+	if bottomMenu and bottomMenu.cover:
+		coverTextureRect.texture = bottomMenu.cover
+	if not coverTextureRect.texture:
+		# 纹理无效时不执行颜色提取，防止崩溃
+		musicNameLabel.text = CSharpFunc.ExtractSongName(video_info.get(\"title\", tr(\"未知\")))
+		return
+
 	var color: Color = CSharpFunc.ExtractThemeColors(coverTextureRect.texture.get_image(), 1, true, 0.15)[0]
 	if color.get_luminance() < 0.75:
 		musicNameLabel.modulate = color.blend(Color(1, 1, 1, 0.9))
 	else:
 		musicNameLabel.modulate = color
 	musicNameLabel.text = CSharpFunc.ExtractSongName(video_info.get(\"title\", tr(\"未知\")))
-
-var tween_music_name: Tween
-var _music_name_initial_pos: Vector2
-
-func _ready() -> void:
-	audio_effect_spectrum_analyzer = AudioServer.get_bus_effect_instance(1, 0)
-	_max_frequency = AudioServer.get_mix_rate() / 2.0
-	_amp_scale = spectrum_scale
-
-	_smoothed_band_energies.resize(line_count)
-	for i in line_count:
-		_smoothed_band_energies[i] = 0.0
-
-	_current_max = float(to_hz)
-	_target_max = float(to_hz)
-	Player.seeked.connect(set_stream_position)
-	Player.song_changed.connect(func(_video_info: Dictionary):
-		set_stream_position(0.01)
-	)
-	_music_name_initial_pos = musicNameLabel.position
-	tween_music_name = musicNameLabel.create_tween()
-	tween_music_name.set_loops()
-	tween_music_name.tween_method(music_name_update_offset, 0.0, TAU, music_name_cycle_duration) \\
-		.set_trans(Tween.TRANS_LINEAR)
-	generate_lines()
-
-var line_nodes: Array[MeshInstance2D]
-
-func generate_lines() -> void:
-	line_nodes.clear()
-	var o := edgeNode.size / 2
-	for i in line_count:
-		var a := TAU * (i / float(line_count))
-		var pos := o + o.x * Vector2(cos(a), sin(a))
-		var line := MeshInstance2D.new()
-		line.mesh = CapsuleMesh.new()
-		line.mesh.radius = 4
-		line.rotation = a + PI / 2
-		line.position = pos
-		line.show_behind_parent = true
-		edgeNode.add_child(line)
-		line_nodes.append(line)
-
-func music_name_update_offset(angle: float) -> void:
-	musicNameLabel.position = _music_name_initial_pos + Vector2(
-		sin(angle * music_name_freq_x) * 18.0,
-		sin(angle * music_name_freq_y) * 4.0
-	)
-	musicNameLabel.rotation = sin(angle * music_name_freq_rot) * deg_to_rad(2.0)
-
-func _compute_alpha(coefficient: float, delta: float) -> float:
-	if coefficient >= 1.0:
-		return 0.0
-	if coefficient <= 0.0:
-		return 1.0
-	var alpha_ref := 1.0 - coefficient
-	var exponent := delta * 60.0
-	return 1.0 - pow(1.0 - alpha_ref, exponent)
-
-func _get_a_weighting(freq_hz: float) -> float:
-	var f2 := freq_hz * freq_hz
-	const LOW_POLE  := 20.6
-	var num := a_weight_high_freq_pole * a_weight_high_freq_pole * f2 * f2
-	var den := (f2 + LOW_POLE * LOW_POLE) * sqrt((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9)) * (f2 + a_weight_high_freq_pole * a_weight_high_freq_pole)
-	if den == 0.0:
-		return 0.0
-	return num / den
-
-func _get_raw_band_energy(min_freq: float, max_freq: float) -> float:
-	var mag := audio_effect_spectrum_analyzer.get_magnitude_for_frequency_range(min_freq, max_freq)
-	return mag.x * mag.x + mag.y * mag.y
-func _update_dynamic_range(delta: float) -> void:
-	if not dynamic_range:
-		_current_max = float(to_hz)
-		return
-
-	_dynamic_update_timer += delta
-	if _dynamic_update_timer >= dynamic_update_interval:
-		_dynamic_update_timer = 0.0
-
-		var found_freq := -1.0   # 改为 -1 表示未找到
-		var step := 200.0
-		var search_hz := 22050.0
-		while search_hz >= 500:
-			var low := maxf(search_hz - step, 20.0)
-			var high := search_hz
-			var raw := _get_raw_band_energy(low, high)
-			if raw * _amp_scale > dynamic_threshold:
-				found_freq = search_hz
-				break
-			search_hz -= step
-
-		# 如果找到有效频段，就用它；否则保持上一次的 _target_max（或设为默认顶部值）
-		if found_freq > 0:
-			_target_max = clampf(found_freq, 500.0, 22050.0)
-			printt(\"target_max\",_target_max)
-
-	# 平滑逼近
-	if _current_max < _target_max:
-		_current_max += max_changed_speed * delta
-	else:
-		_current_max -= max_changed_speed * delta
-	_current_max = clampf(_current_max, 500.0, 22050.0)
-func _process(delta: float) -> void:
-	_current_alpha_attack = _compute_alpha(attack_coefficient, delta)
-	_current_alpha_release = _compute_alpha(release_coefficient, delta)
-
-	if auto_adjust_amp_scale and Player.sonance:
-		var overall_raw := _get_raw_band_energy(0, _max_frequency)
-		if overall_raw > _smoothed_overall_energy:
-			_smoothed_overall_energy = lerpf(_smoothed_overall_energy, overall_raw, _current_alpha_attack)
-		else:
-			_smoothed_overall_energy = lerpf(_smoothed_overall_energy, overall_raw, _current_alpha_release)
-
-		if _smoothed_overall_energy > volume_threshold:
-			var target_amp := target_scaled_energy / _smoothed_overall_energy
-			_amp_scale = lerpf(_amp_scale, target_amp, amp_scale_adjust_speed)
-			_amp_scale = clampf(_amp_scale, min_amp_scale, max_amp_scale)
-	else:
-		_amp_scale = spectrum_scale
-
-	_update_dynamic_range(delta)
-
-	var current_low := 20.0
-	var current_high := _current_max
-	var block_size := (current_high - current_low) / float(line_count)
-	var max_height := edgeNode.size.x * 2.0
-
-	var raw_heights: Array[float] = []
-	raw_heights.resize(line_count)
-
-	for i in line_count:
-		var low_freq := current_low + i * block_size
-		var high_freq := low_freq + block_size
-
-		var raw_energy := _get_raw_band_energy(low_freq, high_freq)
-
-		var smoothed := _smoothed_band_energies[i]
-		if raw_energy > smoothed:
-			smoothed = lerpf(smoothed, raw_energy, _current_alpha_attack)
-		else:
-			smoothed = lerpf(smoothed, raw_energy, _current_alpha_release)
-		_smoothed_band_energies[i] = smoothed
-
-		var energy_weight := 1.0
-		if enable_a_weighting:
-			var center_freq := (low_freq + high_freq) * 0.5
-			var amp_gain := _get_a_weighting(center_freq)
-			energy_weight = amp_gain * amp_gain
-
-		raw_heights[i] = clampf(smoothed * _amp_scale * energy_weight, 10.0, max_height)
-
-	# 邻居粘连平滑
-	if enable_neighbor_blend:
-		var blended: Array[float] = []
-		blended.resize(line_count)
-		var n := line_count
-		for i in n:
-			var sum := 0.0
-			var cnt := 0
-			for offset in range(-blend_radius, blend_radius + 1):
-				var idx := (i + offset) % n
-				if idx < 0:
-					idx += n
-				sum += raw_heights[idx]
-				cnt += 1
-			blended[i] = sum / cnt
-		raw_heights = blended
-
-	for i in line_count:
-		line_nodes[i].mesh.height = raw_heights[i]
-
-	if Player.sonance:
-		coverNode.rotation += delta * coverTextureRectRotateSpeed
-		edgeNode.rotation = coverNode.rotation
-		if not tween_music_name.is_running():
-			tween_music_name.play()
-	else:
-		if tween_music_name.is_running():
-			tween_music_name.pause()
-
-	if Subtitle.visible:
-		_refresh_lyrics()
-func _refresh_lyrics() -> void:
-	if _is_animating:
-		return
-
-	var labels: Array[Label] = []
-	for child in Subtitle.get_children():
-		if child is Label and is_instance_valid(child):
-			labels.append(child)
-	if labels.is_empty():
-		return
-
-	var pos := Player.get_current_time_sec()
-	while index < LyricTime.size() and pos + LyricOffset > LyricTime[index]:
-		index += 1
-
-	var new_hl := index - 1
-	if new_hl != last_highlight_index:
-		if last_highlight_index >= 0 and last_highlight_index < labels.size():
-			var old_lbl := labels[last_highlight_index]
-			if is_instance_valid(old_lbl):
-				old_lbl.modulate = Color.DIM_GRAY
-				old_lbl.offset_transform_scale = Vector2.ONE
-		if new_hl >= 0 and new_hl < labels.size():
-			var new_lbl := labels[new_hl]
-			if is_instance_valid(new_lbl):
-				new_lbl.modulate = subject_color
-				new_lbl.offset_transform_scale = Vector2.ONE * highlight_font_scale
-		last_highlight_index = new_hl
-
-	var hl_idx := FocusLyricLinePosition - 1
-	var window_start := index - FocusLyricLinePosition
-	var window_end := window_start + OnecShowLyricLineCount - 1
-	var hide_y := float(OnecShowLyricLineCount + 1) * LineSpacing + 2 * extra_spacing
-	const SETTLE_THRESHOLD := 0.5
-
-	for i in labels.size():
-		var lbl := labels[i]
-		if not is_instance_valid(lbl):
-			continue
-
-		if i < window_start or i > window_end:
-			if lbl.visible:
-				lbl.visible = false
-				lbl.position = Vector2(LyricPositionXOffset, hide_y)
-		else:
-			var rel_i := i - window_start
-			var target_y := float(rel_i + 1) * LineSpacing
-			if rel_i > hl_idx:
-				target_y += 2 * extra_spacing
-			elif rel_i == hl_idx:
-				target_y += extra_spacing
-
-			if not lbl.visible:
-				lbl.position = Vector2(LyricPositionXOffset, target_y)
-				lbl.visible = true
-			else:
-				if abs(lbl.position.y - target_y) > SETTLE_THRESHOLD:
-					var new_y := lerpf(lbl.position.y, target_y, 0.15 + absi(rel_i - FocusLyricLinePosition + 1) / 20.0)
-					lbl.position = Vector2(lbl.position.x, new_y)
-
-			lbl.modulate = subject_color if rel_i == hl_idx else Color.DIM_GRAY
-			lbl.rotation = (lbl.position.y - float(FocusLyricLinePosition) * LineSpacing) / get_window().size.y * LyricRotationDegree
-
-func _set_cover(texture: Texture2D) -> void:
-	set_cover(\"\", texture)
 
 var _blur_task_id := 0
 
@@ -416,8 +203,8 @@ func set_cover(_bvid: String, texture: Texture2D) -> void:
 		BackgroundFlow.material.set_shader_parameter(\"blur_texture\", img)
 		await get_tree().process_frame
 
-var last_highlight_index: int = -1
-var _last_subtitle_data: Variant = null
+func _set_cover(texture: Texture2D) -> void:
+	set_cover(\"\", texture)
 
 func _parse_lrc(lrc_text: String) -> void:
 	Lyric.clear()
@@ -471,6 +258,9 @@ func _parse_lrc(lrc_text: String) -> void:
 		for entry in sorted_data:
 			LyricTime.append(entry[\"time\"])
 			Lyric.append(entry[\"text\"])
+
+var last_highlight_index: int = -1
+var _last_subtitle_data: Variant = null
 
 func init_lyrics_from_data(data: Variant) -> void:
 	if typeof(data) == typeof(_last_subtitle_data) and data == _last_subtitle_data:
@@ -550,57 +340,68 @@ func set_stream_position(value: float) -> void:
 	if Subtitle.visible:
 		_refresh_lyrics()
 
-func capitalize_line(text: String) -> String:
-	if text.is_empty():
-		return text
-	var words := text.split(\" \")
-	for i in words.size():
-		if words[i] == \"i\":
-			words[i] = \"I\"
-	var result := \" \".join(words)
-	if result.length() > 0:
-		result = result[0].to_upper() + result.substr(1)
-	return result
-
-func find_index_greater_than(array: Array[float], target: float) -> int:
-	var left := 0
-	var right := array.size() - 1
-	while left <= right:
-		var mid := left + (right - left) / 2
-		if array[mid] <= target:
-			left = mid + 1
-		else:
-			right = mid - 1
-	return left
-
-var is_ECO_mode := false
-func set_ECO_mode(value: bool) -> void:
-	if is_ECO_mode == value:
+func _refresh_lyrics() -> void:
+	if _is_animating:
 		return
-	if value:
-		print(\"进入 ECO 模式\")
-		is_ECO_mode = true
-		if tween_music_name and tween_music_name.is_running():
-			tween_music_name.pause()
-		set_process(false)
-		set_process_input(false)
-		RenderingServer.viewport_set_active(get_viewport().get_viewport_rid(), false)
-	else:
-		print(\"退出 ECO 模式\")
-		is_ECO_mode = false
-		RenderingServer.viewport_set_active(get_viewport().get_viewport_rid(), true)
-		set_process(true)
-		set_process_input(true)
 
-		if Player.sonance and tween_music_name and not tween_music_name.is_running():
-			tween_music_name.play()
+	var labels: Array[Label] = []
+	for child in Subtitle.get_children():
+		if child is Label and is_instance_valid(child):
+			labels.append(child)
+	if labels.is_empty():
+		return
 
-		if Subtitle.visible:
-			var duration := Player.get_duration()
-			if duration > 0:
-				set_stream_position(Player.get_current_time_sec() / duration)
+	var pos := Player.get_current_time_sec()
+	while index < LyricTime.size() and pos + LyricOffset > LyricTime[index]:
+		index += 1
+
+	var new_hl := index - 1
+	if new_hl != last_highlight_index:
+		if last_highlight_index >= 0 and last_highlight_index < labels.size():
+			var old_lbl := labels[last_highlight_index]
+			if is_instance_valid(old_lbl):
+				old_lbl.modulate = Color.DIM_GRAY
+				old_lbl.offset_transform_scale = Vector2.ONE
+		if new_hl >= 0 and new_hl < labels.size():
+			var new_lbl := labels[new_hl]
+			if is_instance_valid(new_lbl):
+				new_lbl.modulate = subject_color
+				new_lbl.offset_transform_scale = Vector2.ONE * highlight_font_scale
+		last_highlight_index = new_hl
+
+	var hl_idx := FocusLyricLinePosition - 1
+	var window_start := index - FocusLyricLinePosition
+	var window_end := window_start + OnecShowLyricLineCount - 1
+	var hide_y := float(OnecShowLyricLineCount + 1) * LineSpacing + 2 * extra_spacing
+	const SETTLE_THRESHOLD := 0.5
+
+	for i in labels.size():
+		var lbl := labels[i]
+		if not is_instance_valid(lbl):
+			continue
+
+		if i < window_start or i > window_end:
+			if lbl.visible:
+				lbl.visible = false
+				lbl.position = Vector2(LyricPositionXOffset, hide_y)
+		else:
+			var rel_i := i - window_start
+			var target_y := float(rel_i + 1) * LineSpacing
+			if rel_i > hl_idx:
+				target_y += 2 * extra_spacing
+			elif rel_i == hl_idx:
+				target_y += extra_spacing
+
+			if not lbl.visible:
+				lbl.position = Vector2(LyricPositionXOffset, target_y)
+				lbl.visible = true
 			else:
-				_refresh_lyrics()
+				if abs(lbl.position.y - target_y) > SETTLE_THRESHOLD:
+					var new_y := lerpf(lbl.position.y, target_y, 0.15 + absi(rel_i - FocusLyricLinePosition + 1) / 20.0)
+					lbl.position = Vector2(lbl.position.x, new_y)
+
+			lbl.modulate = subject_color if rel_i == hl_idx else Color.DIM_GRAY
+			lbl.rotation = (lbl.position.y - float(FocusLyricLinePosition) * LineSpacing) / get_window().size.y * LyricRotationDegree
 
 func Start() -> void:
 	if not Subtitle.visible:
@@ -670,6 +471,58 @@ func _on_enter_animation_finished() -> void:
 			set_stream_position(Player.get_current_time_sec() / duration)
 		else:
 			_refresh_lyrics()
+
+func capitalize_line(text: String) -> String:
+	if text.is_empty():
+		return text
+	var words := text.split(\" \")
+	for i in words.size():
+		if words[i] == \"i\":
+			words[i] = \"I\"
+	var result := \" \".join(words)
+	if result.length() > 0:
+		result = result[0].to_upper() + result.substr(1)
+	return result
+
+func find_index_greater_than(array: Array[float], target: float) -> int:
+	var left := 0
+	var right := array.size() - 1
+	while left <= right:
+		var mid := left + (right - left) / 2
+		if array[mid] <= target:
+			left = mid + 1
+		else:
+			right = mid - 1
+	return left
+
+var is_ECO_mode := false
+func set_ECO_mode(value: bool) -> void:
+	if is_ECO_mode == value:
+		return
+	if value:
+		print(\"进入 ECO 模式\")
+		is_ECO_mode = true
+		if tween_music_name and tween_music_name.is_running():
+			tween_music_name.pause()
+		set_process(false)
+		set_process_input(false)
+		RenderingServer.viewport_set_active(get_viewport().get_viewport_rid(), false)
+	else:
+		print(\"退出 ECO 模式\")
+		is_ECO_mode = false
+		RenderingServer.viewport_set_active(get_viewport().get_viewport_rid(), true)
+		set_process(true)
+		set_process_input(true)
+
+		if Player.sonance and tween_music_name and not tween_music_name.is_running():
+			tween_music_name.play()
+
+		if Subtitle.visible:
+			var duration := Player.get_duration()
+			if duration > 0:
+				set_stream_position(Player.get_current_time_sec() / duration)
+			else:
+				_refresh_lyrics()
 "
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_u3t73"]
@@ -728,15 +581,6 @@ BackgroundFlow = NodePath("ColorRect")
 Subtitle = NodePath("Subtitle")
 Background = NodePath("Background")
 LineSpacing = 120.0
-line_max_height = 200.0
-from_hz = 400
-to_hz = 2000
-enable_neighbor_blend = true
-target_scaled_energy = 1000.0
-min_amp_scale = 300.0
-enable_a_weighting = true
-a_weight_high_freq_pole = 8000.0
-dynamic_threshold = 3.0
 
 [node name="Background" type="TextureRect" parent="." unique_id=1182331341]
 layout_mode = 1
