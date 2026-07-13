@@ -722,7 +722,7 @@ func apply_theme_from_path(path: String) -> bool:
 
 func update_marks_theme_and_styles() -> void:
 	for i in theme_and_styles_marks:
-		if i == null && i.is_queued_for_deletion():
+		if is_instance_valid(i) and i.is_queued_for_deletion():
 			continue
 		apply_theme_and_styles_to_node(i)
 
