@@ -1,18 +1,22 @@
 extends Node
+
+
 func traverse_iterative(root: Node):
 	var stack = [root]
 	while stack.size() > 0:
 		var node = stack.pop_back()  # 取出最后一个
-		var tr_name:=tr(node.name)
-		if node.name!=tr_name:
-			node.name=tr_name
+		var tr_name := tr(node.name)
+		if node.name != tr_name:
+			node.name = tr_name
 		# 将子节点压入栈（顺序无所谓）
 		for child in node.get_children():
 			stack.append(child)
+
+
 # 生成特殊字符到 ASCII 的映射表
 func _generate_unicode_map():
 	var map := {}
-	
+
 	var ranges := [
 		{"unicode_start": 0x1D400, "ascii_start": 0x41, "count": 26, "is_lower": false},
 		{"unicode_start": 0x1D41A, "ascii_start": 0x61, "count": 26, "is_lower": true},
@@ -42,64 +46,106 @@ func _generate_unicode_map():
 		{"unicode_start": 0x24B6, "ascii_start": 0x41, "count": 26},
 		{"unicode_start": 0x24D0, "ascii_start": 0x61, "count": 26},
 	]
-	
+
 	for r in ranges:
 		for i in range(r.count):
 			var unicode_char := char_from_code(r.unicode_start + i)
 			var ascii_char := char_from_code(r.ascii_start + i)
-			map[unicode_char] = ascii_char.to_lower() if "is_lower" in r and r.is_lower else ascii_char.to_lower()
-	
+			map[unicode_char] = (
+				ascii_char.to_lower() if "is_lower" in r and r.is_lower else ascii_char.to_lower()
+			)
+
 	# 带圈数字 ①-⑨
 	for i in range(1, 10):
 		var unicode_char = char_from_code(0x2460 + i - 1)
 		map[unicode_char] = str(i)
 	map["⓪"] = "0"
-	
+
 	# 上标字母
 	var superscript_letters = {
-		"ᵃ":"a","ᵇ":"b","ᶜ":"c","ᵈ":"d","ᵉ":"e","ᶠ":"f","ᵍ":"g","ʰ":"h","ⁱ":"i","ʲ":"j",
-		"ᵏ":"k","ˡ":"l","ᵐ":"m","ⁿ":"n","ᵒ":"o","ᵖ":"p","ʳ":"r","ˢ":"s","ᵗ":"t","ᵘ":"u",
-		"ᵛ":"v","ʷ":"w","ˣ":"x","ʸ":"y","ᶻ":"z"
+		"ᵃ": "a",
+		"ᵇ": "b",
+		"ᶜ": "c",
+		"ᵈ": "d",
+		"ᵉ": "e",
+		"ᶠ": "f",
+		"ᵍ": "g",
+		"ʰ": "h",
+		"ⁱ": "i",
+		"ʲ": "j",
+		"ᵏ": "k",
+		"ˡ": "l",
+		"ᵐ": "m",
+		"ⁿ": "n",
+		"ᵒ": "o",
+		"ᵖ": "p",
+		"ʳ": "r",
+		"ˢ": "s",
+		"ᵗ": "t",
+		"ᵘ": "u",
+		"ᵛ": "v",
+		"ʷ": "w",
+		"ˣ": "x",
+		"ʸ": "y",
+		"ᶻ": "z"
 	}
 	for ch in superscript_letters:
 		map[ch] = superscript_letters[ch]
-	
+
 	# 下标字母
 	var subscript_letters = {
-		"ₐ":"a","ₑ":"e","ₕ":"h","ᵢ":"i","ⱼ":"j","ₖ":"k","ₗ":"l","ₘ":"m","ₙ":"n","ₒ":"o",
-		"ₚ":"p","ᵣ":"r","ₛ":"s","ₜ":"t","ᵤ":"u","ᵥ":"v","ₓ":"x"
+		"ₐ": "a",
+		"ₑ": "e",
+		"ₕ": "h",
+		"ᵢ": "i",
+		"ⱼ": "j",
+		"ₖ": "k",
+		"ₗ": "l",
+		"ₘ": "m",
+		"ₙ": "n",
+		"ₒ": "o",
+		"ₚ": "p",
+		"ᵣ": "r",
+		"ₛ": "s",
+		"ₜ": "t",
+		"ᵤ": "u",
+		"ᵥ": "v",
+		"ₓ": "x"
 	}
 	for ch in subscript_letters:
 		map[ch] = subscript_letters[ch]
-	
+
 	unicode_map = map
+
 
 # 将 Unicode 码点转为字符
 static func char_from_code(code: int) -> String:
 	return String.chr(code)
 
+
 var unicode_map := {}
+
 
 # 在 RichTextLabel 中高亮匹配 a 的子序列
 func apply_highlight(rich_label: RichTextLabel, a: String, b: String) -> void:
 	rich_label.clear()
-	
+
 	var pattern := []
 	for ch in a:
 		var n = _normalize_char(ch)
 		if n != "":
 			pattern.append(n)
-	
+
 	if pattern.is_empty():
 		rich_label.append_text(b)
 		return
-	
+
 	var chars_original := []
 	var chars_norm := []
 	for ch in b:
 		chars_original.append(ch)
 		chars_norm.append(_normalize_char(ch))
-	
+
 	var match_indices := []
 	var p_idx = 0
 	for i in range(chars_norm.size()):
@@ -108,13 +154,13 @@ func apply_highlight(rich_label: RichTextLabel, a: String, b: String) -> void:
 		if chars_norm[i] == pattern[p_idx]:
 			match_indices.append(i)
 			p_idx += 1
-	
-	var fully_matched :bool= p_idx == pattern.size()
-	
+
+	var fully_matched: bool = p_idx == pattern.size()
+
 	if not fully_matched:
 		rich_label.append_text(b)
 		return
-	
+
 	var next_match_idx = 0
 	for i in range(chars_original.size()):
 		if next_match_idx < match_indices.size() and i == match_indices[next_match_idx]:
@@ -125,16 +171,18 @@ func apply_highlight(rich_label: RichTextLabel, a: String, b: String) -> void:
 		else:
 			rich_label.append_text(chars_original[i])
 
+
 # 归一化字符：转小写并过滤无关字符
 func _normalize_char(ch: String) -> String:
 	if unicode_map.has(ch):
 		return unicode_map[ch]
-	
+
 	var lower = ch.to_lower()
 	if (lower >= "a" and lower <= "z") or (ch >= "0" and ch <= "9"):
 		return lower if (lower >= "a" and lower <= "z") else ch
-	
+
 	return ""
+
 
 # 配置文件管理
 const CFG_PATH = "user://config.cfg"
@@ -143,17 +191,20 @@ var _config_file = ConfigFile.new()
 var _dirty = false
 var _save_timer: SceneTreeTimer = null
 
+
 func get_data(section: String, key: String, default = null):
 	if _config_file.has_section(section) and _config_file.has_section_key(section, key):
 		return _config_file.get_value(section, key)
 	return default
+
 
 func get_keys(section: String) -> Array:
 	if _config_file.has_section(section):
 		return _config_file.get_section_keys(section)
 	return []
 
-func set_data(section: String, key: String, value,immediately:=false) -> void:
+
+func set_data(section: String, key: String, value, immediately := false) -> void:
 	_config_file.set_value(section, key, value)
 	_dirty = true
 	if immediately:
@@ -161,11 +212,13 @@ func set_data(section: String, key: String, value,immediately:=false) -> void:
 	else:
 		_schedule_save()
 
+
 func remove_key(section: String, key: String) -> void:
 	if _config_file.has_section_key(section, key):
 		_config_file.erase_section_key(section, key)
 		_dirty = true
 		_schedule_save()
+
 
 func set_key(section: String, old_key: String, new_key: String) -> Error:
 	if _config_file.has_section_key(section, new_key):
@@ -179,12 +232,14 @@ func set_key(section: String, old_key: String, new_key: String) -> Error:
 		return OK
 	return ERR_DOES_NOT_EXIST
 
+
 # 延迟保存，避免频繁 IO
 func _schedule_save():
 	if _save_timer != null and _save_timer.time_left > 0:
 		return
 	_save_timer = get_tree().create_timer(2)
 	_save_timer.timeout.connect(_do_save)
+
 
 func _do_save():
 	if _dirty:
@@ -193,6 +248,7 @@ func _do_save():
 	_save_timer = null
 	saved.emit()
 
+
 func flush():
 	# 取消已有的延迟保存计时器，避免重复保存
 	if _save_timer != null:
@@ -200,6 +256,8 @@ func flush():
 			_save_timer.timeout.disconnect(_do_save)
 		_save_timer = null
 	_do_save()
+
+
 # 入口函数：在指定坐标显示右键菜单,右键菜单应用不了皮肤(即使我已经写了适配代码,还是不行)
 func open_right_click_menu_window(pos: Vector2, data: Array[Dictionary]) -> void:
 	var menu := PopupMenu.new()
@@ -215,11 +273,15 @@ func open_right_click_menu_window(pos: Vector2, data: Array[Dictionary]) -> void
 	# 菜单关闭后自动销毁
 	menu.popup_hide.connect(menu.queue_free)
 	menu.notification(Control.NOTIFICATION_THEME_CHANGED)
-func open_metadata_manager_window(directory_name:String,link:String) -> void:
-	var metadata_manager_window:Window=preload("res://Scene/MetadataManager.tscn").instantiate()
+
+
+func open_metadata_manager_window(directory_name: String, link: String) -> void:
+	var metadata_manager_window: Window = preload("res://Scene/MetadataManager.tscn").instantiate()
 	add_child(metadata_manager_window)
 	apply_theme_and_styles_to_node(metadata_manager_window)
-	metadata_manager_window.update(directory_name,link)
+	metadata_manager_window.update(directory_name, link)
+
+
 # 递归构建菜单项
 func _build_menu_from_data(menu: PopupMenu, data: Array[Dictionary]) -> void:
 	for item_dict in data:
@@ -227,13 +289,13 @@ func _build_menu_from_data(menu: PopupMenu, data: Array[Dictionary]) -> void:
 		if not visible:
 			continue
 
-		var type     = item_dict.get("type", "normal")
-		var label    = item_dict.get("label", "")
-		var enabled  = item_dict.get("enabled", true)
-		var icon     = item_dict.get("icon", null)
+		var type = item_dict.get("type", "normal")
+		var label = item_dict.get("label", "")
+		var enabled = item_dict.get("enabled", true)
+		var icon = item_dict.get("icon", null)
 		var shortcut = item_dict.get("shortcut", "")
-		var tooltip  = item_dict.get("tooltip", "")
-		var checked  = item_dict.get("checked", false)
+		var tooltip = item_dict.get("tooltip", "")
+		var checked = item_dict.get("checked", false)
 		var children = item_dict.get("children", [])
 
 		# 拼接快捷键到标签(用 \t 分隔，显示时快捷键会靠右)
@@ -278,7 +340,7 @@ func _build_menu_from_data(menu: PopupMenu, data: Array[Dictionary]) -> void:
 				menu.set_item_checked(idx, checked)
 				_apply_common_item_props(menu, idx, enabled, icon, tooltip, item_dict)
 
-			_: # "normal" 或其他
+			_:  # "normal" 或其他
 				menu.add_item(display_label)
 				var idx = menu.item_count - 1
 				_apply_common_item_props(menu, idx, enabled, icon, tooltip, item_dict)
@@ -287,14 +349,19 @@ func _build_menu_from_data(menu: PopupMenu, data: Array[Dictionary]) -> void:
 	if not menu.id_pressed.is_connected(_on_menu_item_clicked):
 		menu.id_pressed.connect(_on_menu_item_clicked.bind(menu))
 
+
 # 辅助函数：为普通 / checkbox / radio 项设置通用属性
-func _apply_common_item_props(menu: PopupMenu, idx: int, enabled: bool, icon, tooltip: String, item_dict: Dictionary) -> void:
+func _apply_common_item_props(
+	menu: PopupMenu, idx: int, enabled: bool, icon, tooltip: String, item_dict: Dictionary
+) -> void:
 	menu.set_item_disabled(idx, not enabled)
 	if icon:
 		_set_item_icon(menu, idx, icon)
 	if tooltip != "":
 		menu.set_item_tooltip(idx, tooltip)
 	menu.set_item_metadata(idx, item_dict)
+
+
 # 处理菜单项点击
 func _on_menu_item_clicked(id: int, menu: PopupMenu) -> void:
 	var item_dict = menu.get_item_metadata(id)
@@ -309,6 +376,7 @@ func _on_menu_item_clicked(id: int, menu: PopupMenu) -> void:
 		elif action is String and has_method(action):
 			call(action, item_dict)
 
+
 # 辅助方法：设置图标(支持 Texture2D 对象或资源路径字符串)
 func _set_item_icon(menu: PopupMenu, idx: int, icon) -> void:
 	var texture: Texture2D
@@ -318,6 +386,8 @@ func _set_item_icon(menu: PopupMenu, idx: int, icon) -> void:
 		texture = load(icon) as Texture2D
 	if texture:
 		menu.set_item_icon(idx, texture)
+
+
 # 打开收藏夹选择窗口(选择模式)
 func open_select_favorites_window() -> Array:
 	var window = Window.new()
@@ -332,12 +402,11 @@ func open_select_favorites_window() -> Array:
 	window.title = tr("请选择收藏夹")
 	window.transient = true
 	window.exclusive = true
-	window.close_requested.connect(func():
-		window.queue_free()
-	)
+	window.close_requested.connect(func(): window.queue_free())
 	favorites_page.set_select_mode(true)
 
 	return await favorites_page.favorites_selected
+
 
 # 打开普通收藏夹管理窗口(普通模式)
 func open_normal_favorites_window() -> bool:
@@ -353,36 +422,46 @@ func open_normal_favorites_window() -> bool:
 	window.title = "收藏夹"
 	window.transient = true
 	window.exclusive = true
-	window.close_requested.connect(func():
-		window.queue_free()
-	)
+	window.close_requested.connect(func(): window.queue_free())
 
 	# 确保普通模式下选择模式关闭(默认即为 false，可省略但建议显式调用)
 	favorites_page.set_select_mode(false)
 
 	await favorites_page.tree_exiting
 	return true
-func cancel_collection(link:String)->void:
+
+
+func cancel_collection(link: String) -> void:
 	for key in get_keys("Favorites"):
-		var collections:Array=get_data("Favorites",key,[])
+		var collections: Array = get_data("Favorites", key, [])
 		var changed = false
-		for j in range(collections.size() - 1, -1, -1):#倒序删除
+		for j in range(collections.size() - 1, -1, -1):  #倒序删除
 			if collections[j]["link"] == link:
 				collections.remove_at(j)
 				changed = true
 		if changed:
-			set_data("Favorites", key, collections,true)
+			set_data("Favorites", key, collections, true)
+
+
 # 安全回调，避免对象已释放
 func safe_callback(bvid: String, texture: ImageTexture, callback: Callable) -> void:
-	if callback == null or not callback.is_valid() or callback.get_object() == null or callback.get_object().is_queued_for_deletion() or callback.is_null():
+	if (
+		callback == null
+		or not callback.is_valid()
+		or callback.get_object() == null
+		or callback.get_object().is_queued_for_deletion()
+		or callback.is_null()
+	):
 		return
 	callback.call(bvid, texture)
+
 
 func format_number(value: int) -> String:
 	if value < 10000:
 		return str(value)
 	var num_in_wan = value / 10000.0
 	return "%.2fw" % num_in_wan
+
 
 # 格式化时间，h:mm:ss 或 m:ss
 func format_time_string(input_str: String) -> String:
@@ -404,17 +483,21 @@ func format_time_string(input_str: String) -> String:
 	else:
 		return "%d:%s" % [minutes, formatted_seconds]
 
+
 func _init() -> void:
 	_generate_unicode_map()
-	
+
 	if not FileAccess.file_exists(CFG_PATH):
 		FileAccess.open(CFG_PATH, FileAccess.WRITE).close()
 	_config_file.load(CFG_PATH)
+
 
 func _exit_tree():
 	if _dirty:
 		_config_file.save(CFG_PATH)
 		_dirty = false
+
+
 func generate_label_texture(
 	background,
 	text: String,
@@ -523,6 +606,8 @@ func generate_label_texture(
 
 	var final_tex = ImageTexture.create_from_image(img)
 	callback.call(final_tex)
+
+
 # 从链接自动识别播放类型
 func detect_type(link: String) -> String:
 	if link.begins_with("BV"):
@@ -532,6 +617,8 @@ func detect_type(link: String) -> String:
 	elif link.ends_with(".m4s"):
 		return "M4S"
 	return "NetworkAudio"  # 默认类型
+
+
 func extract_key_from_url(url: String) -> String:
 	if url.is_empty():
 		return ""
@@ -539,12 +626,11 @@ func extract_key_from_url(url: String) -> String:
 	if parts.is_empty():
 		return ""
 	return parts[-1].get_basename()
-func create_frosted_texture_async(
-	source: Texture2D,
-	sigma: float = 3.0,
-	tint: Color = Color.TRANSPARENT
-) -> ImageTexture:
 
+
+func create_frosted_texture_async(
+	source: Texture2D, sigma: float = 3.0, tint: Color = Color.TRANSPARENT
+) -> ImageTexture:
 	var vp = SubViewport.new()
 	vp.transparent_bg = true
 	vp.size = source.get_size()
@@ -573,18 +659,19 @@ func create_frosted_texture_async(
 	return result_tex
 
 
-var progress_bar_window:Window
-func set_progress_bar_value(progress_value:int,title_str:="",text_str:="")->void:
-	if progress_bar_window==null:
-		progress_bar_window=preload("res://Scene/ProgressBarWindow.tscn").instantiate()
+var progress_bar_window: Window
+
+
+func set_progress_bar_value(progress_value: int, title_str := "", text_str := "") -> void:
+	if progress_bar_window == null:
+		progress_bar_window = preload("res://Scene/ProgressBarWindow.tscn").instantiate()
 		add_child(progress_bar_window)
 		apply_theme_and_styles_to_node(progress_bar_window)
-	progress_bar_window.update(progress_value,title_str,text_str)
-
-
+	progress_bar_window.update(progress_value, title_str, text_str)
 
 
 var current_skin_name: String = ""
+
 
 ## 切换皮肤(全树应用)
 func update_skin_theme(skin_name: String) -> void:
@@ -594,7 +681,9 @@ func update_skin_theme(skin_name: String) -> void:
 	# 1. 加载主主题
 	var main_theme_path = dir + "main.theme"
 	if ResourceLoader.exists(main_theme_path):
-		var main_theme = ResourceLoader.load(main_theme_path, "Theme", ResourceLoader.CACHE_MODE_REUSE)
+		var main_theme = ResourceLoader.load(
+			main_theme_path, "Theme", ResourceLoader.CACHE_MODE_REUSE
+		)
 		if main_theme:
 			_apply_theme_to_tree(get_tree().root, main_theme)
 		else:
@@ -629,23 +718,30 @@ func apply_theme_from_path(path: String) -> bool:
 		return false
 	apply_theme(theme)
 	return true
-func update_marks_theme_and_styles()->void:
+
+
+func update_marks_theme_and_styles() -> void:
 	for i in theme_and_styles_marks:
-		if i==null&&i.is_queued_for_deletion():
+		if i == null && i.is_queued_for_deletion():
 			continue
 		apply_theme_and_styles_to_node(i)
+
+
 ## 对动态加载节点仅应用特殊样式(不改变主题)
-func apply_special_style_to_node(node: Node,mark:=true) -> void:
+func apply_special_style_to_node(node: Node, mark := true) -> void:
 	if current_skin_name.is_empty():
 		return
-		
+
 	var dir := "res://Skin/" + current_skin_name + "/"
 	var config = _load_special_styles_config(dir)
 	_apply_special_styles_recursive(node, config)
 
-var theme_and_styles_marks:Array[Node]
+
+var theme_and_styles_marks: Array[Node]
+
+
 ## 对指定子树应用主题 特殊样式(缩小版 update)
-func apply_theme_and_styles_to_node(node: Node,mark:=true) -> void:
+func apply_theme_and_styles_to_node(node: Node, mark := true) -> void:
 	if current_skin_name.is_empty():
 		return
 	var dir := "res://Skin/" + current_skin_name + "/"
@@ -653,10 +749,12 @@ func apply_theme_and_styles_to_node(node: Node,mark:=true) -> void:
 	# 应用主题
 	var main_theme_path = dir + "main.theme"
 	if ResourceLoader.exists(main_theme_path):
-		var main_theme = ResourceLoader.load(main_theme_path, "Theme", ResourceLoader.CACHE_MODE_REUSE)
+		var main_theme = ResourceLoader.load(
+			main_theme_path, "Theme", ResourceLoader.CACHE_MODE_REUSE
+		)
 		if main_theme:
 			_apply_theme_to_tree(node, main_theme)
-			if theme_and_styles_marks.find(node)==-1:
+			if theme_and_styles_marks.find(node) == -1:
 				theme_and_styles_marks.append(node)
 		else:
 			push_warning("[ThemeManager] 加载 main.theme 失败: ", main_theme_path)
@@ -677,6 +775,7 @@ func _apply_theme_to_tree(node: Node, theme: Theme) -> void:
 	for child in node.get_children():
 		_apply_theme_to_tree(child, theme)
 
+
 ## 加载特殊样式配置(json 格式)
 func _load_special_styles_config(dir: String) -> Dictionary:
 	var config_path = dir + "special_styles.json"
@@ -693,7 +792,9 @@ func _load_special_styles_config(dir: String) -> Dictionary:
 	var json = JSON.new()
 	var error = json.parse(content)
 	if error != OK:
-		push_error("[ThemeManager] 解析 special_styles.json 失败: ", json.get_error_message(), " 内容: ", content)
+		push_error(
+			"[ThemeManager] 解析 special_styles.json 失败: ", json.get_error_message(), " 内容: ", content
+		)
 		return {}
 	var data = json.data
 	if typeof(data) != TYPE_DICTIONARY:
@@ -773,7 +874,10 @@ func _apply_single_override(node: Control, group_name: String, value) -> void:
 func _load_resource(value):
 	if value is Resource:
 		return value
-	if typeof(value) == TYPE_STRING and (value.begins_with("res://") or value.begins_with("user://")):
+	if (
+		typeof(value) == TYPE_STRING
+		and (value.begins_with("res://") or value.begins_with("user://"))
+	):
 		if ResourceLoader.exists(value):
 			var resource = ResourceLoader.load(value, "", ResourceLoader.CACHE_MODE_REUSE)
 			if resource:

@@ -1,14 +1,7 @@
 extends Node
 
 # 综合排序等映射
-const ORDER_MAP = {
-	0: "totalrank",
-	1: "click",
-	2: "pubdate",
-	3: "dm",
-	4: "stow",
-	5: "scores"
-}
+const ORDER_MAP = {0: "totalrank", 1: "click", 2: "pubdate", 3: "dm", 4: "stow", 5: "scores"}
 
 const CACHE_DIR := "user://bilibili_cover_cache/"
 const MAX_CACHE_SIZE := 1024
@@ -16,6 +9,8 @@ const CACHE_LOAD_COOLDOWN_MS: int = 50
 const CACHE_QUEUE_MAX_SIZE: int = 40
 
 static var _cached_buvid: String = ""
+
+
 # cookie 字段生成与缓存
 static func _get_or_generate_cookie_field(key: String, generator: Callable) -> String:
 	var value = GdScriptFunc.get_data("Network", key, "")
@@ -24,6 +19,7 @@ static func _get_or_generate_cookie_field(key: String, generator: Callable) -> S
 		GdScriptFunc.set_data("Network", key, value)
 	return value
 
+
 static func _random_string(length: int = 16) -> String:
 	const CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	var result = ""
@@ -31,32 +27,46 @@ static func _random_string(length: int = 16) -> String:
 		result += CHARS[randi() % CHARS.length()]
 	return result
 
+
 static func _generate_buvid4() -> String:
 	# 格式：UUID + 时间戳 + 随机后缀（模仿真实）
-	var uuid = "%04x%04x-%04x-%04x-%04x-%04x%04x%04x" % [
-		randi() % 0xFFFF, randi() % 0xFFFF,
-		randi() % 0xFFFF, (randi() % 0xFFFF) | 0x4000,
-		(randi() % 0xFFFF) | 0x8000,
-		randi() % 0xFFFF, randi() % 0xFFFF, randi() % 0xFFFF
-	]
+	var uuid = (
+		"%04x%04x-%04x-%04x-%04x-%04x%04x%04x"
+		% [
+			randi() % 0xFFFF,
+			randi() % 0xFFFF,
+			randi() % 0xFFFF,
+			(randi() % 0xFFFF) | 0x4000,
+			(randi() % 0xFFFF) | 0x8000,
+			randi() % 0xFFFF,
+			randi() % 0xFFFF,
+			randi() % 0xFFFF
+		]
+	)
 	var timestamp = str(Time.get_unix_time_from_system())
 	var suffix = _random_string(20)
 	return "%s-%s-%s" % [uuid, timestamp, suffix]
+
 
 static func _generate_fingerprint() -> String:
 	# 模仿真实指纹：随机MD5
 	return _random_string(32).md5_text()
 
+
 static func _generate_rpdid() -> String:
 	# 格式：随机字符，长度30左右
 	return _random_string(30)
 
+
 static func _generate_b_lsid() -> String:
 	# 格式：类似 "E9D811FC_19F45923A16"
 	return _random_string(8).to_upper() + "_" + _random_string(12).to_upper()
+
+
 # 原始无参版本（保留用于其他接口）
 func _get_headers() -> PackedStringArray:
 	return _get_headers_with_mid(0)
+
 
 # 新增有参版本
 func _get_headers_with_mid(mid: int = 0) -> PackedStringArray:
@@ -65,7 +75,25 @@ func _get_headers_with_mid(mid: int = 0) -> PackedStringArray:
 		"buvid4=" + _get_or_generate_cookie_field("buvid4", _generate_buvid4),
 		"b_nut=" + generate_fake_b_nut(),
 		"rpdid=" + _get_or_generate_cookie_field("rpdid", _generate_rpdid),
-		"_uuid=" + _get_or_generate_cookie_field("_uuid", func(): return _random_string(8).to_upper() + "-" + _random_string(4) + "-" + _random_string(4) + "-" + _random_string(4) + "-" + _random_string(12).to_upper() + "infoc"),
+		(
+			"_uuid="
+			+ _get_or_generate_cookie_field(
+				"_uuid",
+				func():
+					return (
+						_random_string(8).to_upper()
+						+ "-"
+						+ _random_string(4)
+						+ "-"
+						+ _random_string(4)
+						+ "-"
+						+ _random_string(4)
+						+ "-"
+						+ _random_string(12).to_upper()
+						+ "infoc"
+					)
+			)
+		),
 		"theme-tip-show=SHOWED",
 		"theme-avatar-tip-show=SHOWED",
 		"theme-switch-show=SHOWED",
@@ -78,7 +106,12 @@ func _get_headers_with_mid(mid: int = 0) -> PackedStringArray:
 		"PVID=1",
 		"ogv_device_support_dolby=0",
 		"ogv_device_support_hdr=0",
-		"browser_resolution=" + str(DisplayServer.screen_get_size().x) + "-" + str(DisplayServer.screen_get_size().y),
+		(
+			"browser_resolution="
+			+ str(DisplayServer.screen_get_size().x)
+			+ "-"
+			+ str(DisplayServer.screen_get_size().y)
+		),
 		"home_feed_column=4",
 		"b_lsid=" + _get_or_generate_cookie_field("b_lsid", _generate_b_lsid)
 	]
@@ -122,9 +155,9 @@ func _get_headers_with_mid(mid: int = 0) -> PackedStringArray:
 		"Accept: application/json, text/plain, */*",
 		"Accept-Language: zh-CN,zh;q=0.9,en;q=0.8",
 		"Accept-Encoding: gzip, deflate, br",
-		"Sec-Ch-Ua: \"Not;A=Brand\";v=\"8\", \"Chromium\";v=\"120\", \"Microsoft Edge\";v=\"120\"",
+		'Sec-Ch-Ua: "Not;A=Brand";v="8", "Chromium";v="120", "Microsoft Edge";v="120"',
 		"Sec-Ch-Ua-Mobile: ?0",
-		"Sec-Ch-Ua-Platform: \"Windows\"",
+		'Sec-Ch-Ua-Platform: "Windows"',
 		"Sec-Fetch-Dest: empty",
 		"Sec-Fetch-Mode: cors",
 		"Sec-Fetch-Site: same-site",
@@ -132,17 +165,24 @@ func _get_headers_with_mid(mid: int = 0) -> PackedStringArray:
 		"Priority: u=1, i",
 		"Cookie: " + cookie
 	]
+
+
 func get_csrf() -> String:
 	return GdScriptFunc.get_data("AccountData", "bili_jct", "")
+
+
 # 封面下载专用头，轻量
 func _get_image_headers() -> PackedStringArray:
 	return [
 		"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 		"Referer: https://www.bilibili.com"
 	]
+
+
 # 静态工具方法
 static func generate_fake_b_nut() -> String:
 	return str(Time.get_unix_time_from_system())
+
 
 # 基于系统指纹生成 buvid
 static func generate_fingerprint_buvid() -> String:
@@ -158,12 +198,19 @@ static func generate_fingerprint_buvid() -> String:
 	]
 	var fingerprint = "||".join(info)
 	var h = fingerprint.md5_text().to_upper()
-	var uuid = h.substr(0, 8) + "-" + \
-			   h.substr(8, 4) + "-" + \
-			   h.substr(12, 4) + "-" + \
-			   h.substr(16, 4) + "-" + \
-			   h.substr(20, 12)
+	var uuid = (
+		h.substr(0, 8)
+		+ "-"
+		+ h.substr(8, 4)
+		+ "-"
+		+ h.substr(12, 4)
+		+ "-"
+		+ h.substr(16, 4)
+		+ "-"
+		+ h.substr(20, 12)
+	)
 	return uuid + "infoc"
+
 
 # 优先从本地存储读，没有则生成
 static func get_or_generate_buvid() -> String:
@@ -178,6 +225,7 @@ static func get_or_generate_buvid() -> String:
 	GdScriptFunc.set_data("Network", "buvid3", _cached_buvid)
 	return _cached_buvid
 
+
 # 处理 HTML 实体，包括命名实体、十进制和十六进制
 static func decode_html_entities(text: String) -> String:
 	var result = text
@@ -185,7 +233,7 @@ static func decode_html_entities(text: String) -> String:
 		"&amp;": "&",
 		"&lt;": "<",
 		"&gt;": ">",
-		"&quot;": "\"",
+		"&quot;": '"',
 		"&apos;": "'",
 		"&nbsp;": " ",
 		"&iexcl;": "¡",
@@ -406,13 +454,13 @@ static func decode_html_entities(text: String) -> String:
 		"&clubs;": "♣",
 		"&hearts;": "♥",
 		"&diams;": "♦",
-		"&euro;": "€",          # 欧元符号，HTML 4 无但在实际中常见
-		"&ndash;": "–",         # 短破折号
-		"&mdash;": "—",         # 长破折号
-		"&lsquo;": "‘",         # 左单引号
-		"&rsquo;": "’",         # 右单引号
-		"&ldquo;": "“",         # 左双引号
-		"&rdquo;": "”",         # 右双引号
+		"&euro;": "€",  # 欧元符号，HTML 4 无但在实际中常见
+		"&ndash;": "–",  # 短破折号
+		"&mdash;": "—",  # 长破折号
+		"&lsquo;": "‘",  # 左单引号
+		"&rsquo;": "’",  # 右单引号
+		"&ldquo;": "“",  # 左双引号
+		"&rdquo;": "”",  # 右双引号
 	}
 	for entity in named_entities:
 		result = result.replace(entity, named_entities[entity])
@@ -424,7 +472,9 @@ static func decode_html_entities(text: String) -> String:
 		var match = dec_matches[i]
 		var code = match.get_string(1).to_int()
 		if code > 0:
-			result = result.substr(0, match.get_start(0)) + char(code) + result.substr(match.get_end(0))
+			result = (
+				result.substr(0, match.get_start(0)) + char(code) + result.substr(match.get_end(0))
+			)
 
 	var hex_regex = RegEx.new()
 	hex_regex.compile("&#x([0-9a-fA-F]+);")
@@ -433,16 +483,21 @@ static func decode_html_entities(text: String) -> String:
 		var match = hex_matches[i]
 		var code = match.get_string(1).hex_to_int()
 		if code > 0:
-			result = result.substr(0, match.get_start(0)) + char(code) + result.substr(match.get_end(0))
+			result = (
+				result.substr(0, match.get_start(0)) + char(code) + result.substr(match.get_end(0))
+			)
 
 	return result
+
 
 # 构造缓存键
 static func _get_cache_key(link: String, width: int, height: int) -> String:
 	return "%s_%dx%d" % [link, width, height]
 
+
 static func _get_cache_filename(link: String, width: int, height: int) -> String:
 	return _get_cache_key(link, width, height).md5_text() + ".jpg"
+
 
 # 缓存索引（主线程部分）
 var _cache_index: Dictionary = {}
@@ -451,6 +506,7 @@ var _cache_loaded: bool = false
 var _cache_load_queue: Array = []
 var _last_load_process_time: int = 0
 var _processing_active: bool = false
+
 
 # 从持久化存储恢复缓存索引
 func _load_cache_index() -> void:
@@ -463,8 +519,9 @@ func _load_cache_index() -> void:
 			var file = entry.get("file", "")
 			var time = entry.get("time", 0)
 			if not file.is_empty():
-				_cache_index[key] = { "file": file, "time": time }
+				_cache_index[key] = {"file": file, "time": time}
 	_cache_loaded = true
+
 
 # 将索引写回存储，先清空再全量写入
 func _save_cache_index() -> void:
@@ -475,17 +532,18 @@ func _save_cache_index() -> void:
 		var entry: Dictionary = _cache_index[key]
 		GdScriptFunc.set_data("CoverCache", key, entry)
 
+
 # 加入缓存，超出上限时按时间淘汰最旧项
 func _add_to_cache(link: String, width: int, height: int, file_path: String) -> void:
 	_load_cache_index()
 	var key = _get_cache_key(link, width, height)
 	var now = Time.get_unix_time_from_system()
-	_cache_index[key] = { "file": file_path, "time": now }
+	_cache_index[key] = {"file": file_path, "time": now}
 
 	if _cache_index.size() > MAX_CACHE_SIZE:
 		var sorted = []
 		for k in _cache_index:
-			sorted.append({ "key": k, "time": _cache_index[k]["time"] })
+			sorted.append({"key": k, "time": _cache_index[k]["time"]})
 		sorted.sort_custom(func(a, b): return a["time"] < b["time"])
 		var to_remove = _cache_index.size() - MAX_CACHE_SIZE
 		for i in range(to_remove):
@@ -497,6 +555,7 @@ func _add_to_cache(link: String, width: int, height: int, file_path: String) -> 
 				dir.remove(old_file)
 			_cache_index.erase(old_key)
 	_save_cache_index()
+
 
 # 查询缓存，若文件丢失则清除对应记录
 func _get_cached_file(link: String, width: int, height: int) -> String:
@@ -512,8 +571,10 @@ func _get_cached_file(link: String, width: int, height: int) -> String:
 		return ""
 	return file_path
 
+
 func _update_cache_index(link: String, width: int, height: int, filename: String) -> void:
 	_add_to_cache(link, width, height, filename)
+
 
 # 启动后台保存线程
 func _ready() -> void:
@@ -524,17 +585,20 @@ func _ready() -> void:
 		if not SubtitleCorrection.SubtitleProcessed.is_connected(_on_subtitle_processed):
 			SubtitleCorrection.SubtitleProcessed.connect(_on_subtitle_processed)
 	#fetch_video_info("BV1modgBJEEN",func(info:Dictionary): #测试
-		#print(info)
+	#print(info)
 	#)
 	#fetch_subtitle_auto("BV1LQRhBnEAr",func(info:Dictionary): #测试
-		#printt(info,{})
+	#printt(info,{})
 	#)
 	# 如果本地已有 SESSDATA，直接可用
+
+
 func _exit_tree() -> void:
 	_stop_save_thread = true
 	_save_semaphore.post()
 	if _save_thread and _save_thread.is_alive():
 		_save_thread.wait_to_finish()
+
 
 # 主线程每帧检查加载队列，按冷却时间逐个处理
 func _process(_delta: float) -> void:
@@ -545,6 +609,7 @@ func _process(_delta: float) -> void:
 	if _cache_load_queue.is_empty():
 		_processing_active = false
 		set_process(false)
+
 
 # 处理一个缓存加载任务，若文件丢失或损坏则重新下载
 func _process_one_cache_load_task() -> void:
@@ -559,11 +624,15 @@ func _process_one_cache_load_task() -> void:
 
 	if not FileAccess.file_exists(cached_path):
 		push_error("缓存文件丢失，将重新下载 (", link, ")")
-		_get_cover_url(link, width, height, func(url):
-			if url.is_empty():
-				GdScriptFunc.safe_callback(link, null, callback)
-				return
-			_download_cover(url, link, width, height, callback)
+		_get_cover_url(
+			link,
+			width,
+			height,
+			func(url):
+				if url.is_empty():
+					GdScriptFunc.safe_callback(link, null, callback)
+					return
+				_download_cover(url, link, width, height, callback)
 		)
 	else:
 		var img := Image.new()
@@ -573,18 +642,24 @@ func _process_one_cache_load_task() -> void:
 		else:
 			push_error("缓存图片损坏，将重新下载 (", link, ")")
 			DirAccess.remove_absolute(cached_path)
-			_get_cover_url(link, width, height, func(url):
-				if url.is_empty():
-					GdScriptFunc.safe_callback(link, null, callback)
-					return
-				_download_cover(url, link, width, height, callback)
+			_get_cover_url(
+				link,
+				width,
+				height,
+				func(url):
+					if url.is_empty():
+						GdScriptFunc.safe_callback(link, null, callback)
+						return
+					_download_cover(url, link, width, height, callback)
 			)
+
 
 # 立即清空加载队列（队列过长时调用）
 func _flush_load_queue_immediate() -> void:
 	while not _cache_load_queue.is_empty():
 		_process_one_cache_load_task()
 	_last_load_process_time = Time.get_ticks_msec()
+
 
 # 若队列非空且未在处理中，启动帧处理
 func _ensure_queue_processing() -> void:
@@ -595,12 +670,14 @@ func _ensure_queue_processing() -> void:
 		_last_load_process_time = Time.get_ticks_msec()
 		set_process(true)
 
+
 # 后台保存线程
 var _save_thread: Thread = null
 var _save_queue: Array = []
 var _save_mutex: Mutex = Mutex.new()
 var _save_semaphore: Semaphore = Semaphore.new()
 var _stop_save_thread: bool = false
+
 
 func _save_worker() -> void:
 	while not _stop_save_thread:
@@ -634,8 +711,16 @@ func _save_worker() -> void:
 		else:
 			push_error("[后台线程] 无法写入缓存文件: ", file_path)
 
+
 # 通用 HTTP 请求包装（支持动态 Referer）
-func _request(url: String, callback: Callable, extra: Variant = null, method: int = HTTPClient.METHOD_GET, custom_headers: PackedStringArray = _get_headers(), mid: int = 0) -> void:
+func _request(
+	url: String,
+	callback: Callable,
+	extra: Variant = null,
+	method: int = HTTPClient.METHOD_GET,
+	custom_headers: PackedStringArray = _get_headers(),
+	mid: int = 0
+) -> void:
 	var http = HTTPRequest.new()
 	add_child(http)
 
@@ -643,7 +728,9 @@ func _request(url: String, callback: Callable, extra: Variant = null, method: in
 	if mid != 0 and custom_headers == _get_headers():
 		headers = _get_headers_with_mid(mid)
 
-	var wrapped_callback = func(result: int, response_code: int, resp_headers: PackedStringArray, body: PackedByteArray):
+	var wrapped_callback = func(
+		result: int, response_code: int, resp_headers: PackedStringArray, body: PackedByteArray
+	):
 		http.queue_free()
 		callback.call(result, response_code, resp_headers, body, extra)
 
@@ -653,11 +740,20 @@ func _request(url: String, callback: Callable, extra: Variant = null, method: in
 		push_error("HTTP请求失败: ", err)
 		http.queue_free()
 		callback.call(HTTPRequest.RESULT_REQUEST_FAILED, 0, [], PackedByteArray(), extra)
+
+
 # 搜索，keyword 为"bilibili音乐周榜"时走榜单接口,
 # 关于tids有:
 # 3,音乐主区(默认)    130,音乐综合    29,音乐现场    59,演奏    31,翻唱    193,MV    30,VOCALOID·UTAU    194,电音    28,原创音乐
-func search_bilibili(callback: Callable, keyword: String, num: int = 10, order = 0, page := 1, author: String = "", _tids:=3) -> void:
-	
+func search_bilibili(
+	callback: Callable,
+	keyword: String,
+	num: int = 10,
+	order = 0,
+	page := 1,
+	author: String = "",
+	_tids := 3
+) -> void:
 	if keyword == "bilibili音乐周榜":
 		_fetch_music_rank_static(callback)
 		return
@@ -678,7 +774,14 @@ func search_bilibili(callback: Callable, keyword: String, num: int = 10, order =
 	url = await _sign_wbi_url(url)
 	_request(url, _on_search_response, [callback, author])
 
-func _on_search_response(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray, extra: Variant) -> void:
+
+func _on_search_response(
+	_result: int,
+	response_code: int,
+	_headers: PackedStringArray,
+	body: PackedByteArray,
+	extra: Variant
+) -> void:
 	var extra_arr: Array = extra
 	var callback: Callable = extra_arr[0]
 	var author_filter: String = extra_arr[1] if extra_arr.size() > 1 else ""
@@ -718,25 +821,38 @@ func _on_search_response(_result: int, response_code: int, _headers: PackedStrin
 		if author_filter != "" and item.get("author", "") != author_filter:
 			continue
 
-		videos.append({
-			"link": bvid,
-			"BV": bvid,
-			"title": decode_html_entities(item.get("title", "").replace('<em class="keyword">', "").replace("</em>", "")),
-			"author": decode_html_entities(item.get("author", "")),
-			"play": item.get("play", 0),
-			"danmaku": item.get("video_review", 0),
-			"duration": item.get("duration", ""),
-			"description": decode_html_entities(item.get("description", ""))
-		})
+		videos.append(
+			{
+				"link": bvid,
+				"BV": bvid,
+				"title":
+				decode_html_entities(
+					item.get("title", "").replace('<em class="keyword">', "").replace("</em>", "")
+				),
+				"author": decode_html_entities(item.get("author", "")),
+				"play": item.get("play", 0),
+				"danmaku": item.get("video_review", 0),
+				"duration": item.get("duration", ""),
+				"description": decode_html_entities(item.get("description", ""))
+			}
+		)
 
 	callback.call(videos)
+
 
 # 音乐榜单：先获取最新榜单ID，再拉取歌曲列表
 func _fetch_music_rank_static(callback: Callable) -> void:
 	var url = "https://api.bilibili.com/x/copyright-music-publicity/toplist/all_period?list_type=1"
 	_request(url, _on_all_period_response, [callback])
 
-func _on_all_period_response(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray, extra: Variant) -> void:
+
+func _on_all_period_response(
+	result: int,
+	response_code: int,
+	_headers: PackedStringArray,
+	body: PackedByteArray,
+	extra: Variant
+) -> void:
 	var callback: Callable = (extra as Array)[0]
 	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
 		push_error("获取榜单ID失败")
@@ -775,11 +891,22 @@ func _on_all_period_response(result: int, response_code: int, _headers: PackedSt
 
 	_fetch_music_list_static(latest_id, callback)
 
+
 func _fetch_music_list_static(list_id: int, callback: Callable) -> void:
-	var url = "https://api.bilibili.com/x/copyright-music-publicity/toplist/music_list?list_id=%d" % list_id
+	var url = (
+		"https://api.bilibili.com/x/copyright-music-publicity/toplist/music_list?list_id=%d"
+		% list_id
+	)
 	_request(url, _on_music_list_response, [callback])
 
-func _on_music_list_response(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray, extra: Variant) -> void:
+
+func _on_music_list_response(
+	result: int,
+	response_code: int,
+	_headers: PackedStringArray,
+	body: PackedByteArray,
+	extra: Variant
+) -> void:
 	var callback: Callable = (extra as Array)[0]
 	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
 		push_error("获取歌曲列表失败")
@@ -811,45 +938,65 @@ func _on_music_list_response(result: int, response_code: int, _headers: PackedSt
 			if bvid.is_empty():
 				continue
 
-		videos.append({
-			"link": bvid,
-			"BV": bvid,
-			"title": decode_html_entities(item.get("creation_title", "")),
-			"author": decode_html_entities(item.get("creation_nickname", "")),
-			"description": decode_html_entities(item.get("creation_reason", "")),
-			"play": item.get("creation_play", 0),
-		})
+		(
+			videos
+			. append(
+				{
+					"link": bvid,
+					"BV": bvid,
+					"title": decode_html_entities(item.get("creation_title", "")),
+					"author": decode_html_entities(item.get("creation_nickname", "")),
+					"description": decode_html_entities(item.get("creation_reason", "")),
+					"play": item.get("creation_play", 0),
+				}
+			)
+		)
 	callback.call(videos)
+
 
 # 封面获取：先查缓存，没命中则请求 API 拿到缩略图地址并下载
 func fetch_cover(link: String, callback: Callable, width: int = 160, height: int = 160) -> void:
 	var cached_path := _get_cached_file(link, width, height)
 	if not cached_path.is_empty():
-		_cache_load_queue.push_back({
-			"link": link,
-			"width": width,
-			"height": height,
-			"callback": callback,
-			"cached_path": cached_path
-		})
+		_cache_load_queue.push_back(
+			{
+				"link": link,
+				"width": width,
+				"height": height,
+				"callback": callback,
+				"cached_path": cached_path
+			}
+		)
 		if _cache_load_queue.size() >= CACHE_QUEUE_MAX_SIZE:
 			_flush_load_queue_immediate()
 		else:
 			_ensure_queue_processing()
 		return
 
-	_get_cover_url(link, width, height, func(thumbnail_url: String):
-		if thumbnail_url.is_empty():
-			GdScriptFunc.safe_callback(link, null, callback)
-			return
-		_download_cover(thumbnail_url, link, width, height, callback)
+	_get_cover_url(
+		link,
+		width,
+		height,
+		func(thumbnail_url: String):
+			if thumbnail_url.is_empty():
+				GdScriptFunc.safe_callback(link, null, callback)
+				return
+			_download_cover(thumbnail_url, link, width, height, callback)
 	)
+
 
 func _get_cover_url(bvid: String, width: int, height: int, next: Callable) -> void:
 	var url = "https://api.bilibili.com/x/web-interface/view?bvid=" + bvid
 	_request(url, _on_cover_url_received, [bvid, width, height, next])
 
-func _on_cover_url_received(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray, extra: Variant) -> void:
+
+func _on_cover_url_received(
+	_result: int,
+	response_code: int,
+	_headers: PackedStringArray,
+	body: PackedByteArray,
+	extra: Variant
+) -> void:
 	var extra_arr: Array = extra
 	var bvid: String = extra_arr[0]
 	var width: int = extra_arr[1]
@@ -882,34 +1029,35 @@ func _on_cover_url_received(_result: int, response_code: int, _headers: PackedSt
 	var thumbnail_url = original_pic_url + "@" + str(width) + "w_" + str(height) + "h_1c.jpg"
 	next.call(thumbnail_url)
 
-func _download_cover(image_url: String, bvid: String, width: int, height: int, callback: Callable) -> void:
+
+func _download_cover(
+	image_url: String, bvid: String, width: int, height: int, callback: Callable
+) -> void:
 	var http = HTTPRequest.new()
 	add_child(http)
-	http.request_completed.connect(func(_result, response_code, _headers, body):
-		http.queue_free()
-		if response_code != 200:
-			push_error("下载封面失败 (", bvid, "): ", response_code)
-			GdScriptFunc.safe_callback(bvid, null, callback)
-			return
+	http.request_completed.connect(
+		func(_result, response_code, _headers, body):
+			http.queue_free()
+			if response_code != 200:
+				push_error("下载封面失败 (", bvid, "): ", response_code)
+				GdScriptFunc.safe_callback(bvid, null, callback)
+				return
 
-		var image := Image.new()
-		if image.load_jpg_from_buffer(body) != OK and image.load_png_from_buffer(body) != OK:
-			push_error("图片数据解析失败 (", bvid, ")")
-			GdScriptFunc.safe_callback(bvid, null, callback)
-			return
-		var texture := ImageTexture.create_from_image(image)
-		GdScriptFunc.safe_callback(bvid, texture, callback)
+			var image := Image.new()
+			if image.load_jpg_from_buffer(body) != OK and image.load_png_from_buffer(body) != OK:
+				push_error("图片数据解析失败 (", bvid, ")")
+				GdScriptFunc.safe_callback(bvid, null, callback)
+				return
+			var texture := ImageTexture.create_from_image(image)
+			GdScriptFunc.safe_callback(bvid, texture, callback)
 
-		# 投递到后台保存队列
-		_save_mutex.lock()
-		_save_queue.push_back({
-			"link": bvid,
-			"width": width,
-			"height": height,
-			"image_data": body
-		})
-		_save_mutex.unlock()
-		_save_semaphore.post()
+			# 投递到后台保存队列
+			_save_mutex.lock()
+			_save_queue.push_back(
+				{"link": bvid, "width": width, "height": height, "image_data": body}
+			)
+			_save_mutex.unlock()
+			_save_semaphore.post()
 	)
 
 	var err = http.request(image_url, _get_image_headers(), HTTPClient.METHOD_GET)
@@ -918,33 +1066,41 @@ func _download_cover(image_url: String, bvid: String, width: int, height: int, c
 		http.queue_free()
 		GdScriptFunc.safe_callback(bvid, null, callback)
 
+
 # 通过 BV 号获取视频详细信息
 func fetch_video_info(bvid: String, callback: Callable) -> void:
 	var url = "https://api.bilibili.com/x/web-interface/view?bvid=" + bvid
 	_request(url, _on_video_info_response, [bvid, callback])
 
-func _on_video_info_response(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray, extra: Variant) -> void:
+
+func _on_video_info_response(
+	_result: int,
+	response_code: int,
+	_headers: PackedStringArray,
+	body: PackedByteArray,
+	extra: Variant
+) -> void:
 	var extra_arr: Array = extra
 	var bvid: String = extra_arr[0]
 	var callback: Callable = extra_arr[1]
-	
+
 	if response_code != 200:
 		push_error("获取视频信息失败 (", bvid, "): HTTP ", response_code)
 		callback.call({})
 		return
-		
+
 	var json = JSON.new()
 	if json.parse(body.get_string_from_utf8()) != OK:
 		push_error("JSON解析失败 (", bvid, ")")
 		callback.call({})
 		return
-		
+
 	var data = json.get_data()
 	if data.get("code") != 0:
 		push_error("API返回错误 (", bvid, "): ", data.get("message", ""))
 		callback.call({})
 		return
-		
+
 	var video_data = data.get("data", {})
 	if video_data.is_empty():
 		callback.call({})
@@ -960,16 +1116,18 @@ func _on_video_info_response(_result: int, response_code: int, _headers: PackedS
 	# 提取分P信息（只保留每个分P的必要数据，不包含其他视频）
 	var pages_info = []
 	for page in pages:
-		pages_info.append({
-			"cid": page.get("cid", 0),
-			"page": page.get("page", 1),
-			"part": page.get("part", ""),
-			"duration": page.get("duration", 0),
-			"dimension": page.get("dimension", {}),
-			"first_frame": page.get("first_frame", ""),
-			"vid": page.get("vid", ""),
-			"weblink": page.get("weblink", "")
-		})
+		pages_info.append(
+			{
+				"cid": page.get("cid", 0),
+				"page": page.get("page", 1),
+				"part": page.get("part", ""),
+				"duration": page.get("duration", 0),
+				"dimension": page.get("dimension", {}),
+				"first_frame": page.get("first_frame", ""),
+				"vid": page.get("vid", ""),
+				"weblink": page.get("weblink", "")
+			}
+		)
 
 	var info := {
 		"link": video_data.get("bvid", bvid),
@@ -977,10 +1135,10 @@ func _on_video_info_response(_result: int, response_code: int, _headers: PackedS
 		"aid": video_data.get("aid", 0),
 		"title": decode_html_entities(video_data.get("title", "")),
 		"desc": decode_html_entities(video_data.get("desc", "")),
-		"desc_v2": video_data.get("desc_v2", []),   # 结构化简介
+		"desc_v2": video_data.get("desc_v2", []),  # 结构化简介
 		"author": decode_html_entities(owner_d.get("name", "")),
 		"mid": owner_d.get("mid", 0),
-		"face": owner_d.get("face", ""),            # UP 主头像
+		"face": owner_d.get("face", ""),  # UP 主头像
 		"pic": video_data.get("pic", ""),
 		"pubdate": video_data.get("pubdate", 0),
 		"ctime": video_data.get("ctime", 0),
@@ -993,13 +1151,15 @@ func _on_video_info_response(_result: int, response_code: int, _headers: PackedS
 		"tid_v2": video_data.get("tid_v2", 0),
 		"tname_v2": video_data.get("tname_v2", ""),
 		"dynamic": video_data.get("dynamic", ""),
-		"dimension": {
+		"dimension":
+		{
 			"width": dimension.get("width", 0),
 			"height": dimension.get("height", 0),
 			"rotate": dimension.get("rotate", 0)
 		},
-		"rights": rights,                            # 完整的版权标志字典
-		"stat": {                                    # 完整的统计数据
+		"rights": rights,  # 完整的版权标志字典
+		"stat":
+		{  # 完整的统计数据
 			"view": stat.get("view", 0),
 			"danmaku": stat.get("danmaku", 0),
 			"like": stat.get("like", 0),
@@ -1012,13 +1172,14 @@ func _on_video_info_response(_result: int, response_code: int, _headers: PackedS
 			"dislike": stat.get("dislike", 0),
 			"evaluation": stat.get("evaluation", "")
 		},
-		"subtitle": subtitle_info,                   # 包含 allow_submit 和 list
-		"pages": pages_info,                         # 所有分P信息
+		"subtitle": subtitle_info,  # 包含 allow_submit 和 list
+		"pages": pages_info,  # 所有分P信息
 		"season_id": video_data.get("season_id", 0)  # 合集 ID（只留数字，不取合集内容）
 	}
 
 	callback.call(info)
-	
+
+
 #region 需要用户登陆
 const LYRICS_CACHE_DIR = "user://lyrics/"
 const MAX_LYRICS_CACHE_SIZE = 500
@@ -1029,6 +1190,7 @@ var _lyrics_cache_loaded: bool = false
 var _pending_requests: Dictionary = {}
 var _request_counter: int = 0
 var _video_info_cache: Dictionary = {}
+
 
 func _load_lyrics_cache_index() -> void:
 	if _lyrics_cache_loaded:
@@ -1043,6 +1205,7 @@ func _load_lyrics_cache_index() -> void:
 				_lyrics_cache_index[key] = {"file": file, "time": time}
 	_lyrics_cache_loaded = true
 
+
 func _save_lyrics_cache_index() -> void:
 	var old_keys = GdScriptFunc.get_keys("LyricsCache")
 	for key in old_keys:
@@ -1051,8 +1214,10 @@ func _save_lyrics_cache_index() -> void:
 		var entry: Dictionary = _lyrics_cache_index[key]
 		GdScriptFunc.set_data("LyricsCache", key, entry)
 
+
 func _get_lyrics_cache_key(request_id: String) -> String:
 	return request_id.md5_text()
+
 
 func _add_lyrics_to_cache(request_id: String, source_path: String) -> String:
 	_load_lyrics_cache_index()
@@ -1098,6 +1263,7 @@ func _add_lyrics_to_cache(request_id: String, source_path: String) -> String:
 	_save_lyrics_cache_index()
 	return dest_path
 
+
 func _get_cached_lyrics(request_id: String) -> String:
 	_load_lyrics_cache_index()
 	var key = _get_lyrics_cache_key(request_id)
@@ -1117,11 +1283,13 @@ func _make_request_id() -> String:
 	_request_counter += 1
 	return str(_request_counter) + "_" + str(Time.get_ticks_msec())
 
+
 func _get_current_audio_file_path() -> String:
 	if not M4SAudioPlayer:
 		push_error("M4SAudioPlayer 自动加载未就绪")
 		return ""
 	return M4SAudioPlayer.CurrentAudioFilePath
+
 
 func _get_cached_video_info(bvid: String) -> Dictionary:
 	return _video_info_cache.get(bvid, {})
@@ -1152,7 +1320,14 @@ func _check_music_ratio(subtitle_content) -> bool:
 
 
 # ==================== 字幕下载与处理 ====================
-func _try_download_candidate(index: int, candidates: Array, bvid: String, callback: Callable, skip_correction: bool = false, save_path: String = "") -> void:
+func _try_download_candidate(
+	index: int,
+	candidates: Array,
+	bvid: String,
+	callback: Callable,
+	skip_correction: bool = false,
+	save_path: String = ""
+) -> void:
 	if index >= candidates.size():
 		push_error("所有候选字幕均不符合条件或被跳过 (", bvid, ")")
 		callback.call({})
@@ -1160,48 +1335,60 @@ func _try_download_candidate(index: int, candidates: Array, bvid: String, callba
 
 	var candidate = candidates[index]
 	var subtitle_url: String = candidate["url"]
-	var is_ai: bool = candidate.get("is_ai", true)   # 默认视为 AI，保守处理
+	var is_ai: bool = candidate.get("is_ai", true)  # 默认视为 AI，保守处理
 
 	if subtitle_url.begins_with("//"):
 		subtitle_url = "https:" + subtitle_url
 
 	var http = HTTPRequest.new()
 	add_child(http)
-	http.request_completed.connect(func(_result, resp_code, _resp_headers, resp_body):
-		http.queue_free()
-		if resp_code != 200:
-			push_warning("下载字幕文件失败 (", bvid, "): HTTP ", resp_code, " 尝试下一个")
-			_try_download_candidate(index + 1, candidates, bvid, callback, skip_correction, save_path)
-			return
+	http.request_completed.connect(
+		func(_result, resp_code, _resp_headers, resp_body):
+			http.queue_free()
+			if resp_code != 200:
+				push_warning("下载字幕文件失败 (", bvid, "): HTTP ", resp_code, " 尝试下一个")
+				_try_download_candidate(
+					index + 1, candidates, bvid, callback, skip_correction, save_path
+				)
+				return
 
-		var subtitle_data = JSON.new()
-		if subtitle_data.parse(resp_body.get_string_from_utf8()) != OK:
-			push_warning("字幕文件JSON解析失败 (", bvid, ") 尝试下一个")
-			_try_download_candidate(index + 1, candidates, bvid, callback, skip_correction, save_path)
-			return
+			var subtitle_data = JSON.new()
+			if subtitle_data.parse(resp_body.get_string_from_utf8()) != OK:
+				push_warning("字幕文件JSON解析失败 (", bvid, ") 尝试下一个")
+				_try_download_candidate(
+					index + 1, candidates, bvid, callback, skip_correction, save_path
+				)
+				return
 
-		var subtitle_content = subtitle_data.get_data()
-		if typeof(subtitle_content) != TYPE_DICTIONARY:
-			push_warning("字幕JSON结构异常 (", bvid, ") 尝试下一个")
-			_try_download_candidate(index + 1, candidates, bvid, callback, skip_correction, save_path)
-			return
+			var subtitle_content = subtitle_data.get_data()
+			if typeof(subtitle_content) != TYPE_DICTIONARY:
+				push_warning("字幕JSON结构异常 (", bvid, ") 尝试下一个")
+				_try_download_candidate(
+					index + 1, candidates, bvid, callback, skip_correction, save_path
+				)
+				return
 
-		if _check_music_ratio(subtitle_content):
-			push_warning("字幕中纯音乐标记占比过高 (", bvid, "), 尝试下一个")
-			_try_download_candidate(index + 1, candidates, bvid, callback, skip_correction, save_path)
-			return
+			if _check_music_ratio(subtitle_content):
+				push_warning("字幕中纯音乐标记占比过高 (", bvid, "), 尝试下一个")
+				_try_download_candidate(
+					index + 1, candidates, bvid, callback, skip_correction, save_path
+				)
+				return
 
-		# 决定是否真正跳过修正：如果是非 AI 字幕，强制跳过；如果是 AI 字幕，由外部 skip_correction 或选项控制
-		var final_skip = false
-		if not is_ai:
-			final_skip = true
-		else:
-			final_skip = skip_correction or not GdScriptFunc.get_data("Options", "SubtitleTextCorrection", false)
+			# 决定是否真正跳过修正：如果是非 AI 字幕，强制跳过；如果是 AI 字幕，由外部 skip_correction 或选项控制
+			var final_skip = false
+			if not is_ai:
+				final_skip = true
+			else:
+				final_skip = (
+					skip_correction
+					or not GdScriptFunc.get_data("Options", "SubtitleTextCorrection", false)
+				)
 
-		if final_skip:
-			_generate_bilibili_lrc(subtitle_content, bvid, callback, save_path)
-		else:
-			_perform_subtitle_correction(subtitle_content, bvid, callback, save_path)
+			if final_skip:
+				_generate_bilibili_lrc(subtitle_content, bvid, callback, save_path)
+			else:
+				_perform_subtitle_correction(subtitle_content, bvid, callback, save_path)
 	)
 
 	var download_headers = _get_image_headers()
@@ -1212,7 +1399,10 @@ func _try_download_candidate(index: int, candidates: Array, bvid: String, callba
 		http.queue_free()
 		_try_download_candidate(index + 1, candidates, bvid, callback, skip_correction, save_path)
 
-func _generate_bilibili_lrc(subtitle_content: Dictionary, _bvid: String, callback: Callable, save_path: String = "") -> void:
+
+func _generate_bilibili_lrc(
+	subtitle_content: Dictionary, _bvid: String, callback: Callable, save_path: String = ""
+) -> void:
 	var body = subtitle_content.get("body", [])
 	if body.is_empty():
 		callback.call({})
@@ -1255,7 +1445,9 @@ func _generate_bilibili_lrc(subtitle_content: Dictionary, _bvid: String, callbac
 
 
 # ==================== 字幕修正入口 (调用 C#) ====================
-func _perform_subtitle_correction(subtitle_content: Dictionary, bvid: String, callback: Callable, save_path: String = "") -> void:
+func _perform_subtitle_correction(
+	subtitle_content: Dictionary, bvid: String, callback: Callable, save_path: String = ""
+) -> void:
 	if not has_node("/root/SubtitleCorrection"):
 		push_error("SubtitleCorrection 未找到，回退到 B 站字幕")
 		_generate_bilibili_lrc(subtitle_content, bvid, callback, save_path)
@@ -1272,9 +1464,7 @@ func _perform_subtitle_correction(subtitle_content: Dictionary, bvid: String, ca
 	var request_id = _make_request_id()
 
 	_pending_requests[request_id] = {
-		"callback": callback,
-		"fallback": subtitle_content,
-		"save_path": save_path
+		"callback": callback, "fallback": subtitle_content, "save_path": save_path
 	}
 
 	# 调用 C# 方法（自动加载可直接通过类名调用）
@@ -1283,7 +1473,9 @@ func _perform_subtitle_correction(subtitle_content: Dictionary, bvid: String, ca
 	)
 
 
-func _fallback_external_lyrics(info: Dictionary, callback: Callable, save_path: String = "") -> void:
+func _fallback_external_lyrics(
+	info: Dictionary, callback: Callable, save_path: String = ""
+) -> void:
 	if not has_node("/root/SubtitleCorrection"):
 		push_error("SubtitleCorrection 未找到，无法获取外部歌词")
 		callback.call({})
@@ -1298,15 +1490,9 @@ func _fallback_external_lyrics(info: Dictionary, callback: Callable, save_path: 
 	var output_dir = LYRICS_CACHE_DIR
 	var request_id = _make_request_id()
 
-	_pending_requests[request_id] = {
-		"callback": callback,
-		"fallback": {},
-		"save_path": save_path
-	}
+	_pending_requests[request_id] = {"callback": callback, "fallback": {}, "save_path": save_path}
 
-	SubtitleCorrection.FetchAndAlignExternalAsync(
-		audio_path, track_name, output_dir, request_id
-	)
+	SubtitleCorrection.FetchAndAlignExternalAsync(audio_path, track_name, output_dir, request_id)
 
 
 # ==================== 信号处理（C# 处理完毕的回调） ====================
@@ -1364,25 +1550,31 @@ func _on_subtitle_processed(lrc_path: String, request_id: String):
 
 # ==================== 公共 API ====================
 func fetch_subtitle_auto(bvid: String, callback: Callable, save_path: String = "") -> void:
-	fetch_video_info(bvid, func(info: Dictionary):
-		if info.is_empty():
-			callback.call(null)
-			return
-		_video_info_cache[bvid] = info
-		var cid = info.get("cid", 0)
-		if cid == 0:
-			push_error("未能获取到有效 cid")
-			callback.call(null)
-			return
+	fetch_video_info(
+		bvid,
+		func(info: Dictionary):
+			if info.is_empty():
+				callback.call(null)
+				return
+			_video_info_cache[bvid] = info
+			var cid = info.get("cid", 0)
+			if cid == 0:
+				push_error("未能获取到有效 cid")
+				callback.call(null)
+				return
 
-		var subtitle_callback = func(subtitle_data):
-			if subtitle_data == null or (typeof(subtitle_data) == TYPE_DICTIONARY and subtitle_data.is_empty()):
-				_fallback_external_lyrics(info, callback, save_path)
-			else:
-				callback.call(subtitle_data)
+			var subtitle_callback = func(subtitle_data):
+				if (
+					subtitle_data == null
+					or (typeof(subtitle_data) == TYPE_DICTIONARY and subtitle_data.is_empty())
+				):
+					_fallback_external_lyrics(info, callback, save_path)
+				else:
+					callback.call(subtitle_data)
 
-		_fetch_subtitle_with_cid(bvid, cid, subtitle_callback, save_path)
+			_fetch_subtitle_with_cid(bvid, cid, subtitle_callback, save_path)
 	)
+
 
 func fetch_subtitle_with_info(info: Dictionary, callback: Callable, save_path: String = "") -> void:
 	if info.is_empty():
@@ -1398,7 +1590,10 @@ func fetch_subtitle_with_info(info: Dictionary, callback: Callable, save_path: S
 	_video_info_cache[bvid] = info
 
 	var subtitle_callback = func(subtitle_data):
-		if subtitle_data == null or (typeof(subtitle_data) == TYPE_DICTIONARY and subtitle_data.is_empty()):
+		if (
+			subtitle_data == null
+			or (typeof(subtitle_data) == TYPE_DICTIONARY and subtitle_data.is_empty())
+		):
 			_fallback_external_lyrics(info, callback, save_path)
 		else:
 			callback.call(subtitle_data)
@@ -1407,12 +1602,21 @@ func fetch_subtitle_with_info(info: Dictionary, callback: Callable, save_path: S
 
 
 # ==================== 内部：B站 API 请求与字幕候选 ====================
-func _fetch_subtitle_with_cid(bvid: String, cid: int, callback: Callable, save_path: String = "") -> void:
+func _fetch_subtitle_with_cid(
+	bvid: String, cid: int, callback: Callable, save_path: String = ""
+) -> void:
 	var url = "https://api.bilibili.com/x/player/wbi/v2?bvid=%s&cid=%d" % [bvid, cid]
 	url = await _sign_wbi_url(url)
 	_request(url, _on_subtitle_player_info_received, [bvid, cid, callback, save_path])
 
-func _on_subtitle_player_info_received(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray, extra: Variant) -> void:
+
+func _on_subtitle_player_info_received(
+	_result: int,
+	response_code: int,
+	_headers: PackedStringArray,
+	body: PackedByteArray,
+	extra: Variant
+) -> void:
 	var extra_arr: Array = extra
 	var bvid: String = extra_arr[0]
 	var callback: Callable = extra_arr[2]
@@ -1471,14 +1675,19 @@ func _on_subtitle_player_info_received(_result: int, response_code: int, _header
 
 	# 1) 优先非 AI 字幕
 	if not non_ai_candidates.is_empty():
-		non_ai_candidates.sort_custom(func(a, b):
-			var a_prio = 0
-			var b_prio = 0
-			if a["lan"] == video_lang: a_prio = 2
-			elif a["lan"] == "zh-CN": a_prio = 1
-			if b["lan"] == video_lang: b_prio = 2
-			elif b["lan"] == "zh-CN": b_prio = 1
-			return a_prio > b_prio
+		non_ai_candidates.sort_custom(
+			func(a, b):
+				var a_prio = 0
+				var b_prio = 0
+				if a["lan"] == video_lang:
+					a_prio = 2
+				elif a["lan"] == "zh-CN":
+					a_prio = 1
+				if b["lan"] == video_lang:
+					b_prio = 2
+				elif b["lan"] == "zh-CN":
+					b_prio = 1
+				return a_prio > b_prio
 		)
 		_try_download_candidate(0, non_ai_candidates, bvid, callback, false, save_path)
 		return
@@ -1487,15 +1696,23 @@ func _on_subtitle_player_info_received(_result: int, response_code: int, _header
 	if not ai_candidates.is_empty():
 		var video_lang_prefix = video_lang.split("-")[0]
 		var preferred_ai_lang = "ai-" + video_lang_prefix
-		ai_candidates.sort_custom(func(a, b):
-			var a_prio = 0; var b_prio = 0
-			if a["lan"] == preferred_ai_lang: a_prio = 3
-			elif a["lan"] == "ai-zh": a_prio = 2
-			elif a["lan"] == "ai-en": a_prio = 1
-			if b["lan"] == preferred_ai_lang: b_prio = 3
-			elif b["lan"] == "ai-zh": b_prio = 2
-			elif b["lan"] == "ai-en": b_prio = 1
-			return a_prio > b_prio
+		ai_candidates.sort_custom(
+			func(a, b):
+				var a_prio = 0
+				var b_prio = 0
+				if a["lan"] == preferred_ai_lang:
+					a_prio = 3
+				elif a["lan"] == "ai-zh":
+					a_prio = 2
+				elif a["lan"] == "ai-en":
+					a_prio = 1
+				if b["lan"] == preferred_ai_lang:
+					b_prio = 3
+				elif b["lan"] == "ai-zh":
+					b_prio = 2
+				elif b["lan"] == "ai-en":
+					b_prio = 1
+				return a_prio > b_prio
 		)
 		_try_download_candidate(0, ai_candidates, bvid, callback, false, save_path)
 		return
@@ -1504,6 +1721,8 @@ func _on_subtitle_player_info_received(_result: int, response_code: int, _header
 	push_warning("该视频无可用字幕 (", bvid, ")，尝试纯外部歌词")
 	# callback.call({}) 会被外部调用者检测到，并触发 _fallback_external_lyrics
 	callback.call({})
+
+
 func _pick_best_subtitle_url(sub_list: Array, prefer_lang: String) -> String:
 	for sub in sub_list:
 		if sub.get("lan", "") == prefer_lang:
@@ -1511,23 +1730,91 @@ func _pick_best_subtitle_url(sub_list: Array, prefer_lang: String) -> String:
 	if not sub_list.is_empty():
 		return sub_list[0].get("subtitle_url", "")
 	return ""
+
+
 const MIXIN_KEY_ENC_TAB = [
-	46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35,
-	27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13,
-	37, 48, 7, 16, 24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4,
-	22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 52, 34, 44
+	46,
+	47,
+	18,
+	2,
+	53,
+	8,
+	23,
+	32,
+	15,
+	50,
+	10,
+	31,
+	58,
+	3,
+	45,
+	35,
+	27,
+	43,
+	5,
+	49,
+	33,
+	9,
+	42,
+	19,
+	29,
+	28,
+	14,
+	39,
+	12,
+	38,
+	41,
+	13,
+	37,
+	48,
+	7,
+	16,
+	24,
+	55,
+	40,
+	61,
+	26,
+	17,
+	0,
+	1,
+	60,
+	51,
+	30,
+	4,
+	22,
+	25,
+	54,
+	21,
+	56,
+	59,
+	6,
+	63,
+	57,
+	62,
+	11,
+	36,
+	20,
+	52,
+	34,
+	44
 ]
-var _wbi_key_cache = { "img_key": "", "sub_key": "", "cached_time": 0 }
+var _wbi_key_cache = {"img_key": "", "sub_key": "", "cached_time": 0}
+
 
 func _get_wbi_key() -> Dictionary:
 	var now: int = Time.get_unix_time_from_system()
-	if now - _wbi_key_cache.get("cached_time", 0) < 1800 and not _wbi_key_cache.get("img_key", "").is_empty():
+	if (
+		now - _wbi_key_cache.get("cached_time", 0) < 1800
+		and not _wbi_key_cache.get("img_key", "").is_empty()
+	):
 		return _wbi_key_cache
 
 	var http := HTTPRequest.new()
 	add_child(http)
 	var headers: PackedStringArray = _get_headers()
-	var error := http.request("https://api.bilibili.com/x/web-interface/nav", headers, HTTPClient.METHOD_GET)
+	var error := http.request(
+		"https://api.bilibili.com/x/web-interface/nav", headers, HTTPClient.METHOD_GET
+	)
 	if error != OK:
 		push_error("获取 WBI 密钥请求失败: ", error)
 		http.queue_free()
@@ -1542,7 +1829,7 @@ func _get_wbi_key() -> Dictionary:
 
 	if response_code != 200:
 		push_error("WBI 密钥接口 HTTP ", response_code)
-		
+
 		return _wbi_key_cache
 
 	var json := JSON.new()
@@ -1565,6 +1852,7 @@ func _get_wbi_key() -> Dictionary:
 	_wbi_key_cache["sub_key"] = sub_key
 	_wbi_key_cache["cached_time"] = now
 	return _wbi_key_cache
+
 
 func _sign_wbi_url(url: String) -> String:
 	var key_data: Dictionary = await _get_wbi_key()
@@ -1629,29 +1917,42 @@ func _sign_wbi_url(url: String) -> String:
 	var final_url = "https://api.bilibili.com" + base + "?" + "&".join(final_parts)
 	return final_url
 
+
 func start_qr_login(login_callback: Callable) -> void:
 	on_qr_login_result = login_callback
 	var http = HTTPRequest.new()
 	add_child(http)
 	http.request_completed.connect(_on_qr_generated)
-	var err = http.request("https://passport.bilibili.com/x/passport-login/web/qrcode/generate", PackedStringArray(), HTTPClient.METHOD_GET)
+	var err = http.request(
+		"https://passport.bilibili.com/x/passport-login/web/qrcode/generate",
+		PackedStringArray(),
+		HTTPClient.METHOD_GET
+	)
+
 
 var on_qr_login_result: Callable
 
-func _on_qr_generated(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
-	if response_code != 200: return
+
+func _on_qr_generated(
+	_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray
+) -> void:
+	if response_code != 200:
+		return
 	var json = JSON.new()
-	if json.parse(body.get_string_from_utf8()) != OK: return
+	if json.parse(body.get_string_from_utf8()) != OK:
+		return
 	var data = json.get_data()["data"]
 	var url = data["url"]
 	var qrcode_key = data["qrcode_key"]
 	_display_qrcode(url)
 	_poll_login_status(qrcode_key)
 
+
 var qr_window: Window = null
 
+
 func _display_qrcode(content: String) -> void:
-	qr_window=preload("res://Scene/Log_in.tscn").instantiate()
+	qr_window = preload("res://Scene/Log_in.tscn").instantiate()
 	qr_window.close_requested.connect(_on_qr_window_closed)
 	add_child(qr_window)
 	GdScriptFunc.apply_theme_and_styles_to_node(qr_window)
@@ -1659,17 +1960,19 @@ func _display_qrcode(content: String) -> void:
 	var qr_api = "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=" + encoded
 	var img_request = HTTPRequest.new()
 	add_child(img_request)
-	img_request.request_completed.connect(func(_r, _c, _h, body):
-		if not is_instance_valid(qr_window):
-			return
-		var img = Image.new()
-		if img.load_png_from_buffer(body) == OK:
-			var tex = ImageTexture.create_from_image(img)
-			qr_window.get_node("QRImage").texture = tex
-		else:
-			push_error("二维码图片加载失败")
+	img_request.request_completed.connect(
+		func(_r, _c, _h, body):
+			if not is_instance_valid(qr_window):
+				return
+			var img = Image.new()
+			if img.load_png_from_buffer(body) == OK:
+				var tex = ImageTexture.create_from_image(img)
+				qr_window.get_node("QRImage").texture = tex
+			else:
+				push_error("二维码图片加载失败")
 	)
 	img_request.request(qr_api, PackedStringArray(), HTTPClient.METHOD_GET)
+
 
 func _on_qr_window_closed() -> void:
 	if qr_window:
@@ -1686,6 +1989,7 @@ func _on_qr_window_closed() -> void:
 	if on_qr_login_result:
 		on_qr_login_result.call(false)
 
+
 func _close_qr_window() -> void:
 	if qr_window:
 		qr_window.queue_free()
@@ -1698,7 +2002,10 @@ func _close_qr_window() -> void:
 		_close_delay_timer.stop()
 		_close_delay_timer.queue_free()
 		_close_delay_timer = null
+
+
 var _poll_timer: Timer
+
 
 func _poll_login_status(qrcode_key: String) -> void:
 	_poll_timer = Timer.new()
@@ -1707,27 +2014,37 @@ func _poll_login_status(qrcode_key: String) -> void:
 	_poll_timer.timeout.connect(_check_qr_status.bind(qrcode_key))
 	add_child(_poll_timer)
 
+
 func _check_qr_status(qrcode_key: String) -> void:
 	var http = HTTPRequest.new()
 	add_child(http)
-	http.request_completed.connect(func(result, response_code, headers, body):
-		if response_code != 200: return
-		var json = JSON.new()
-		if json.parse(body.get_string_from_utf8()) != OK: return
-		var data = json.get_data()["data"]
-		var code = data["code"]
-		if code == 0:
-			# 停止轮询
-			if _poll_timer:
-				_poll_timer.stop()
-			# 换取 cookie，后续的头像加载和延迟关闭将在 _exchange_cookie 内部处理
-			_exchange_cookie(data["url"])
-		elif code == 86038:
-			if on_qr_login_result:
-				on_qr_login_result.call(false)
-			_close_qr_window()
+	http.request_completed.connect(
+		func(result, response_code, headers, body):
+			if response_code != 200:
+				return
+			var json = JSON.new()
+			if json.parse(body.get_string_from_utf8()) != OK:
+				return
+			var data = json.get_data()["data"]
+			var code = data["code"]
+			if code == 0:
+				# 停止轮询
+				if _poll_timer:
+					_poll_timer.stop()
+				# 换取 cookie，后续的头像加载和延迟关闭将在 _exchange_cookie 内部处理
+				_exchange_cookie(data["url"])
+			elif code == 86038:
+				if on_qr_login_result:
+					on_qr_login_result.call(false)
+				_close_qr_window()
 	)
-	http.request("https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key=" + qrcode_key, PackedStringArray(), HTTPClient.METHOD_GET)
+	http.request(
+		"https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key=" + qrcode_key,
+		PackedStringArray(),
+		HTTPClient.METHOD_GET
+	)
+
+
 func _exchange_cookie(login_url: String) -> void:
 	var http = HTTPRequest.new()
 	add_child(http)
@@ -1735,47 +2052,54 @@ func _exchange_cookie(login_url: String) -> void:
 
 	var buvid3 = get_or_generate_buvid()
 	var cookie_str = "buvid3=" + buvid3 + "; b_nut=" + str(Time.get_unix_time_from_system())
-	var headers = PackedStringArray([
-		"User-Agent: Mozilla/5.0 ...",
-		"Referer: https://www.bilibili.com",
-		"Cookie: " + cookie_str
-	])
+	var headers = PackedStringArray(
+		[
+			"User-Agent: Mozilla/5.0 ...",
+			"Referer: https://www.bilibili.com",
+			"Cookie: " + cookie_str
+		]
+	)
 
-	http.request_completed.connect(func(result, response_code, resp_headers, body):
-		# 提取并保存所有登录 Cookie
-		for header in resp_headers:
-			if header.begins_with("Set-Cookie: "):
-				var cookie_part = header.trim_prefix("Set-Cookie: ")
-				var parts = cookie_part.split(";")
-				if parts.size() > 0:
-					var kv = parts[0].strip_edges()
-					var eq_pos = kv.find("=")
-					if eq_pos != -1:
-						var key = kv.substr(0, eq_pos)
-						var value = kv.substr(eq_pos + 1)
-						match key:
-							"SESSDATA":
-								GdScriptFunc.set_data("AccountData", "SESSDATA", value)
-							"bili_jct":
-								GdScriptFunc.set_data("AccountData", "bili_jct", value)
-							"DedeUserID":
-								GdScriptFunc.set_data("AccountData", "DedeUserID", value)
-							"DedeUserID__ckMd5":
-								GdScriptFunc.set_data("AccountData", "DedeUserID__ckMd5", value)
-							"sid":
-								GdScriptFunc.set_data("AccountData", "sid", value)
-							"bp_t_offset":   # 注意：key 可能是 "bp_t_offset_1909594131" 这种动态形式，需要正则匹配
-								var offset_value = value
-								var uid = GdScriptFunc.get_data("AccountData", "DedeUserID", "")
-								if uid != "":
-									GdScriptFunc.set_data("AccountData", "bp_t_offset", offset_value)
-							"bili_ticket":
-								GdScriptFunc.set_data("AccountData", "bili_ticket", value)
-							"bili_ticket_expires":
-								GdScriptFunc.set_data("AccountData", "bili_ticket_expires", value)
-		print("所有登录 cookie 已保存")
-		# Cookie 保存完毕，开始加载头像并延迟关闭
-		_load_avatar_and_delayed_close()
+	http.request_completed.connect(
+		func(result, response_code, resp_headers, body):
+			# 提取并保存所有登录 Cookie
+			for header in resp_headers:
+				if header.begins_with("Set-Cookie: "):
+					var cookie_part = header.trim_prefix("Set-Cookie: ")
+					var parts = cookie_part.split(";")
+					if parts.size() > 0:
+						var kv = parts[0].strip_edges()
+						var eq_pos = kv.find("=")
+						if eq_pos != -1:
+							var key = kv.substr(0, eq_pos)
+							var value = kv.substr(eq_pos + 1)
+							match key:
+								"SESSDATA":
+									GdScriptFunc.set_data("AccountData", "SESSDATA", value)
+								"bili_jct":
+									GdScriptFunc.set_data("AccountData", "bili_jct", value)
+								"DedeUserID":
+									GdScriptFunc.set_data("AccountData", "DedeUserID", value)
+								"DedeUserID__ckMd5":
+									GdScriptFunc.set_data("AccountData", "DedeUserID__ckMd5", value)
+								"sid":
+									GdScriptFunc.set_data("AccountData", "sid", value)
+								"bp_t_offset":  # 注意：key 可能是 "bp_t_offset_1909594131" 这种动态形式，需要正则匹配
+									var offset_value = value
+									var uid = GdScriptFunc.get_data("AccountData", "DedeUserID", "")
+									if uid != "":
+										GdScriptFunc.set_data(
+											"AccountData", "bp_t_offset", offset_value
+										)
+								"bili_ticket":
+									GdScriptFunc.set_data("AccountData", "bili_ticket", value)
+								"bili_ticket_expires":
+									GdScriptFunc.set_data(
+										"AccountData", "bili_ticket_expires", value
+									)
+			print("所有登录 cookie 已保存")
+			# Cookie 保存完毕，开始加载头像并延迟关闭
+			_load_avatar_and_delayed_close()
 	)
 	var err = http.request(login_url, headers, HTTPClient.METHOD_GET)
 	if err != OK:
@@ -1784,14 +2108,19 @@ func _exchange_cookie(login_url: String) -> void:
 		_close_qr_window()
 		if on_qr_login_result:
 			on_qr_login_result.call(false)
+
+
 var _close_delay_timer: Timer = null
 
+
 func _load_avatar_and_delayed_close() -> void:
-	fetch_user_avatar(func(texture: ImageTexture):
-		if is_instance_valid(qr_window) and texture != null:
-			qr_window.get_node("QRImage").texture = texture
-		_start_delayed_close()
+	fetch_user_avatar(
+		func(texture: ImageTexture):
+			if is_instance_valid(qr_window) and texture != null:
+				qr_window.get_node("QRImage").texture = texture
+			_start_delayed_close()
 	)
+
 
 func _start_delayed_close() -> void:
 	# 确保窗口还存在
@@ -1805,10 +2134,13 @@ func _start_delayed_close() -> void:
 	add_child(_close_delay_timer)
 	_close_delay_timer.start()
 
+
 func _on_delayed_close_timeout() -> void:
 	if on_qr_login_result:
 		on_qr_login_result.call(true)
 	_close_qr_window()
+
+
 func fetch_user_avatar(callback: Callable) -> void:
 	# 1. 检查必要 Cookie
 	var sessdata = GdScriptFunc.get_data("AccountData", "SESSDATA")
@@ -1825,48 +2157,57 @@ func fetch_user_avatar(callback: Callable) -> void:
 	if dedeuserid != null:
 		cookie_str += "; DedeUserID=" + dedeuserid
 
-	var nav_headers = PackedStringArray([
-		"User-Agent: Mozilla/5.0 ...",
-		"Referer: https://www.bilibili.com",
-		"Cookie: " + cookie_str
-	])
+	var nav_headers = PackedStringArray(
+		[
+			"User-Agent: Mozilla/5.0 ...",
+			"Referer: https://www.bilibili.com",
+			"Cookie: " + cookie_str
+		]
+	)
 
 	# 3. 请求导航信息，获取头像 URL
 	var http_nav = HTTPRequest.new()
 	add_child(http_nav)
-	http_nav.request_completed.connect(func(result, response_code, headers, body):
-		http_nav.queue_free()  # 请求完成后释放
+	http_nav.request_completed.connect(
+		func(result, response_code, headers, body):
+			http_nav.queue_free()  # 请求完成后释放
 
-		if response_code != 200:
-			callback.call(null)
-			return
-
-		var json = JSON.new()
-		if json.parse(body.get_string_from_utf8()) != OK:
-			callback.call(null)
-			return
-
-		var data = json.get_data()
-		var face_url = data.get("data", {}).get("face", "")
-		if face_url == "":
-			callback.call(null)
-			return
-
-		# 4. 下载头像图片
-		var img_request = HTTPRequest.new()
-		add_child(img_request)
-		img_request.request_completed.connect(func(_r, _c, _h, img_body):
-			img_request.queue_free()
-
-			var img = Image.new()
-			if img.load_jpg_from_buffer(img_body) == OK or img.load_png_from_buffer(img_body) == OK:
-				var tex = ImageTexture.create_from_image(img)
-				callback.call(tex)
-			else:
+			if response_code != 200:
 				callback.call(null)
-		)
-		img_request.request(face_url, PackedStringArray(), HTTPClient.METHOD_GET)
+				return
+
+			var json = JSON.new()
+			if json.parse(body.get_string_from_utf8()) != OK:
+				callback.call(null)
+				return
+
+			var data = json.get_data()
+			var face_url = data.get("data", {}).get("face", "")
+			if face_url == "":
+				callback.call(null)
+				return
+
+			# 4. 下载头像图片
+			var img_request = HTTPRequest.new()
+			add_child(img_request)
+			img_request.request_completed.connect(
+				func(_r, _c, _h, img_body):
+					img_request.queue_free()
+
+					var img = Image.new()
+					if (
+						img.load_jpg_from_buffer(img_body) == OK
+						or img.load_png_from_buffer(img_body) == OK
+					):
+						var tex = ImageTexture.create_from_image(img)
+						callback.call(tex)
+					else:
+						callback.call(null)
+			)
+			img_request.request(face_url, PackedStringArray(), HTTPClient.METHOD_GET)
 	)
 
-	http_nav.request("https://api.bilibili.com/x/web-interface/nav", nav_headers, HTTPClient.METHOD_GET)
+	http_nav.request(
+		"https://api.bilibili.com/x/web-interface/nav", nav_headers, HTTPClient.METHOD_GET
+	)
 #endregion
