@@ -24,12 +24,37 @@ func update(list_name:String,cover,video_info:Dictionary)->void:
 	performance_node.update()
 	_on_visibility_changed()
 var performance_node:Node
+func update_performance_node(new_theme_path: String) -> void:
+	# 移除旧的主题节点
+	if performance_node != null:
+		if performance_node.has_method(\"Stop\"):
+			performance_node.Stop()
+		performance_node.queue_free()
+		performance_node = null
+
+	# 加载新的主题节点
+	if new_theme_path != \"\":
+		performance_node = load(new_theme_path).instantiate()
+	else:
+		performance_node = preload(\"res://BigWindowTheme/RecordEdgeLines.tscn\").instantiate()
+	GdScriptFunc.apply_theme_and_styles_to_node(performance_node)
+	# 初始化必要属性
+	performance_node.bottomMenu = bottom_menu
+	add_child(performance_node)
+	move_child(performance_node, 0)
+	performance_node.update()
+	# 根据当前窗口状态启动
+	if visible:
+		performance_node.call(\"Start\")
+		if mode == Window.MODE_MINIMIZED:
+			performance_node.call(\"set_ECO_mode\", true)
 func _ready() -> void:
 	var path:String=GdScriptFunc.get_data(\"Options\",\"Custom_Big_Window_Theme\",\"\")
 	if path!=\"\":
 		performance_node=load(path).instantiate()
 	else:
-		performance_node=preload(\"res://BigWindowTheme/DefaultCustomBigWindowTheme.tscn\").instantiate()
+		performance_node=preload(\"res://BigWindowTheme/RecordEdgeLines.tscn\").instantiate()
+	GdScriptFunc.apply_theme_and_styles_to_node(performance_node)
 	performance_node.bottomMenu=bottom_menu
 	add_child(performance_node)
 	move_child(performance_node,0)

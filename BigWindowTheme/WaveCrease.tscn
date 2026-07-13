@@ -49,6 +49,7 @@ var _lyric_float_rotation: float = 0.0
 var _lyric_enter_tween: Tween
 var _lyric_enter_animating: bool = false
 
+
 func _ready() -> void:
 	_smoothed_amplitudes.resize(wave_bands)
 	_smoothed_amplitudes.fill(0.0)
@@ -62,10 +63,22 @@ func _ready() -> void:
 
 	_setup_lyric_float_animation()
 
+	# 监听切歌信号：彻底清除残留
+	Player.song_changed.connect(func(_video_info: Dictionary):
+		_last_lyric_data = null
+		_lyric_times.clear()
+		_lyric_texts.clear()
+		_lyric_index = -1
+		if lyric_label:
+			lyric_label.text = \"\"          # 清空文本，杜绝残留
+			lyric_label.visible = false
+		update()
+	)
+
+
 func _setup_lyric_float_animation() -> void:
 	if not lyric_label:
 		return
-	# 始终运行的无限循环动画，不暂停
 	_lyric_float_tween = create_tween()
 	_lyric_float_tween.set_loops()
 	_lyric_float_tween.tween_method(
@@ -73,8 +86,8 @@ func _setup_lyric_float_animation() -> void:
 		0.0, TAU,
 		lyric_float_cycle_duration
 	).set_trans(Tween.TRANS_LINEAR)
-	# 立即开始，永不暂停
 	_lyric_float_tween.play()
+
 
 func _update_lyric_float_offset(angle: float) -> void:
 	_lyric_float_offset = Vector2(
@@ -83,16 +96,18 @@ func _update_lyric_float_offset(angle: float) -> void:
 	)
 	_lyric_float_rotation = sin(angle * 0.7) * deg_to_rad(lyric_float_rotation_deg)
 
+
 func update() -> void:
+	if is_ECO_mode or not Player.sonance:
+		return
+
 	var video_info := Player.get_current_video_info()
 	if video_info.is_empty():
 		return
 
-	# 快速显示已有封面（可忽略 bvid）
 	if bottomMenu and bottomMenu.cover:
 		_set_texture(\"\", bottomMenu.cover)
 
-	# 异步获取高清封面（与歌词控件完全一致）
 	if video_info.get(\"is_network\", true):
 		BilibiliIc.fetch_cover(video_info.link, _set_texture, 1600, 1000)
 	elif FileAccess.file_exists(video_info.link.get_basename() + \".jpg\"):
@@ -108,10 +123,12 @@ func update() -> void:
 
 	_load_lyrics(video_info)
 
+
 func _set_texture(_bvid: String, tex: Texture2D) -> void:
 	if texture_rect:
 		texture_rect.texture = tex
 	_apply_theme_colors()
+
 
 func Start() -> void:
 	if not lyric_label or _lyric_enter_animating:
@@ -133,9 +150,11 @@ func Start() -> void:
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	_lyric_enter_tween.finished.connect(_on_lyric_enter_finished, CONNECT_ONE_SHOT)
 
+
 func _on_lyric_enter_finished() -> void:
 	_lyric_enter_animating = false
 	_lyric_enter_tween = null
+
 
 func _apply_theme_colors() -> void:
 	if not texture_rect or not texture_rect.texture:
@@ -157,6 +176,7 @@ func _apply_theme_colors() -> void:
 
 	_update_lyric_color()
 
+
 func _update_lyric_color() -> void:
 	if not lyric_label:
 		return
@@ -166,13 +186,17 @@ func _update_lyric_color() -> void:
 	gray.a = 1.0
 	lyric_label.add_theme_color_override(\"font_color\", gray)
 
+
 func _process(delta: float) -> void:
 	if not Player.sonance:
-		_smoothed_amplitudes.fill(0.0)
-		polygon_2d.polygon = _generate_wave(_smoothed_amplitudes, 0.0, size.y * wave_base_offset)
-		polygon_2d2.polygon = _generate_wave(_smoothed_amplitudes, 0.0, size.y * wave_base_offset)
-		if not show_lyric_on_pause and lyric_label:
-			lyric_label.visible = false
+		if not is_ECO_mode:
+			set_ECO_mode(true)
+		return
+	else:
+		if is_ECO_mode:
+			set_ECO_mode(false)
+
+	if is_ECO_mode:
 		return
 
 	var max_height: float = max(size.x * 2.0, 10.0)
@@ -211,11 +235,50 @@ func _process(delta: float) -> void:
 	if lyric_label and Player.sonance:
 		_update_lyric()
 
+
+func set_ECO_mode(value: bool) -> void:
+	if is_ECO_mode == value:
+		return
+
+	is_ECO_mode = value
+
+	if value:
+		_enter_eco_mode()
+	else:
+		_exit_eco_mode()
+
+
+func _enter_eco_mode() -> void:
+	_pause_all_tweens()
+	# 暂停时不再隐藏歌词
+
+
+func _exit_eco_mode() -> void:
+	_resume_all_tweens()
+
+
+func _pause_all_tweens() -> void:
+	if _lyric_float_tween and _lyric_float_tween.is_valid() and _lyric_float_tween.is_running():
+		_lyric_float_tween.pause()
+	if _lyric_enter_tween and _lyric_enter_tween.is_valid() and _lyric_enter_tween.is_running():
+		_lyric_enter_tween.pause()
+
+
+func _resume_all_tweens() -> void:
+	if _lyric_float_tween and _lyric_float_tween.is_valid():
+		if not _lyric_float_tween.is_running():
+			_lyric_float_tween.play()
+	if _lyric_enter_tween and _lyric_enter_tween.is_valid():
+		if not _lyric_enter_tween.is_running():
+			_lyric_enter_tween.play()
+
+
 func _get_overall_volume() -> float:
 	var e = AudioSpectrumCalculator.Update(0.0, true, 1000.0)
 	if e == null or e.size() == 0:
 		return 0.0
 	return e[0] * AudioSpectrumCalculator.spectrumScale
+
 
 func _resample_array(src: PackedFloat32Array, target: int) -> PackedFloat32Array:
 	if src.size() == target:
@@ -229,6 +292,7 @@ func _resample_array(src: PackedFloat32Array, target: int) -> PackedFloat32Array
 		var frac := fi - float(i0)
 		res[i] = lerpf(src[i0], src[i1], frac)
 	return res
+
 
 func _generate_wave(amps: PackedFloat32Array, offset: float, base_y: float) -> PackedVector2Array:
 	var n := amps.size()
@@ -257,36 +321,23 @@ func _generate_wave(amps: PackedFloat32Array, offset: float, base_y: float) -> P
 		poly.append(top[i])
 	return poly
 
+
 func _cycle_amp(a: PackedFloat32Array, idx: int) -> float:
 	var p := a.size() - 1
 	var m := idx % p
 	if m < 0: m += p
 	return a[m]
 
+
 func _catmull(y0: float, y1: float, y2: float, y3: float, t: float) -> float:
 	var t2 := t * t
 	var t3 := t2 * t
 	return 0.5 * (2.0*y1 + (-y0 + y2)*t + (2.0*y0 - 5.0*y1 + 4.0*y2 - y3)*t2 + (-y0 + 3.0*y1 - 3.0*y2 + y3)*t3)
 
-func set_ECO_mode(value: bool) -> void:
-	if is_ECO_mode == value:
-		return
-	is_ECO_mode = value
-	if value:
-		set_process(false)
-		set_process_input(false)
-		RenderingServer.viewport_set_active(get_viewport().get_viewport_rid(), false)
-	else:
-		RenderingServer.viewport_set_active(get_viewport().get_viewport_rid(), true)
-		set_process(true)
-		set_process_input(true)
 
-# ---------- 歌词加载（无调试） ----------
 func _load_lyrics(video_info: Dictionary) -> void:
 	var subtitles = video_info.get(\"subtitles\", null)
 	if subtitles != null and not (subtitles is Array and subtitles.is_empty()) and not (subtitles is String and subtitles.strip_edges() == \"\"):
-		if subtitles == _last_lyric_data:
-			return
 		_last_lyric_data = subtitles
 		var new_times: Array[float] = []
 		var new_texts: Array[String] = []
@@ -301,9 +352,11 @@ func _load_lyrics(video_info: Dictionary) -> void:
 			if current_info.is_empty() or current_info.get(\"BV\", current_info.get(\"link\")) != requested_bvid:
 				return
 			if subtitle_data.is_empty() or (not subtitle_data.has(\"body\") and not subtitle_data.has(\"path\")):
-				if lyric_label: lyric_label.visible = false
 				_lyric_times.clear()
 				_lyric_texts.clear()
+				if lyric_label:
+					lyric_label.text = \"\"
+					lyric_label.visible = false
 			else:
 				var new_times: Array[float] = []
 				var new_texts: Array[String] = []
@@ -322,9 +375,13 @@ func _load_lyrics(video_info: Dictionary) -> void:
 				_apply_lyrics(new_times, new_texts)
 		)
 	else:
-		if lyric_label: lyric_label.visible = false
 		_lyric_times.clear()
 		_lyric_texts.clear()
+		if lyric_label:
+			lyric_label.text = \"\"
+			lyric_label.visible = false
+		_last_lyric_data = null
+
 
 func _parse_subtitle_data(subtitles, out_times: Array, out_texts: Array) -> void:
 	if subtitles is String:
@@ -354,9 +411,12 @@ func _parse_subtitle_data(subtitles, out_times: Array, out_texts: Array) -> void
 			out_times.append(entry.get(\"from\", 0.0))
 			out_texts.append(entry.get(\"content\", \"\"))
 
+
 func _apply_lyrics(times: Array, texts: Array) -> void:
 	if texts.is_empty():
-		if lyric_label: lyric_label.visible = false
+		if lyric_label:
+			lyric_label.text = \"\"
+			lyric_label.visible = false
 		_lyric_times.clear()
 		_lyric_texts.clear()
 		return
@@ -366,19 +426,16 @@ func _apply_lyrics(times: Array, texts: Array) -> void:
 	if lyric_label:
 		lyric_label.visible = true
 
+
 func _parse_lrc(lrc_text: String, out_times: Array, out_texts: Array) -> void:
 	var lines = lrc_text.split(\"\\n\")
 	var regex = RegEx.new()
 	regex.compile(\"\\\\[(\\\\d{1,3}):(\\\\d{2})(?:\\\\.(\\\\d{2,3}))?\\\\]\")
-
 	for line in lines:
 		line = line.strip_edges()
-		if line.is_empty():
-			continue
+		if line.is_empty(): continue
 		var matches = regex.search_all(line)
-		if matches.is_empty():
-			continue
-
+		if matches.is_empty(): continue
 		var times: Array[float] = []
 		for match in matches:
 			var mins = match.get_string(1).to_int()
@@ -388,21 +445,16 @@ func _parse_lrc(lrc_text: String, out_times: Array, out_texts: Array) -> void:
 			if ms_str != \"\":
 				ms = ms_str.to_float() / pow(10, ms_str.length())
 			times.append(mins * 60.0 + secs + ms)
-
 		var last_end = matches[-1].get_end()
 		var content = line.substr(last_end).strip_edges()
 		if content.begins_with(\"♪\") and content.ends_with(\"♪\"):
 			content = content.substr(1, content.length() - 2)
 		content = content.strip_edges()
-		if content == \"音乐\" or content == \"music\":
-			content = \"\"
-		if content != \"\":
-			content = _capitalize_line(content)
-
+		if content == \"音乐\" or content == \"music\": content = \"\"
+		if content != \"\": content = _capitalize_line(content)
 		for t in times:
 			out_times.append(t)
 			out_texts.append(content)
-
 	if out_times.size() > 0:
 		var sorted = []
 		for i in out_times.size():
@@ -414,21 +466,26 @@ func _parse_lrc(lrc_text: String, out_times: Array, out_texts: Array) -> void:
 			out_times.append(e.t)
 			out_texts.append(e.c)
 
+
 func _capitalize_line(text: String) -> String:
-	if text.is_empty():
-		return text
+	if text.is_empty(): return text
 	var words = text.split(\" \")
 	for i in words.size():
-		if words[i] == \"i\":
-			words[i] = \"I\"
+		if words[i] == \"i\": words[i] = \"I\"
 	var result = \" \".join(words)
 	if result.length() > 0:
 		result = result[0].to_upper() + result.substr(1)
 	return result
 
+
 func _update_lyric() -> void:
 	if not lyric_label or _lyric_times.is_empty():
+		# 没有歌词时彻底清空
+		if lyric_label:
+			lyric_label.text = \"\"
+			lyric_label.visible = false
 		return
+
 	var pos = Player.get_current_time_sec()
 	var idx = -1
 	for i in _lyric_times.size():
@@ -442,8 +499,8 @@ func _update_lyric() -> void:
 			lyric_label.text = _lyric_texts[idx]
 			lyric_label.visible = true
 		else:
+			lyric_label.text = \"\"
 			lyric_label.visible = false
-
 	if lyric_label.visible:
 		lyric_label.offset_transform_position = _lyric_float_offset
 		lyric_label.offset_transform_rotation = _lyric_float_rotation
@@ -462,7 +519,6 @@ polygon_2d2 = NodePath("Polygon2D2")
 texture_rect = NodePath("TextureRect")
 lyric_label = NodePath("Subtitle")
 wave_bands = 28
-wave_amplitude_scale = 0.7
 wave_base_offset = 0.618
 wave_alpha = 0.9
 shake_sensitivity = 0.005
@@ -506,6 +562,8 @@ grow_horizontal = 2
 grow_vertical = 2
 pivot_offset_ratio = Vector2(0.5, 0.5)
 offset_transform_enabled = true
+theme_override_colors/font_outline_color = Color(1, 1, 1, 1)
+theme_override_constants/outline_size = 3
 theme_override_font_sizes/font_size = 32
 horizontal_alignment = 1
 vertical_alignment = 1

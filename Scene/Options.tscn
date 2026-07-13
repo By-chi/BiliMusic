@@ -214,9 +214,14 @@ func _setup_big_window_theme(option: Control, option_button: OptionButton) -> vo
 		idx = 0
 	option_button.selected = idx
 
+	#选择新主题时同时更新已打开的大窗口
 	option_button.item_selected.connect(func(index: int):
 		var selected_path = sorted_paths[index]
 		GdScriptFunc.set_data(\"Options\", \"Custom_Big_Window_Theme\", selected_path, true)
+		#动态刷新已经打开的大窗口主题
+		var main = get_node(\"/root/Main\")
+		if main and main.bottom_menu and main.bottom_menu.play_window:
+			main.bottom_menu.play_window.update_performance_node(selected_path)
 	)
 
 func _setup_generic(option: Control, control: Node) -> void:
@@ -312,7 +317,7 @@ script = SubResource("GDScript_nmc4f")
 OptionsTabContainer = NodePath("TabContainer")
 ClearCoversCache = NodePath("TabContainer/储存/VBoxContainer/ClearCoversCache")
 ClearLyricsCache = NodePath("TabContainer/储存/VBoxContainer/ClearLyricsCache")
-BuiltinThemes = Array[String](["DefaultCustomBigWindowTheme", "RecordEdgeLines", "WaveCrease"])
+BuiltinThemes = Array[String](["RecordEdgeLines", "WaveCrease"])
 
 [node name="Label" type="Label" parent="." unique_id=1198818235]
 layout_mode = 0

@@ -85,17 +85,20 @@ public partial class SubtitleCorrection : Node
             string cleaned = SubtitleUtils.CleanLrcMeta(rawLrc);
             List<string> externalLines = SubtitleUtils.ExtractLyricLinesFromLrc(cleaned);
 
+            // 过滤掉包含 '-' 的行（如某些时间标签分隔符）
             externalLines = [.. externalLines.Where(line => !line.Contains('-'))];
             GD.Print($"[Process] 过滤后外部歌词行数: {externalLines.Count}");
-            if (externalLines.Count > 1 && 
-                string.Join("", externalLines).Contains("暂无歌词"))
+
+            if (externalLines.Count > 1 && !IsPlaceholderLyric(externalLines))
             {
                 var biliEntries = biliSubs.Select(s => (time: s.from, text: s.content)).ToList();
-                // 在 externalLines 过滤后添加
+
+                // ---- 调试日志：外部歌词 ----
                 GD.Print("[DEBUG] ========== 过滤后外部歌词 ==========");
                 for (int i = 0; i < externalLines.Count; i++)
                     GD.Print($"[DEBUG Ext {i:D3}] {externalLines[i]}");
 
+                // ---- 调试日志：B站字幕（用于对齐） ----
                 GD.Print("[DEBUG] ========== 过滤后B站字幕（用于对齐） ==========");
                 var biliDebug = biliEntries
                     .Select(x => (x.time, norm: SubtitleUtils.NormalizeText(x.text), raw: x.text))
@@ -104,7 +107,8 @@ public partial class SubtitleCorrection : Node
                     .ToList();
                 for (int i = 0; i < biliDebug.Count; i++)
                     GD.Print($"[DEBUG Bili {i:D3}] [{biliDebug[i].time:F2}s] {biliDebug[i].raw}  (norm: {biliDebug[i].norm})");
-                // 使用支持多行合并的对齐算法
+
+                // 调用对齐算法
                 var aligned = SubtitleUtils.AlignBilibiliToExternalMulti(
                     externalLines: externalLines,
                     bilibiliEntries: biliEntries,
@@ -125,8 +129,16 @@ public partial class SubtitleCorrection : Node
                 }
                 else
                 {
-                    GD.Print($"[Process] 对齐行数不匹配，回退 B 站字幕");
+                    GD.Print($"[Process] 对齐行数不匹配（外部{externalLines.Count}行，对齐结果{aligned.Count}行），回退 B 站字幕");
                 }
+            }
+            else if (externalLines.Count <= 1)
+            {
+                GD.Print("[Process] 外部歌词行数过少，无法对齐，回退 B 站字幕");
+            }
+            else
+            {
+                GD.Print("[Process] 外部歌词为占位文本（暂无歌词/纯音乐等），回退 B 站字幕");
             }
         }
 
@@ -135,7 +147,18 @@ public partial class SubtitleCorrection : Node
         await File.WriteAllTextAsync(finalLrcPath, biliLrc, Encoding.UTF8);
         return finalLrcPath;
     }
-    
+
+    // 辅助方法：判断外部歌词是否为无效占位文本
+    private static bool IsPlaceholderLyric(List<string> lines)
+    {
+        string allText = string.Join("", lines);
+        return allText.Contains("暂无歌词") ||
+            allText.Contains("纯音乐") ||
+            allText.Contains("请欣赏") ||
+            allText.Contains("暂时无法获取歌词") ||
+            allText.Contains("此歌曲为没有填词的纯音乐");
+    }
+        
     private async Task<string> FetchAndAlignExternalInternal(string m4sPath, string trackName, string outputDir)
     {
         GD.Print($"[External] 开始获取外部歌词，曲目: {trackName}");

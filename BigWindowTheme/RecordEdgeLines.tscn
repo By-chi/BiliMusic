@@ -33,7 +33,11 @@ script/source = "extends Control
 
 var bottomMenu: Panel
 var subject_color := Color.WHITE
-var lyric_labels: Array[Label] = []
+
+# 固定大小的标签池，数量 = OnecShowLyricLineCount + 4
+var _label_pool: Array[Label] = []
+# 记录每个标签当前绑定的行号，-1表示空闲
+var _label_line_map: Dictionary = {} # Label -> int
 
 var _is_animating: bool = false
 var _enter_tween: Tween
@@ -53,6 +57,15 @@ func _ready() -> void:
 
 	Player.seeked.connect(set_stream_position)
 	Player.song_changed.connect(func(_video_info: Dictionary):
+		# 切歌时立即清理旧歌词，避免残留
+		Subtitle.hide()
+		LyricTime.clear()
+		Lyric.clear()
+		index = 0
+		last_highlight_index = -1
+		# 重新触发字幕加载
+		update()
+		# 最后设置进度
 		set_stream_position(0.01)
 	)
 
@@ -62,7 +75,6 @@ func _ready() -> void:
 func generate_lines() -> void:
 	line_nodes.clear()
 	var o := edgeNode.size / 2
-	# AudioSpectrumCalculator 为自动加载单例，直接访问其导出变量
 	var line_count: int = AudioSpectrumCalculator.lineCount
 	for i in line_count:
 		var a := TAU * (i / float(line_count))
@@ -84,13 +96,11 @@ func music_name_update_offset(angle: float) -> void:
 	musicNameLabel.rotation = sin(angle * music_name_freq_rot) * deg_to_rad(2.0)
 
 func _process(delta: float) -> void:
-	# 频谱计算完全交给自动加载的 AudioSpectrumCalculator
 	var max_height := edgeNode.size.x * 2.0
 	var heights: PackedFloat32Array = AudioSpectrumCalculator.Update(delta, Player.sonance, max_height)
 	for i in heights.size():
 		line_nodes[i].mesh.height = heights[i]
 
-	# 封面旋转
 	if Player.sonance:
 		coverNode.rotation += delta * coverTextureRectRotateSpeed
 		edgeNode.rotation = coverNode.rotation
@@ -171,7 +181,6 @@ func update() -> void:
 	if bottomMenu and bottomMenu.cover:
 		coverTextureRect.texture = bottomMenu.cover
 	if not coverTextureRect.texture:
-		# 纹理无效时不执行颜色提取，防止崩溃
 		musicNameLabel.text = CSharpFunc.ExtractSongName(video_info.get(\"title\", tr(\"未知\")))
 		return
 
@@ -296,59 +305,84 @@ func init_lyrics_from_data(data: Variant) -> void:
 	if new_texts.is_empty():
 		return
 
-	var old_labels: Array[Label] = []
-	for child in Subtitle.get_children():
-		if child is Label and is_instance_valid(child):
-			old_labels.append(child)
-	for lbl in old_labels:
-		lbl.queue_free()
+	# 清除旧的标签池（立即从父节点移除，杜绝残留帧）
+	for lbl in _label_pool:
+		if is_instance_valid(lbl):
+			lbl.get_parent().remove_child(lbl)
+			lbl.queue_free()
+	_label_pool.clear()
+	_label_line_map.clear()
 
 	LyricTime = new_times
 	Lyric = new_texts
 	index = 0
 	last_highlight_index = -1
 
+	# 创建固定大小的标签池（数量 = OnecShowLyricLineCount + 4）
+	var pool_size := OnecShowLyricLineCount + 4
 	var hide_y := float(OnecShowLyricLineCount + 1) * LineSpacing + 2 * extra_spacing
-	var lyric_label_template := Label.new()
-	lyric_label_template.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lyric_label_template.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	lyric_label_template.size.x = Subtitle.size.x
-	lyric_label_template.position = Vector2(LyricPositionXOffset, hide_y)
-	lyric_label_template.add_theme_font_size_override(\"font_size\", normal_font_size)
-	lyric_label_template.add_theme_color_override(\"font_color\", Color.WHITE)
-	lyric_label_template.add_theme_constant_override(\"line_spacing\", -20)
-	lyric_label_template.set_anchors_and_offsets_preset(
-		Control.PRESET_TOP_WIDE,
-		Control.PRESET_MODE_KEEP_SIZE
-	)
-
-	for text in Lyric:
-		var lyric_label := lyric_label_template.duplicate() as Label
-		lyric_label.text = text
-		lyric_label.visible = false
-		Subtitle.add_child(lyric_label)
-
-	lyric_labels.clear()
-	for child in Subtitle.get_children():
-		if child is Label and is_instance_valid(child):
-			lyric_labels.append(child)
+	for i in pool_size:
+		var lbl := Label.new()
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		lbl.size.x = Subtitle.size.x
+		lbl.position = Vector2(LyricPositionXOffset, hide_y)
+		lbl.add_theme_font_size_override(\"font_size\", normal_font_size)
+		lbl.add_theme_color_override(\"font_color\", Color.WHITE)
+		lbl.add_theme_color_override(\"font_outline_color\", Color.WHITE)
+		lbl.add_theme_constant_override(\"line_spacing\", -20)
+		lbl.add_theme_constant_override(\"outline_size\", 3)
+		lbl.set_anchors_and_offsets_preset(
+			Control.PRESET_TOP_WIDE,
+			Control.PRESET_MODE_KEEP_SIZE
+		)
+		Subtitle.add_child(lbl)
+		_label_pool.append(lbl)
+		_label_line_map[lbl] = -1
 
 	Start()
 
-func set_stream_position(value: float) -> void:
-	index = find_index_greater_than(LyricTime, value * Player.get_duration())
-	if Subtitle.visible:
-		_refresh_lyrics()
+func _get_current_window_start() -> int:
+	return index - FocusLyricLinePosition
+
+# 为指定行分配一个空闲标签，或复用最远的标签
+func _assign_label_to_line(line_idx: int) -> Label:
+	# 先检查是否已有标签分配给了这一行
+	for lbl in _label_pool:
+		if _label_line_map[lbl] == line_idx:
+			return lbl
+
+	# 寻找空闲标签（行号为-1）
+	for lbl in _label_pool:
+		if _label_line_map[lbl] == -1:
+			_label_line_map[lbl] = line_idx
+			lbl.text = Lyric[line_idx] if Lyric[line_idx].strip_edges() != \"\" else \" \"
+			lbl.visible = false
+			return lbl
+
+	# 所有标签都在使用，找出距离当前窗口最远的标签，释放它
+	var window_start := _get_current_window_start()
+	var max_dist := -1
+	var lbl_to_reuse: Label = null
+	for lbl in _label_pool:
+		var assigned_line :int= _label_line_map[lbl]
+		if assigned_line < 0 or assigned_line >= Lyric.size():
+			continue
+		var dist :int= abs(assigned_line - window_start)
+		if dist > max_dist:
+			max_dist = dist
+			lbl_to_reuse = lbl
+	if lbl_to_reuse:
+		_label_line_map[lbl_to_reuse] = line_idx
+		lbl_to_reuse.text = Lyric[line_idx] if Lyric[line_idx].strip_edges() != \"\" else \" \"
+		lbl_to_reuse.visible = false
+		return lbl_to_reuse
+
+	# 保底返回最后一个标签（理论上不会执行）
+	return _label_pool[0]
 
 func _refresh_lyrics() -> void:
 	if _is_animating:
-		return
-
-	var labels: Array[Label] = []
-	for child in Subtitle.get_children():
-		if child is Label and is_instance_valid(child):
-			labels.append(child)
-	if labels.is_empty():
 		return
 
 	var pos := Player.get_current_time_sec()
@@ -356,52 +390,75 @@ func _refresh_lyrics() -> void:
 		index += 1
 
 	var new_hl := index - 1
+	# 高亮切换
 	if new_hl != last_highlight_index:
-		if last_highlight_index >= 0 and last_highlight_index < labels.size():
-			var old_lbl := labels[last_highlight_index]
-			if is_instance_valid(old_lbl):
-				old_lbl.modulate = Color.DIM_GRAY
-				old_lbl.offset_transform_scale = Vector2.ONE
-		if new_hl >= 0 and new_hl < labels.size():
-			var new_lbl := labels[new_hl]
-			if is_instance_valid(new_lbl):
-				new_lbl.modulate = subject_color
-				new_lbl.offset_transform_scale = Vector2.ONE * highlight_font_scale
+		# 取消旧高亮
+		if last_highlight_index >= 0:
+			for lbl in _label_pool:
+				if _label_line_map[lbl] == last_highlight_index and lbl.visible:
+					lbl.modulate = Color.DIM_GRAY
+					lbl.offset_transform_scale = Vector2.ONE
+		# 设置新高亮
+		if new_hl >= 0:
+			for lbl in _label_pool:
+				if _label_line_map[lbl] == new_hl and lbl.visible:
+					lbl.modulate = subject_color
+					lbl.offset_transform_scale = Vector2.ONE * highlight_font_scale
 		last_highlight_index = new_hl
 
-	var hl_idx := FocusLyricLinePosition - 1
-	var window_start := index - FocusLyricLinePosition
-	var window_end := window_start + OnecShowLyricLineCount - 1
-	var hide_y := float(OnecShowLyricLineCount + 1) * LineSpacing + 2 * extra_spacing
+	var window_start: int = _get_current_window_start()
+	var hl_rel: int = FocusLyricLinePosition - 1
+	var hide_y: float = float(OnecShowLyricLineCount + 1) * LineSpacing + 2 * extra_spacing
 	const SETTLE_THRESHOLD := 0.5
 
-	for i in labels.size():
-		var lbl := labels[i]
-		if not is_instance_valid(lbl):
+	# 为当前窗口的每一行分配标签
+	var needed_lines: Array = []
+	for rel_i in range(-2, OnecShowLyricLineCount + 2):
+		var line_idx := window_start + rel_i
+		if line_idx >= 0 and line_idx < Lyric.size():
+			needed_lines.append(line_idx)
+
+	for line_idx in needed_lines:
+		_assign_label_to_line(line_idx)
+
+	# 处理所有标签：根据其绑定的行号计算位置和可见性
+	for lbl in _label_pool:
+		var line_idx: int = _label_line_map[lbl]
+		if line_idx < 0 or line_idx >= Lyric.size():
+			lbl.visible = false
 			continue
 
-		if i < window_start or i > window_end:
+		var rel_i: int = line_idx - window_start
+		if rel_i < 0 or rel_i >= OnecShowLyricLineCount:
 			if lbl.visible:
 				lbl.visible = false
 				lbl.position = Vector2(LyricPositionXOffset, hide_y)
+			continue
+
+		# 更新文本（空行用空格）
+		var desired_text: String = Lyric[line_idx]
+		if desired_text.strip_edges() == \"\":
+			desired_text = \" \"
+		if lbl.text != desired_text:
+			lbl.text = desired_text
+
+		# 计算目标Y坐标
+		var target_y: float = float(rel_i + 1) * LineSpacing
+		if rel_i > hl_rel:
+			target_y += 2 * extra_spacing
+		elif rel_i == hl_rel:
+			target_y += extra_spacing
+
+		if not lbl.visible:
+			lbl.position = Vector2(LyricPositionXOffset, target_y)
+			lbl.visible = true
 		else:
-			var rel_i := i - window_start
-			var target_y := float(rel_i + 1) * LineSpacing
-			if rel_i > hl_idx:
-				target_y += 2 * extra_spacing
-			elif rel_i == hl_idx:
-				target_y += extra_spacing
+			if abs(lbl.position.y - target_y) > SETTLE_THRESHOLD:
+				var new_y: float = lerpf(lbl.position.y, target_y, 0.15 + absi(rel_i - FocusLyricLinePosition + 1) / 20.0)
+				lbl.position = Vector2(lbl.position.x, new_y)
 
-			if not lbl.visible:
-				lbl.position = Vector2(LyricPositionXOffset, target_y)
-				lbl.visible = true
-			else:
-				if abs(lbl.position.y - target_y) > SETTLE_THRESHOLD:
-					var new_y := lerpf(lbl.position.y, target_y, 0.15 + absi(rel_i - FocusLyricLinePosition + 1) / 20.0)
-					lbl.position = Vector2(lbl.position.x, new_y)
-
-			lbl.modulate = subject_color if rel_i == hl_idx else Color.DIM_GRAY
-			lbl.rotation = (lbl.position.y - float(FocusLyricLinePosition) * LineSpacing) / get_window().size.y * LyricRotationDegree
+		lbl.modulate = subject_color if rel_i == hl_rel else Color.DIM_GRAY
+		lbl.rotation = (lbl.position.y - float(FocusLyricLinePosition) * LineSpacing) / get_window().size.y * LyricRotationDegree
 
 func Start() -> void:
 	if not Subtitle.visible:
@@ -411,20 +468,15 @@ func Start() -> void:
 		_enter_tween.kill()
 		_enter_tween = null
 
-	var labels: Array[Label] = []
-	for child in Subtitle.get_children():
-		if child is Label and is_instance_valid(child):
-			labels.append(child)
+	for lbl in _label_pool:
+		lbl.modulate.a = 0.0
+		lbl.scale = Vector2.ZERO
 
-	if not labels.is_empty():
-		_saved_index = index
-		index = 0
-		last_highlight_index = -1
-		_is_animating = false
-		_refresh_lyrics()
-		for lbl in labels:
-			lbl.modulate.a = 0.0
-			lbl.scale = Vector2.ZERO
+	_saved_index = index
+	index = 0
+	last_highlight_index = -1
+	_is_animating = false
+	_refresh_lyrics()
 
 	_is_animating = true
 	if tween_music_name and tween_music_name.is_running():
@@ -433,8 +485,8 @@ func Start() -> void:
 	_enter_tween = create_tween()
 	_enter_tween.set_parallel(true)
 
-	for i in labels.size():
-		var lbl = labels[i]
+	for i in _label_pool.size():
+		var lbl = _label_pool[i]
 		var delay = i * 0.05
 		_enter_tween.tween_property(lbl, \"modulate:a\", 1.0, 0.3) \\
 			.set_delay(delay).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
@@ -461,16 +513,19 @@ func _on_enter_animation_finished() -> void:
 	if Player.sonance and tween_music_name and not tween_music_name.is_running():
 		tween_music_name.play()
 
-	var labels: Array[Label] = []
-	for child in Subtitle.get_children():
-		if child is Label and is_instance_valid(child):
-			labels.append(child)
-	if not labels.is_empty():
-		var duration := Player.get_duration()
-		if duration > 0:
-			set_stream_position(Player.get_current_time_sec() / duration)
-		else:
-			_refresh_lyrics()
+	var duration := Player.get_duration()
+	if duration > 0:
+		set_stream_position(Player.get_current_time_sec() / duration)
+	else:
+		_refresh_lyrics()
+
+func set_stream_position(value: float) -> void:
+	# 歌词数组为空时直接返回，避免无数据刷新
+	if LyricTime.size() == 0 or Lyric.size() == 0:
+		return
+	index = find_index_greater_than(LyricTime, value * Player.get_duration())
+	if Subtitle.visible:
+		_refresh_lyrics()
 
 func capitalize_line(text: String) -> String:
 	if text.is_empty():
