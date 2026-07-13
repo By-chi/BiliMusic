@@ -1,0 +1,551 @@
+[gd_scene format=3 uid="uid://bj14jds4q2er0"]
+
+[ext_resource type="Texture2D" uid="uid://c4vd7n5kbhijn" path="res://UI/Icon/default_img.tres" id="1_rs2yu"]
+[ext_resource type="Shader" uid="uid://cuy1wvbhmf4o0" path="res://GDShader/flow.gdshader" id="1_u3t73"]
+
+[sub_resource type="GDScript" id="GDScript_snpjp"]
+script/source = "extends Control
+
+@export var coverTextureRect: TextureRect
+@export var coverNode: Panel
+@export var musicNameLabel: Label
+@export var coverTextureRectRotateSpeed := 0.2
+@export var BackgroundFlow: ColorRect
+@export var Subtitle: Control
+@export var Background: TextureRect
+@export var extra_spacing: float = 30.0
+@export var OnecShowLyricLineCount: int = 7
+@export var FocusLyricLinePosition: int = 3
+@export var LyricTime: Array[float] = []
+@export var Lyric: Array[String] = []
+@export var index: int = 0
+@export var LyricOffset: float = 0
+@export var LyricPositionXOffset: float = 0.0
+@export var LineSpacing: float = 100
+@export var LyricRotationDegree: float = 0.3
+@export var highlight_font_scale: float = 1.4
+@export var normal_font_size: int = 40
+@export var music_name_cycle_duration: float = 6
+@export var music_name_freq_x: float = 1
+@export var music_name_freq_y: float = 2
+@export var music_name_freq_rot: float = 1
+
+var bottomMenu: Panel
+var subject_color := Color.WHITE
+# lyric_labels 保留用于兼容，但不再作为显示逻辑的核心依赖
+var lyric_labels: Array[Label] = []
+
+func update() -> void:
+	Subtitle.hide()
+	var video_info := Player.get_current_video_info()
+	if video_info.is_empty():
+		return
+	if video_info.get(\"is_network\", true):
+		BilibiliIc.fetch_cover(video_info.link, set_cover, 1600, 1000)
+	elif FileAccess.file_exists(video_info.link.get_basename() + \".jpg\"):
+		var image = Image.load_from_file(video_info.link.get_basename() + \".jpg\")
+		_set_cover(ImageTexture.create_from_image(image))
+	else:
+		GdScriptFunc.generate_label_texture(Color.WHITE, video_info.get(\"title\", \"本地文件\"), _set_cover, null, 10, Color.BLACK, Vector2i(70, 70))
+
+	if video_info.has(\"subtitles\"):
+		var subtitles = video_info[\"subtitles\"]
+		if subtitles == null or subtitles.is_empty():
+			Subtitle.hide()
+		else:
+			Subtitle.show()
+			if subtitles is String:
+				var file := FileAccess.open(subtitles, FileAccess.READ)
+				if file:
+					var lrc_text := file.get_as_text()
+					file.close()
+					init_lyrics_from_data(lrc_text)
+				elif subtitles.strip_edges() != \"\":
+					init_lyrics_from_data(subtitles)
+				else:
+					Subtitle.hide()
+			elif subtitles is Dictionary:
+				var file := FileAccess.open(subtitles[\"path\"], FileAccess.READ)
+				if file:
+					var lrc_text := file.get_as_text()
+					file.close()
+					init_lyrics_from_data(lrc_text)
+				else:
+					Subtitle.hide()
+			else:
+				Subtitle.hide()
+	elif video_info.get(\"is_network\", true) && GdScriptFunc.get_data(\"Options\", \"Automatically_obtain_subtitles\", false):
+		var requested_bvid = video_info.get(\"BV\", video_info.get(\"link\"))
+		BilibiliIc.fetch_subtitle_auto(requested_bvid, func(subtitle_data: Dictionary):
+			var current_info := Player.get_current_video_info()
+			if current_info.is_empty() or current_info.get(\"BV\", current_info.get(\"link\")) != requested_bvid:
+				return
+			if subtitle_data.is_empty() || (!subtitle_data.has(\"body\") && !subtitle_data.has(\"path\")):
+				Subtitle.hide()
+				print(\"字幕数据为空或格式无效\")
+			else:
+				Subtitle.show()
+				if subtitle_data.has(\"path\"):
+					var file := FileAccess.open(subtitle_data[\"path\"], FileAccess.READ)
+					if file:
+						var lrc_text := file.get_as_text()
+						file.close()
+						init_lyrics_from_data(lrc_text)
+					else:
+						Subtitle.hide()
+				else:
+					init_lyrics_from_data(subtitle_data[\"body\"])
+		)
+	else:
+		Subtitle.hide()
+
+	coverTextureRect.texture = bottomMenu.cover
+	var color: Color = CSharpFunc.ExtractThemeColors(coverTextureRect.texture.get_image(), 1, true, 0.15)[0]
+	if color.get_luminance() < 0.75:
+		musicNameLabel.modulate = color.blend(Color(1, 1, 1, 0.9))
+	else:
+		musicNameLabel.modulate = color
+	musicNameLabel.text = CSharpFunc.ExtractSongName(video_info.get(\"title\", \"未知\"))
+
+var tween_music_name: Tween
+var _music_name_initial_pos: Vector2
+
+func _ready() -> void:
+	Player.seeked.connect(set_stream_position)
+	Player.song_changed.connect(func(_video_info: Dictionary):
+		set_stream_position(0.01)
+	)
+	# 保存初始位置用于浮动计算
+	_music_name_initial_pos = musicNameLabel.position
+	tween_music_name = musicNameLabel.create_tween()
+	tween_music_name.set_loops()
+	tween_music_name.tween_method(music_name_update_offset, 0.0, TAU, music_name_cycle_duration) \\
+		.set_trans(Tween.TRANS_LINEAR)
+
+func music_name_update_offset(angle: float) -> void:
+	musicNameLabel.position = _music_name_initial_pos + Vector2(
+		sin(angle * music_name_freq_x) * 18.0,
+		sin(angle * music_name_freq_y) * 4.0
+	)
+	musicNameLabel.rotation = sin(angle * music_name_freq_rot) * deg_to_rad(2.0)
+
+func _process(delta: float) -> void:
+	# 封面旋转与标题浮动（仅播放时运行）
+	if Player.sonance:
+		coverNode.rotation += delta * coverTextureRectRotateSpeed
+		if not tween_music_name.is_running():
+			tween_music_name.play()
+	else:
+		if tween_music_name.is_running():
+			tween_music_name.pause()
+
+	# 歌词刷新 —— 完全基于 Subtitle 的真实子节点
+	if Subtitle.visible:
+		_refresh_lyrics()
+
+# 核心：直接使用子节点，不再依赖 lyric_labels 数组
+func _refresh_lyrics() -> void:
+	var labels: Array[Label] = []
+	for child in Subtitle.get_children():
+		if child is Label and is_instance_valid(child):
+			labels.append(child)
+	if labels.is_empty():
+		return
+
+	var pos := Player.get_current_time_sec()
+	while index < LyricTime.size() and pos + LyricOffset > LyricTime[index]:
+		index += 1
+
+	# 高亮更新（不变）
+	var new_hl := index - 1
+	if new_hl != last_highlight_index:
+		if last_highlight_index >= 0 and last_highlight_index < labels.size():
+			var old_lbl := labels[last_highlight_index]
+			if is_instance_valid(old_lbl):
+				old_lbl.scale = Vector2.ONE
+		if new_hl >= 0 and new_hl < labels.size():
+			var new_lbl := labels[new_hl]
+			if is_instance_valid(new_lbl):
+				new_lbl.scale = Vector2.ONE * highlight_font_scale
+		last_highlight_index = new_hl
+
+	var hl_idx := FocusLyricLinePosition - 1
+	var window_start := index - FocusLyricLinePosition
+	var window_end := window_start + OnecShowLyricLineCount - 1
+	var hide_y := float(OnecShowLyricLineCount + 1) * LineSpacing + 2 * extra_spacing
+	const SETTLE_THRESHOLD := 0.5
+
+	# 遍历所有标签，决定是否在窗口内
+	for i in labels.size():
+		var lbl := labels[i]
+		if not is_instance_valid(lbl):
+			continue
+
+		if i < window_start or i > window_end:
+			# 不在窗口内 → 隐藏并移到 hide_y
+			if lbl.visible:
+				lbl.visible = false
+				lbl.position = Vector2(LyricPositionXOffset, hide_y)
+		else:
+			# 在窗口内，计算正确的显示位置
+			var rel_i := i - window_start   # 0～OnecShowLyricLineCount-1
+			var target_y := float(rel_i + 1) * LineSpacing
+			if rel_i > hl_idx:
+				target_y += 2 * extra_spacing
+			elif rel_i == hl_idx:
+				target_y += extra_spacing
+
+			if not lbl.visible:
+				lbl.position = Vector2(LyricPositionXOffset, target_y)
+				lbl.visible = true
+			else:
+				if abs(lbl.position.y - target_y) > SETTLE_THRESHOLD:
+					var new_y := lerpf(lbl.position.y, target_y, 0.15 + absi(rel_i - FocusLyricLinePosition + 1) / 20.0)
+					lbl.position = Vector2(lbl.position.x, new_y)
+
+			# 颜色与旋转
+			lbl.modulate = subject_color if rel_i == hl_idx else Color.DIM_GRAY
+			lbl.rotation = (lbl.position.y - float(FocusLyricLinePosition) * LineSpacing) / get_window().size.y * LyricRotationDegree
+func _set_cover(texture: Texture2D) -> void:
+	set_cover(\"\", texture)
+
+var _blur_task_id := 0
+
+func set_cover(_bvid: String, texture: Texture2D) -> void:
+	_blur_task_id += 1
+	var current_task_id := _blur_task_id
+	coverTextureRect.texture = texture
+	var img: ImageTexture = texture.duplicate_deep()
+	Background.texture = img
+	BackgroundFlow.material.set_shader_parameter(\"blur_texture\", img)
+	await get_tree().process_frame
+	for i in 100:
+		if _blur_task_id != current_task_id:
+			return
+		img = await GdScriptFunc.create_frosted_texture_async(img, 16)
+		await get_tree().process_frame
+		if _blur_task_id != current_task_id:
+			return
+		Background.texture = img
+		BackgroundFlow.material.set_shader_parameter(\"blur_texture\", img)
+		await get_tree().process_frame
+
+var last_highlight_index: int = -1
+var _last_subtitle_data: Variant = null
+
+func _parse_lrc(lrc_text: String) -> void:
+	Lyric.clear()
+	LyricTime.clear()
+	index = 0
+
+	var lines := lrc_text.split(\"\\n\")
+	for line in lines:
+		line = line.strip_edges()
+		if line.is_empty():
+			continue
+		var regex := RegEx.new()
+		regex.compile(\"\\\\[(\\\\d{1,3}):(\\\\d{2})(?:\\\\.(\\\\d{2,3}))?\\\\]\")
+		var matches := regex.search_all(line)
+		if matches.is_empty():
+			continue
+
+		var times := []
+		for match in matches:
+			var mins := match.get_string(1).to_int()
+			var secs := match.get_string(2).to_int()
+			var ms_str := match.get_string(3)
+			var ms := 0.0
+			if not ms_str.is_empty():
+				ms = ms_str.to_float() / (10 ** ms_str.length())
+			var total_secs := mins * 60.0 + secs + ms
+			times.append(total_secs)
+
+		var last_tag_end := matches[-1].get_end()
+		var content := line.substr(last_tag_end).strip_edges()
+
+		if content.begins_with(\"♪\") and content.ends_with(\"♪\"):
+			content = content.substr(1, content.length() - 2)
+		content = content.strip_edges()
+		if content == \"音乐\" or content == \"music\":
+			content = \"\"
+		else:
+			content = capitalize_line(content)
+
+		for time in times:
+			LyricTime.append(time)
+			Lyric.append(content)
+
+	if LyricTime.size() > 0:
+		var sorted_data := []
+		for i in range(LyricTime.size()):
+			sorted_data.append({\"time\": LyricTime[i], \"text\": Lyric[i]})
+		sorted_data.sort_custom(func(a, b): return a[\"time\"] < b[\"time\"])
+		LyricTime.clear()
+		Lyric.clear()
+		for entry in sorted_data:
+			LyricTime.append(entry[\"time\"])
+			Lyric.append(entry[\"text\"])
+
+func init_lyrics_from_data(data: Variant) -> void:
+	# 去重检查
+	if typeof(data) == typeof(_last_subtitle_data) and data == _last_subtitle_data:
+		return
+	if data is Array:
+		_last_subtitle_data = data.duplicate(true)
+	elif data is String:
+		_last_subtitle_data = data
+	else:
+		return
+
+	# 临时解析数据，避免无效数据清空旧歌词
+	var new_times: Array[float] = []
+	var new_texts: Array[String] = []
+
+	if data is String:
+		_parse_lrc(data)
+		new_times = LyricTime.duplicate()
+		new_texts = Lyric.duplicate()
+	else:
+		for entry in data:
+			var time: float = entry.get(\"from\", 0.0)
+			var content: String = entry.get(\"content\", \"\")
+			if content.begins_with(\"♪\") and content.ends_with(\"♪\"):
+				content = content.substr(1, content.length() - 2)
+			content = content.strip_edges()
+			if content == \"音乐\" or content == \"music\":
+				content = \"\"
+			else:
+				content = capitalize_line(content)
+			new_times.append(time)
+			new_texts.append(content)
+
+	# 如果解析后无歌词，保留原有标签并退出
+	if new_texts.is_empty():
+		return
+
+	# 安全释放旧标签
+	var old_labels: Array[Label] = []
+	for child in Subtitle.get_children():
+		if child is Label and is_instance_valid(child):
+			old_labels.append(child)
+	for lbl in old_labels:
+		lbl.queue_free()
+
+	# 更新数据
+	LyricTime = new_times
+	Lyric = new_texts
+	index = 0
+	last_highlight_index = -1
+
+	# 创建新标签
+	var hide_y := float(OnecShowLyricLineCount + 1) * LineSpacing + 2 * extra_spacing
+	var lyric_label_template := Label.new()
+	lyric_label_template.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lyric_label_template.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	lyric_label_template.size.x = Subtitle.size.x
+	lyric_label_template.position = Vector2(LyricPositionXOffset, hide_y)
+	lyric_label_template.add_theme_font_size_override(\"font_size\", normal_font_size)
+	lyric_label_template.add_theme_color_override(\"font_color\", Color.WHITE)
+	lyric_label_template.add_theme_constant_override(\"line_spacing\", -20)
+	lyric_label_template.set_anchors_and_offsets_preset(
+		Control.PRESET_TOP_WIDE,
+		Control.PRESET_MODE_KEEP_SIZE
+	)
+
+	for text in Lyric:
+		var lyric_label := lyric_label_template.duplicate() as Label
+		lyric_label.text = text
+		lyric_label.visible = false
+		Subtitle.add_child(lyric_label)
+
+	# 同步 lyric_labels 数组（用于可能的其他用途，但刷新已不依赖它）
+	lyric_labels.clear()
+	for child in Subtitle.get_children():
+		if child is Label and is_instance_valid(child):
+			lyric_labels.append(child)
+
+func set_stream_position(value: float) -> void:
+	index = find_index_greater_than(LyricTime, value * Player.get_duration())
+	if Subtitle.visible:
+		_refresh_lyrics()
+
+func capitalize_line(text: String) -> String:
+	if text.is_empty():
+		return text
+	var words := text.split(\" \")
+	for i in words.size():
+		if words[i] == \"i\":
+			words[i] = \"I\"
+	var result := \" \".join(words)
+	if result.length() > 0:
+		result = result[0].to_upper() + result.substr(1)
+	return result
+
+func find_index_greater_than(array: Array[float], target: float) -> int:
+	var left := 0
+	var right := array.size() - 1
+	while left <= right:
+		var mid := left + (right - left) / 2
+		if array[mid] <= target:
+			left = mid + 1
+		else:
+			right = mid - 1
+	return left
+var is_ECO_mode:=false
+func set_ECO_mode(value: bool) -> void:
+	if is_ECO_mode==value:
+		return
+	if value:
+		print(\"进入 ECO 模式\")
+		is_ECO_mode=true
+		if tween_music_name and tween_music_name.is_running():
+			tween_music_name.pause()
+		set_process(false)
+		set_process_input(false)
+		RenderingServer.viewport_set_active(get_viewport().get_viewport_rid(), false)
+	else:
+		print(\"退出 ECO 模式\")
+		is_ECO_mode=false
+		RenderingServer.viewport_set_active(get_viewport().get_viewport_rid(), true)
+		set_process(true)
+		set_process_input(true)
+
+		if Player.sonance and tween_music_name and not tween_music_name.is_running():
+			tween_music_name.play()
+
+		if Subtitle.visible:
+			var duration := Player.get_duration()
+			if duration > 0:
+				set_stream_position(Player.get_current_time_sec() / duration)
+			else:
+				_refresh_lyrics()
+"
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_u3t73"]
+shader = ExtResource("1_u3t73")
+shader_parameter/flow_speed = 0.15
+shader_parameter/flow_strength = 1.0
+shader_parameter/flow_scale = 5.0
+shader_parameter/darken_gradient = 0.5
+shader_parameter/chromatic_aberration = 0.006
+shader_parameter/vignette_strength = 0.35
+shader_parameter/tint_color = Color(1, 1, 1, 1)
+shader_parameter/brightness = 1.0
+shader_parameter/edge_glow_strength = 0.15
+shader_parameter/glow_speed = 0.4
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_rs2yu"]
+bg_color = Color(0, 0, 0, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.6466144, 0.64661443, 0.6466144, 1)
+corner_radius_top_left = 200
+corner_radius_top_right = 200
+corner_radius_bottom_right = 200
+corner_radius_bottom_left = 200
+corner_detail = 16
+
+[node name="Control" type="Control" unique_id=1917904318 node_paths=PackedStringArray("coverTextureRect", "coverNode", "musicNameLabel", "BackgroundFlow", "Subtitle", "Background")]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = SubResource("GDScript_snpjp")
+coverTextureRect = NodePath("Panel/TextureRect")
+coverNode = NodePath("Panel")
+musicNameLabel = NodePath("Name")
+coverTextureRectRotateSpeed = 0.1
+BackgroundFlow = NodePath("ColorRect")
+Subtitle = NodePath("Subtitle")
+Background = NodePath("Background")
+LineSpacing = 120.0
+
+[node name="Background" type="TextureRect" parent="." unique_id=1182331341]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+stretch_mode = 6
+metadata/_edit_use_anchors_ = true
+
+[node name="ColorRect" type="ColorRect" parent="." unique_id=808211844]
+material = SubResource("ShaderMaterial_u3t73")
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Panel2" type="Panel" parent="." unique_id=2029857439]
+layout_mode = 1
+anchors_preset = -1
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = 88.0
+offset_top = -200.0
+offset_right = 488.0
+offset_bottom = 200.0
+grow_vertical = 2
+pivot_offset_ratio = Vector2(0.5, 0.5)
+theme_override_styles/panel = SubResource("StyleBoxFlat_rs2yu")
+metadata/_edit_use_anchors_ = true
+
+[node name="Panel" type="Panel" parent="." unique_id=378863228]
+clip_children = 1
+layout_mode = 1
+anchors_preset = -1
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = 88.0
+offset_top = -200.0
+offset_right = 488.0
+offset_bottom = 200.0
+grow_vertical = 2
+pivot_offset_ratio = Vector2(0.5, 0.5)
+theme_override_styles/panel = SubResource("StyleBoxFlat_rs2yu")
+metadata/_edit_use_anchors_ = true
+
+[node name="TextureRect" type="TextureRect" parent="Panel" unique_id=995088126]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+texture = ExtResource("1_rs2yu")
+expand_mode = 1
+stretch_mode = 6
+
+[node name="Name" type="Label" parent="." unique_id=1358278961]
+layout_mode = 1
+anchors_preset = -1
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = 88.0
+offset_top = 248.0
+offset_right = 488.0
+offset_bottom = 370.0
+grow_vertical = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_constants/line_spacing = -16
+theme_override_font_sizes/font_size = 40
+text = "Music Namessssssssssssssssssss"
+horizontal_alignment = 1
+autowrap_mode = 3
+text_overrun_behavior = 6
+
+[node name="Subtitle" type="Control" parent="." unique_id=1239192154]
+layout_mode = 1
+anchor_left = 0.51
+anchor_top = 0.124000005
+anchor_right = 1.0
+anchor_bottom = 0.916
+offset_right = -74.0
+metadata/_edit_use_anchors_ = true

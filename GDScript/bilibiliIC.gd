@@ -76,7 +76,7 @@ func _get_headers_with_mid(mid: int = 0) -> PackedStringArray:
 		"b_nut=" + generate_fake_b_nut(),
 		"rpdid=" + _get_or_generate_cookie_field("rpdid", _generate_rpdid),
 		(
-			"_uuid="
+            "_uuid="
 			+ _get_or_generate_cookie_field(
 				"_uuid",
 				func():
@@ -92,7 +92,7 @@ func _get_headers_with_mid(mid: int = 0) -> PackedStringArray:
 						+ _random_string(12).to_upper()
 						+ "infoc"
 					)
-			)
+					)
 		),
 		"theme-tip-show=SHOWED",
 		"theme-avatar-tip-show=SHOWED",

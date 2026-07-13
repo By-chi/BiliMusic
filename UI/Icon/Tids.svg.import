@@ -15,6 +15,4 @@ dest_files=["res://.godot/imported/Tids.svg-22611eb7bb2175fbe3461128347ded95.dpi
 base_scale=1.0
 saturation=1.0
 color_map={}
-fix_alpha_border=false
-premult_alpha=false
 compress=true
