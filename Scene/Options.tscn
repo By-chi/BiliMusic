@@ -92,7 +92,7 @@ func _setup_account(option: Control, button: Button) -> void:
 		get_node(\"/root/Main\").icon.texture = preload(\"res://UI/Icon/bilibili.svg\")
 	else:
 		button.text = tr(\"退出登陆\")
-		BilibiliIc.fetch_user_avatar(func(tex: ImageTexture):
+		BilibiliApi.fetch_user_avatar(func(tex: ImageTexture):
 			if tex != null:
 				get_node(\"/root/Main\").icon.texture = tex
 		)
@@ -254,11 +254,11 @@ func _log_in_out(option: Control) -> void:
 		button.text = tr(\"点击登陆\")
 		get_node(\"/root/Main\").icon.texture = preload(\"res://UI/Icon/bilibili.svg\")
 	else:
-		BilibiliIc.start_qr_login(
+		BilibiliApi.start_qr_login(
 			func(success: bool):
 				if success:
 					button.text = tr(\"退出登陆\")
-					BilibiliIc.fetch_user_avatar(func(tex: ImageTexture):
+					BilibiliApi.fetch_user_avatar(func(tex: ImageTexture):
 						if tex != null:
 							get_node(\"/root/Main\").icon.texture = tex
 					)

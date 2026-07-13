@@ -146,7 +146,7 @@ func set_cover(_bvid: String, texture: Texture2D) -> void:
 func update_callback(video_info:Dictionary)->void:
 	progress_bar.value=0
 	if video_info.get(\"is_network\", true):
-		BilibiliIc.fetch_cover(video_info[\"link\"], set_cover, 70, 70)
+		BilibiliApi.fetch_cover(video_info[\"link\"], set_cover, 70, 70)
 	elif FileAccess.file_exists(video_info[\"link\"].get_basename()+\".jpg\"):
 		var image = Image.load_from_file(video_info[\"link\"].get_basename()+\".jpg\")
 		_set_cover(ImageTexture.create_from_image(image))

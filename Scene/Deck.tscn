@@ -59,7 +59,7 @@ func _update_covers() -> void:
 			continue
 		# 有链接：拉取封面，回调中会处理显示
 		if videos[i].get(\"is_network\", true):
-			BilibiliIc.fetch_cover(link, set_cover.bind(i), 158, 227)
+			BilibiliApi.fetch_cover(link, set_cover.bind(i), 158, 227)
 		elif FileAccess.file_exists(link.get_basename()+\".jpg\"):
 			var image = Image.load_from_file(link.get_basename()+\".jpg\")
 			_set_cover(ImageTexture.create_from_image(image),i)

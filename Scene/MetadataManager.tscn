@@ -100,7 +100,7 @@ func _on_cover_download_pressed() -> void:
 
 	GdScriptFunc.set_progress_bar_value(10, tr(\"封面下载\"), tr(\"正在获取封面...\"))
 
-	BilibiliIc.fetch_cover(bv, func(bvid, texture: Texture2D):
+	BilibiliApi.fetch_cover(bv, func(bvid, texture: Texture2D):
 		print(\"[MetadataWindow] Cover fetch callback triggered, texture is null: \", texture == null)
 		if texture:
 			var img = texture.get_image()
@@ -181,7 +181,7 @@ func _on_description_download_pressed() -> void:
 		print(\"[MetadataWindow] bv is empty, aborting description download\")
 		return
 	GdScriptFunc.set_progress_bar_value(10, tr(\"获取信息\"), tr(\"正在获取描述...\"))
-	BilibiliIc.fetch_video_info(bv, func(info: Dictionary):
+	BilibiliApi.fetch_video_info(bv, func(info: Dictionary):
 		print(\"[MetadataWindow] Description fetch callback triggered, info size: \", info.size())
 		if info.is_empty():
 			GdScriptFunc.set_progress_bar_value(100, tr(\"失败\"), tr(\"获取信息失败\"))

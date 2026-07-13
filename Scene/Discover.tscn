@@ -39,7 +39,7 @@ func on_list_rolling() -> void:
 			var target_hbox := current_up_node.get_node_or_null(\"ScrollContainer/HBoxContainer\")
 			
 			if target_hbox:
-				BilibiliIc.search_bilibili(
+				BilibiliApi.search_bilibili(
 					load_cards_callback.bind(target_hbox),
 					current_up_node.text, 10, 0, 1, current_up_node.text
 				)
@@ -72,7 +72,7 @@ func _instantiate_and_setup_card(video: Dictionary, list_node: BoxContainer) -> 
 	video_card.link = video.link
 	video_card.reset()
 	if video.get(\"is_network\", true):
-		BilibiliIc.fetch_cover(video.link, set_cover.bind(video_card))
+		BilibiliApi.fetch_cover(video.link, set_cover.bind(video_card))
 	elif FileAccess.file_exists(video.link.get_basename()+\".jpg\"):
 		var image = Image.load_from_file(video.link.get_basename()+\".jpg\")
 		_set_cover(ImageTexture.create_from_image(image),video_card)

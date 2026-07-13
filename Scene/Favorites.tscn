@@ -200,7 +200,7 @@ func _lazy_update_video_cards() -> void:
 			if old_is_network != new_is_network:
 				card.reset()
 				if new_is_network:
-					BilibiliIc.fetch_cover(card.link, set_cover.bind(card), 583, 364)
+					BilibiliApi.fetch_cover(card.link, set_cover.bind(card), 583, 364)
 				elif FileAccess.file_exists(card.link.get_basename() + \".jpg\"):
 					var image = Image.load_from_file(card.link.get_basename() + \".jpg\")
 					_set_cover(ImageTexture.create_from_image(image), card)
@@ -234,7 +234,7 @@ func _create_video_card_node(video_data: Dictionary) -> Node:
 	video_card.block_play = true
 	video_card.reset()
 	if video_data.get(\"is_network\", true):
-		BilibiliIc.fetch_cover(video_card.link, set_cover.bind(video_card), 583, 364)
+		BilibiliApi.fetch_cover(video_card.link, set_cover.bind(video_card), 583, 364)
 	elif FileAccess.file_exists(video_card.link.get_basename() + \".jpg\"):
 		var image = Image.load_from_file(video_card.link.get_basename() + \".jpg\")
 		_set_cover(ImageTexture.create_from_image(image), video_card)
@@ -416,7 +416,7 @@ func _download_video(video_card: Control, on_finished: Callable = Callable()) ->
 
 	GdScriptFunc.set_progress_bar_value(10, tr(\"下载\"), tr(\"正在获取视频信息...\"))
 
-	BilibiliIc.fetch_video_info(bvid, func(full_info: Dictionary):
+	BilibiliApi.fetch_video_info(bvid, func(full_info: Dictionary):
 		if full_info.is_empty():
 			push_error(\"获取视频信息失败: \" + bvid)
 			GdScriptFunc.set_progress_bar_value(100, \"\", tr(\"获取视频信息失败\"))
@@ -462,7 +462,7 @@ func _download_video(video_card: Control, on_finished: Callable = Callable()) ->
 				if on_finished.is_valid(): on_finished.call()
 				return
 
-			BilibiliIc.fetch_cover(bvid, func(bvid_param, cover_texture: Texture2D):
+			BilibiliApi.fetch_cover(bvid, func(bvid_param, cover_texture: Texture2D):
 				var cover_loaded = false
 				if cover_texture:
 					var img = cover_texture.get_image()
@@ -518,7 +518,7 @@ func _download_video(video_card: Control, on_finished: Callable = Callable()) ->
 
 				if GdScriptFunc.get_data(\"Options\", \"SubtitleTextCorrection\", false):
 					GdScriptFunc.set_progress_bar_value(80, title, tr(\"正在下载字幕...\"))
-					BilibiliIc.fetch_subtitle_auto(bvid, func(subtitle_data: Dictionary):
+					BilibiliApi.fetch_subtitle_auto(bvid, func(subtitle_data: Dictionary):
 						if not subtitle_data.is_empty():
 							for item in fav_list:
 								if item[\"link\"] == audio_path:

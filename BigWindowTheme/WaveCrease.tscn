@@ -109,7 +109,7 @@ func update() -> void:
 		_set_texture(\"\", bottomMenu.cover)
 
 	if video_info.get(\"is_network\", true):
-		BilibiliIc.fetch_cover(video_info.link, _set_texture, 1600, 1000)
+		BilibiliApi.fetch_cover(video_info.link, _set_texture, 1600, 1000)
 	elif FileAccess.file_exists(video_info.link.get_basename() + \".jpg\"):
 		var image = Image.load_from_file(video_info.link.get_basename() + \".jpg\")
 		_set_texture(\"\", ImageTexture.create_from_image(image))
@@ -347,7 +347,7 @@ func _load_lyrics(video_info: Dictionary) -> void:
 
 	if video_info.get(\"is_network\", true) and GdScriptFunc.get_data(\"Options\", \"Automatically_obtain_subtitles\", false):
 		var requested_bvid = video_info.get(\"BV\", video_info.get(\"link\"))
-		BilibiliIc.fetch_subtitle_auto(requested_bvid, func(subtitle_data: Dictionary):
+		BilibiliApi.fetch_subtitle_auto(requested_bvid, func(subtitle_data: Dictionary):
 			var current_info := Player.get_current_video_info()
 			if current_info.is_empty() or current_info.get(\"BV\", current_info.get(\"link\")) != requested_bvid:
 				return

@@ -85,7 +85,7 @@ func update_page(keyword: String) -> void:
 	sub_label.text = tr(\"搜索中\")
 	fade_in(loading, 0.2)
 	
-	BilibiliIc.search_bilibili(update_callback.bind(current_execution_number), keyword, 30, SortModeButton.selected, page_number,\"\",TidsButton.selected)
+	BilibiliApi.search_bilibili(update_callback.bind(current_execution_number), keyword, 30, SortModeButton.selected, page_number,\"\",TidsButton.selected)
 
 func update_callback(videos: Array, execution_number := 0) -> void:
 	_kill_active_tweens() # 确保没有残留动画
@@ -132,7 +132,7 @@ func update_callback(videos: Array, execution_number := 0) -> void:
 		if video.has(\"duration\"):
 			video_transverse_card.duration = video.duration
 		if video.get(\"is_network\", true):
-			BilibiliIc.fetch_cover(video.link, set_cover.bind(video_transverse_card),70,70)
+			BilibiliApi.fetch_cover(video.link, set_cover.bind(video_transverse_card),70,70)
 		elif FileAccess.file_exists(video.link.get_basename()+\".jpg\"):
 			var image = Image.load_from_file(video.link.get_basename()+\".jpg\")
 			_set_cover(ImageTexture.create_from_image(image),video_transverse_card)

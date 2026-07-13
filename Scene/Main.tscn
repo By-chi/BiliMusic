@@ -211,7 +211,7 @@ func update_callback(video_info:Dictionary)->void:
 	title = video_info.get(\"title\",tr(\"无题\"))
 	author = video_info.get(\"author\",tr(\"佚名\"))
 	if video_info.get(\"is_network\", true):
-		BilibiliIc.fetch_cover(video_info[\"link\"], set_cover, 70, 70)
+		BilibiliApi.fetch_cover(video_info[\"link\"], set_cover, 70, 70)
 	elif FileAccess.file_exists(video_info[\"link\"].get_basename()+\".jpg\"):
 		var image = Image.load_from_file(video_info[\"link\"].get_basename()+\".jpg\")
 		_set_cover(ImageTexture.create_from_image(image))

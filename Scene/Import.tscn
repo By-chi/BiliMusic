@@ -126,7 +126,7 @@ func _on_import_pressed() -> void:
 
 					pending_tasks.append(task)
 
-					BilibiliIc.fetch_video_info(link, get_info_call_back.bind(task))
+					BilibiliApi.fetch_video_info(link, get_info_call_back.bind(task))
 
 			# 若初始任务数为零则直接结束
 			if _initial_task_count == 0:
@@ -155,7 +155,7 @@ func get_info_call_back(video_info: Dictionary, task: Dictionary) -> void:
 	# ----- 下载封面并保存为 BV号.jpg -----
 	var cover_url = video_info.get(\"pic\", \"\")
 	if not cover_url.is_empty():
-		BilibiliIc.fetch_cover(task.link, func(tex: Texture2D):
+		BilibiliApi.fetch_cover(task.link, func(tex: Texture2D):
 			if tex:
 				var img = tex.get_image()
 				if img:
@@ -191,7 +191,7 @@ func get_info_call_back(video_info: Dictionary, task: Dictionary) -> void:
 		# 歌词文件路径（与传给 fetch_subtitle_auto 的路径一致）
 		var lrc_path := \"user://List/\" + file_name + \".lrc\"
 
-		BilibiliIc.fetch_subtitle_auto(task.link, func(subtitle_data: Dictionary):
+		BilibiliApi.fetch_subtitle_auto(task.link, func(subtitle_data: Dictionary):
 			# 无论 subtitle_data 是否为空，只要函数完成回调就视为字幕任务结束
 			if task.video_info != null and not subtitle_data.is_empty():
 				# 改为存储路径引用，而非直接存储歌词内容
