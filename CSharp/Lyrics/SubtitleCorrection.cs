@@ -158,7 +158,7 @@ public partial class SubtitleCorrection : Node
             allText.Contains("暂时无法获取歌词") ||
             allText.Contains("此歌曲为没有填词的纯音乐");
     }
-        
+
     private async Task<string> FetchAndAlignExternalInternal(string m4sPath, string trackName, string outputDir)
     {
         GD.Print($"[External] 开始获取外部歌词，曲目: {trackName}");

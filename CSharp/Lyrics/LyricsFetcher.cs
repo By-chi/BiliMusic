@@ -41,8 +41,8 @@ public class LyricsFetcher
             return false;
 
         string allText = string.Join(" ", lines);
-        if (allText.Contains("暂无歌词") || 
-            allText.Contains("纯音乐") || 
+        if (allText.Contains("暂无歌词") ||
+            allText.Contains("纯音乐") ||
             allText.Contains("请欣赏"))
         {
             return false;

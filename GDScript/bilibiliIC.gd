@@ -1,17 +1,66 @@
 extends Node
 
+## CONST
 # 综合排序等映射
 const ORDER_MAP = {0: "totalrank", 1: "click", 2: "pubdate", 3: "dm", 4: "stow", 5: "scores"}
-
 const CACHE_DIR := "user://bilibili_cover_cache/"
 const MAX_CACHE_SIZE := 1024
 const CACHE_LOAD_COOLDOWN_MS: int = 50
 const CACHE_QUEUE_MAX_SIZE: int = 40
-
+# 用户登录
+const LYRICS_CACHE_DIR = "user://lyrics/"
+const MAX_LYRICS_CACHE_SIZE = 500
+# WBI_KEY
+const MIXIN_KEY_ENC_TAB = [
+	46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49, 33, 9, 42,
+	19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40,61, 26, 17, 0, 1, 60, 51,
+	30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52
+]
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-
+## 普通变量
+# 索引
 static var _cached_buvid: String = ""
 
+# QR_window
+var qr_window: Window = null
+var on_qr_login_result: Callable
 
-# cookie 字段生成与缓存
+# 缓存索引（主线程部分）
+var _cache_index: Dictionary = {}
+var _cache_loaded: bool = false
+
+var _cache_load_queue: Array = []
+var _last_load_process_time: int = 0
+var _processing_active: bool = false
+
+# 后台保存线程
+var _save_thread: Thread = null
+var _save_queue: Array = []
+var _save_mutex: Mutex = Mutex.new()
+var _save_semaphore: Semaphore = Semaphore.new()
+var _stop_save_thread: bool = false
+
+# 用户登陆
+
+var _lyrics_cache_index: Dictionary = {}
+var _lyrics_cache_loaded: bool = false
+var _pending_requests: Dictionary = {}
+var _request_counter: int = 0
+var _video_info_cache: Dictionary = {}
+
+# 关闭计时器
+var _close_delay_timer: Timer = null
+
+# WBI_KEY
+var _wbi_key_cache = {"img_key": "", "sub_key": "", "cached_time": 0}
+
+# poll_timer
+var _poll_timer: Timer
+
+
+
+
+# Cookie 字段生成与缓存
 static func _get_or_generate_cookie_field(key: String, generator: Callable) -> String:
 	var value = GdScriptFunc.get_data("Network", key, "")
 	if value.is_empty():
@@ -76,7 +125,7 @@ func _get_headers_with_mid(mid: int = 0) -> PackedStringArray:
 		"b_nut=" + generate_fake_b_nut(),
 		"rpdid=" + _get_or_generate_cookie_field("rpdid", _generate_rpdid),
 		(
-            "_uuid="
+			"_uuid="
 			+ _get_or_generate_cookie_field(
 				"_uuid",
 				func():
@@ -149,7 +198,8 @@ func _get_headers_with_mid(mid: int = 0) -> PackedStringArray:
 		referer += str(mid) + "/upload/video"
 
 	return [
-		"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+		"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)" +
+		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 		"Referer: " + referer,
 		"Origin: https://space.bilibili.com",
 		"Accept: application/json, text/plain, */*",
@@ -174,7 +224,8 @@ func get_csrf() -> String:
 # 封面下载专用头，轻量
 func _get_image_headers() -> PackedStringArray:
 	return [
-		"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+		"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+		+ "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 		"Referer: https://www.bilibili.com"
 	]
 
@@ -499,15 +550,6 @@ static func _get_cache_filename(link: String, width: int, height: int) -> String
 	return _get_cache_key(link, width, height).md5_text() + ".jpg"
 
 
-# 缓存索引（主线程部分）
-var _cache_index: Dictionary = {}
-var _cache_loaded: bool = false
-
-var _cache_load_queue: Array = []
-var _last_load_process_time: int = 0
-var _processing_active: bool = false
-
-
 # 从持久化存储恢复缓存索引
 func _load_cache_index() -> void:
 	if _cache_loaded:
@@ -671,14 +713,6 @@ func _ensure_queue_processing() -> void:
 		set_process(true)
 
 
-# 后台保存线程
-var _save_thread: Thread = null
-var _save_queue: Array = []
-var _save_mutex: Mutex = Mutex.new()
-var _save_semaphore: Semaphore = Semaphore.new()
-var _stop_save_thread: bool = false
-
-
 func _save_worker() -> void:
 	while not _stop_save_thread:
 		_save_semaphore.wait()
@@ -744,7 +778,9 @@ func _request(
 
 # 搜索，keyword 为"bilibili音乐周榜"时走榜单接口,
 # 关于tids有:
-# 3,音乐主区(默认)    130,音乐综合    29,音乐现场    59,演奏    31,翻唱    193,MV    30,VOCALOID·UTAU    194,电音    28,原创音乐
+# 3,音乐主区(默认)    130,音乐综合    29,音乐现场
+#    59,演奏    31,翻唱    193,MV
+# 30,VOCALOID·UTAU    194,电音    28,原创音乐
 func search_bilibili(
 	callback: Callable,
 	keyword: String,
@@ -1180,18 +1216,6 @@ func _on_video_info_response(
 	callback.call(info)
 
 
-#region 需要用户登陆
-const LYRICS_CACHE_DIR = "user://lyrics/"
-const MAX_LYRICS_CACHE_SIZE = 500
-
-var _lyrics_cache_index: Dictionary = {}
-var _lyrics_cache_loaded: bool = false
-
-var _pending_requests: Dictionary = {}
-var _request_counter: int = 0
-var _video_info_cache: Dictionary = {}
-
-
 func _load_lyrics_cache_index() -> void:
 	if _lyrics_cache_loaded:
 		return
@@ -1520,10 +1544,9 @@ func _on_subtitle_processed(lrc_path: String, request_id: String):
 		# 修正失败，有 B 站字幕回退则生成 LRC
 		if typeof(fallback) == TYPE_DICTIONARY and fallback.has("body"):
 			_generate_bilibili_lrc(fallback, "", callback, save_path)
-			return
 		else:
 			callback.call(fallback)
-			return
+		return
 
 	# 如果指定了 save_path，直接复制
 	if not save_path.is_empty():
@@ -1732,75 +1755,6 @@ func _pick_best_subtitle_url(sub_list: Array, prefer_lang: String) -> String:
 	return ""
 
 
-const MIXIN_KEY_ENC_TAB = [
-	46,
-	47,
-	18,
-	2,
-	53,
-	8,
-	23,
-	32,
-	15,
-	50,
-	10,
-	31,
-	58,
-	3,
-	45,
-	35,
-	27,
-	43,
-	5,
-	49,
-	33,
-	9,
-	42,
-	19,
-	29,
-	28,
-	14,
-	39,
-	12,
-	38,
-	41,
-	13,
-	37,
-	48,
-	7,
-	16,
-	24,
-	55,
-	40,
-	61,
-	26,
-	17,
-	0,
-	1,
-	60,
-	51,
-	30,
-	4,
-	22,
-	25,
-	54,
-	21,
-	56,
-	59,
-	6,
-	63,
-	57,
-	62,
-	11,
-	36,
-	20,
-	52,
-	34,
-	44
-]
-var _wbi_key_cache = {"img_key": "", "sub_key": "", "cached_time": 0}
-
-
 func _get_wbi_key() -> Dictionary:
 	var now: int = Time.get_unix_time_from_system()
 	if (
@@ -1930,9 +1884,6 @@ func start_qr_login(login_callback: Callable) -> void:
 	)
 
 
-var on_qr_login_result: Callable
-
-
 func _on_qr_generated(
 	_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray
 ) -> void:
@@ -1946,9 +1897,6 @@ func _on_qr_generated(
 	var qrcode_key = data["qrcode_key"]
 	_display_qrcode(url)
 	_poll_login_status(qrcode_key)
-
-
-var qr_window: Window = null
 
 
 func _display_qrcode(content: String) -> void:
@@ -2002,9 +1950,6 @@ func _close_qr_window() -> void:
 		_close_delay_timer.stop()
 		_close_delay_timer.queue_free()
 		_close_delay_timer = null
-
-
-var _poll_timer: Timer
 
 
 func _poll_login_status(qrcode_key: String) -> void:
@@ -2110,9 +2055,6 @@ func _exchange_cookie(login_url: String) -> void:
 			on_qr_login_result.call(false)
 
 
-var _close_delay_timer: Timer = null
-
-
 func _load_avatar_and_delayed_close() -> void:
 	fetch_user_avatar(
 		func(texture: ImageTexture):
@@ -2210,4 +2152,3 @@ func fetch_user_avatar(callback: Callable) -> void:
 	http_nav.request(
 		"https://api.bilibili.com/x/web-interface/nav", nav_headers, HTTPClient.METHOD_GET
 	)
-#endregion

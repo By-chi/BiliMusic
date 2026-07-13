@@ -433,7 +433,7 @@ public static class SongInfoExtractor
         return s;
     }
 
-    private static readonly (string pattern, RegexOptions options)[] WordNoisePatterns = 
+    private static readonly (string pattern, RegexOptions options)[] WordNoisePatterns =
     [
         (@"\b(无损|高音质|Hi-?Res|4K|1080[Pp]|DSD|Flac|Wav|MP3|320k|HQ|SQ)\b", RegexOptions.IgnoreCase),
         (@"\b(MV|PV|MAD|AMV|Official|Audio|AUDIO|Live|现场|Demo)\b", RegexOptions.IgnoreCase),
@@ -457,7 +457,7 @@ public static class SongInfoExtractor
         (@"(?<=\s)届(?=\s|$)", RegexOptions.IgnoreCase),
     ];
 
-    private static readonly string[] SymbolNoise = 
+    private static readonly string[] SymbolNoise =
     [
         "//", "+", "%%", " ’ ’", " ’ ", "×", " × ", "&amp;", "&",
         "▸", "♪", "♫", "|", "｜", "《", "》", "—", ":", "：", "-",
@@ -495,39 +495,39 @@ public static class SongInfoExtractor
     }
 
     public static bool IsValidSongName(string name)
-	{
-		if (string.IsNullOrEmpty(name)) return false;
-		if (name.Length < 2) return false;
+    {
+        if (string.IsNullOrEmpty(name)) return false;
+        if (name.Length < 2) return false;
 
-		foreach (char c in name)
-		{
-			// 放行常见合法标点（包括英文句点）
-			if (c == '，' || c == ',' || c == '！' || c == '？' || c == '：' || c == '～' ||
-				c == '♪' || c == '♫' || c == '“' || c == '”' || c == '‘' || c == '’' || c == '.')
-				continue;
+        foreach (char c in name)
+        {
+            // 放行常见合法标点（包括英文句点）
+            if (c == '，' || c == ',' || c == '！' || c == '？' || c == '：' || c == '～' ||
+                c == '♪' || c == '♫' || c == '“' || c == '”' || c == '‘' || c == '’' || c == '.')
+                continue;
 
-			// 禁止其他句子标点
-			if ("。；、…—".Contains(c))
-				return false;
+            // 禁止其他句子标点
+            if ("。；、…—".Contains(c))
+                return false;
 
-			if (char.IsLetterOrDigit(c) || char.IsWhiteSpace(c) || 
-				c == '\'' || c == '-' || c == '&' || c == '·' || c == '♯' || c == '♭')
-				continue;
+            if (char.IsLetterOrDigit(c) || char.IsWhiteSpace(c) ||
+                c == '\'' || c == '-' || c == '&' || c == '·' || c == '♯' || c == '♭')
+                continue;
 
-			if ((c >= 0x4E00 && c <= 0x9FFF) ||
-				(c >= 0x3040 && c <= 0x30FF) ||
-				(c >= 0xAC00 && c <= 0xD7AF) ||
-				(c >= 0x0400 && c <= 0x04FF) ||
-				(c >= 0x0370 && c <= 0x03FF))
-				continue;
+            if ((c >= 0x4E00 && c <= 0x9FFF) ||
+                (c >= 0x3040 && c <= 0x30FF) ||
+                (c >= 0xAC00 && c <= 0xD7AF) ||
+                (c >= 0x0400 && c <= 0x04FF) ||
+                (c >= 0x0370 && c <= 0x03FF))
+                continue;
 
-			if (c == '\u3000' || c == '\u00A0' || c == '\u2022')
-				continue;
+            if (c == '\u3000' || c == '\u00A0' || c == '\u2022')
+                continue;
 
-			return false;
-		}
-		return true;
-	}
+            return false;
+        }
+        return true;
+    }
 
     private static bool IsLikelyComment(string text)
     {
