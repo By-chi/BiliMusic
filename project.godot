@@ -37,9 +37,10 @@ State="*uid://dbpv6nl857ykq"
 DownloadAudio="*uid://codnd15cufmwj"
 M4SAudioPlayer="*uid://ch2cbuqa2ewot"
 SubtitleCorrection="*uid://cmgf8hb5jlwe5"
-BilibiliApi="*uid://dujalxj743anw"
+BilibiliIc="*uid://5x7uni0ucwon"
 Player="*uid://ng3rdbd38uuj"
 AudioSpectrumCalculator="*uid://drtt3prb4e418"
+BilibiliApi="*uid://dujalxj743anw"
 
 [display]
 
@@ -151,6 +152,7 @@ common/enable_object_picking=false
 rendering_device/driver.windows="d3d12"
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true
 2d/batching/uniform_set_cache_size=16384
 shading/overrides/force_vertex_shading=true
 anti_aliasing/quality/msaa_2d=2
