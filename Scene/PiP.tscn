@@ -1,0 +1,496 @@
+[gd_scene format=3 uid="uid://m13gf0besecq"]
+
+[ext_resource type="Texture2D" uid="uid://bjpx1onk8kgbk" path="res://UI/Icon/PlayOnce.svg" id="1_ovtlm"]
+[ext_resource type="Texture2D" uid="uid://b3xsbub1ghib" path="res://UI/Icon/RepeatOne.svg" id="2_x1tu5"]
+[ext_resource type="Texture2D" uid="uid://c0yxtey4d6tkm" path="res://UI/Icon/ListLoop.svg" id="3_xies3"]
+[ext_resource type="Texture2D" uid="uid://chlq0upip2dth" path="res://UI/Icon/home.svg" id="4_jm616"]
+[ext_resource type="Texture2D" uid="uid://dtory6dhisyt6" path="res://UI/Icon/Shuffle.svg" id="4_x5psd"]
+[ext_resource type="Texture2D" uid="uid://c1i1praq4hx1w" path="res://UI/Icon/pause.svg" id="6_uc3l4"]
+[ext_resource type="Texture2D" uid="uid://d25kb6a85uar6" path="res://UI/Icon/next.svg" id="7_lgo8m"]
+[ext_resource type="Texture2D" uid="uid://dxf1plhyqkkyv" path="res://UI/strip.png" id="8_ovtlm"]
+
+[sub_resource type="GDScript" id="GDScript_ae35q"]
+script/source = "extends Window
+
+@export var bottom_menu: Control
+@export var drag_strip:Sprite2D
+@export var drag_bar:Button
+@export var card: Panel
+var performance_node: Node
+
+var mouse_in_top := false
+var click_position := Vector2(-1, -1)   # 全局鼠标坐标
+var drag_position := Vector2(-1, -1)    # 窗口全局位置
+var mouse_press := false
+var move_to_position := Vector2(-1, -1)
+var move_sleep := false
+
+
+func _ready() -> void:
+	var path: String = GdScriptFunc.get_data(\"Options\", \"Custom_PiP_Theme\", \"\")
+	if path != \"\":
+		performance_node = load(path).instantiate()
+	else:
+		performance_node = preload(\"res://PiPTheme/WaveCrease.tscn\").instantiate()
+	GdScriptFunc.apply_theme_and_styles_to_node(performance_node)
+	performance_node.bottomMenu = bottom_menu
+	card.add_child(performance_node)
+	card.move_child(performance_node, 0)
+	Player.song_changed.connect(func(video_info: Dictionary): update(bottom_menu.list_name, null, video_info))
+
+
+	# 恢复上次保存的窗口位置
+	var saved_pos = GdScriptFunc.get_data(\"Card\", \"Position\", null)
+	if saved_pos != null and saved_pos is Vector2i:
+		position = saved_pos
+
+	# 延迟一帧后设置穿透区域，确保窗口尺寸已就绪
+	await get_tree().process_frame
+	update_click_through(20.0)
+
+func TopMouseEntered() -> void:
+	if mouse_press:
+		return
+	mouse_in_top = true
+	var tween := create_tween().set_parallel()
+	drag_strip.position.x=drag_bar.size.x / 2.0
+	tween.tween_property(drag_strip, \"position:y\", drag_bar.size.y / 2.0, 0.2)
+	tween.tween_property(drag_strip, \"scale\", Vector2.ONE, 0.2)
+	tween.tween_property(drag_strip, \"modulate:a\", 1.0, 0.2)
+
+
+func TopMouseExited() -> void:
+	if mouse_press:
+		return
+	mouse_in_top = false
+	var tween := create_tween().set_parallel()
+	tween.tween_property(drag_strip, \"position:y\", 0.0, 0.2)
+	tween.tween_property(drag_strip, \"scale\", Vector2(0.3, 0.0), 0.2)
+	tween.tween_property(drag_strip, \"modulate:a\", 0.0, 0.2)
+
+func update_click_through(reserve: float) -> void:
+	var rect := Rect2(Vector2.ZERO, size)
+	var poly := PackedVector2Array([
+		rect.position - Vector2(reserve, reserve),
+		Vector2(rect.end.x + reserve, rect.position.y - reserve),
+		rect.end + Vector2(reserve, reserve),
+		Vector2(rect.position.x - reserve, rect.end.y + reserve)
+	])
+	mouse_passthrough_polygon = poly
+
+func _input(event: InputEvent) -> void:
+	# 原有按键处理
+	if event is InputEventKey:
+		if Input.is_action_just_released(\"ShowHideBottomMenu\"):
+			bottom_menu.visible = !bottom_menu.visible
+		Player._input(event)
+
+	# 拖拽鼠标按键处理
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			if mouse_in_top:
+				click_position = Vector2(DisplayServer.mouse_get_position())          # 全局坐标
+				drag_position = Vector2(position)                     # 窗口当前全局位置
+				move_to_position = drag_position
+				mouse_press = true
+				move_sleep = false
+				TopMouseEntered()   # 保持拖拽条可见
+				mouse_passthrough_polygon = PackedVector2Array()      # 拖拽时不允许穿透
+		else:
+			if mouse_press:
+				mouse_press = false
+				TopMouseExited()   # 还原拖拽条
+				update_click_through(20.0)
+
+func _process(_delta: float) -> void:
+	if drag_position == Vector2(-1, -1):
+		return
+
+	if mouse_press:
+		# 按住时实时跟随鼠标（全局坐标计算）
+		move_to_position = Vector2(DisplayServer.mouse_get_position()) - click_position + drag_position
+		var current_pos := Vector2(position)
+		if current_pos.distance_squared_to(move_to_position) >= 2.0:
+			var new_pos := current_pos.lerp(move_to_position, 0.15)
+			position = Vector2i(new_pos.round())
+	elif not move_sleep:
+		var current_pos := Vector2(position)
+		if current_pos.distance_squared_to(move_to_position) >= 16.0:   # 4
+			var new_pos := current_pos.lerp(move_to_position, 0.1)
+			position = Vector2i(new_pos.round())
+			update_click_through(20.0)
+		else:
+			position = Vector2i(move_to_position.round())
+			GdScriptFunc.set_data(\"Card\", \"Position\", position)
+			move_sleep = true
+			update_click_through(20.0)
+
+func update(list_name: String, cover, video_info: Dictionary) -> void:
+	bottom_menu.show()
+	bottom_menu.play_button.button_pressed = true
+	bottom_menu.init_ui()
+	bottom_menu.list_name = list_name
+	bottom_menu.update_callback(video_info)
+	performance_node.update()
+	_on_visibility_changed()
+
+
+func update_performance_node(new_theme_path: String) -> void:
+	if performance_node != null:
+		if performance_node.has_method(\"Stop\"):
+			performance_node.Stop()
+		performance_node.queue_free()
+		performance_node = null
+
+	if new_theme_path != \"\":
+		performance_node = load(new_theme_path).instantiate()
+	else:
+		performance_node = preload(\"res://PiPTheme/WaveCrease.tscn\").instantiate()
+	GdScriptFunc.apply_theme_and_styles_to_node(performance_node)
+	performance_node.bottomMenu = bottom_menu
+	card.add_child(performance_node)
+	card.move_child(performance_node, 0)
+	performance_node.update()
+	if visible:
+		performance_node.call(\"Start\")
+		if mode == Window.MODE_MINIMIZED:
+			performance_node.call(\"set_ECO_mode\", true)
+
+
+func _on_close_requested() -> void:
+	State.play_ui_mode = 0
+	var node: Panel = get_node(\"/root/Main\").bottom_menu
+	node.show()
+	node.init_ui()
+	node.update_callback(Player.get_current_video_info())
+	hide()
+
+
+func _notification(what: int) -> void:
+	if performance_node == null:
+		return
+	performance_node.call(\"set_ECO_mode\", mode == MODE_MINIMIZED)
+
+
+func _on_visibility_changed() -> void:
+	if performance_node != null and visible:
+		performance_node.call(\"Start\")
+"
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_ovtlm"]
+bg_color = Color(1, 1, 1, 1)
+corner_radius_top_left = 50
+corner_radius_top_right = 50
+corner_radius_bottom_right = 50
+corner_radius_bottom_left = 50
+
+[sub_resource type="GDScript" id="GDScript_68k2e"]
+script/source = "# 仅处理界面显示与用户输入，实际播放逻辑调用 Player 中枢
+
+extends Control
+@export var play_button: Button
+
+# 模式相关UI
+@export var play_mode_button: Button
+@export var play_once_icon: Texture2D
+@export var repeat_one_icon: Texture2D
+@export var list_loop_icon: Texture2D
+@export var shuffle_icon: Texture2D
+var list_name:
+	set(value):
+		if list_name!=value:
+			Player.import_playlist_by_name(value)
+			list_name=value
+			
+var cover: Texture2D:
+	set(value):
+		if value == null: return
+		cover = value
+
+var progress_lock := false
+var volume := 73.0:
+	set(value):
+		volume=value
+		Player.volume_linear = volume * 0.01
+		GdScriptFunc.set_data(\"PlayerData\", \"Volume\", volume)
+
+# 模式UI更新
+func _update_mode_ui():
+	match Player.current_mode:
+		Player.PlayMode.PLAY_ONCE:
+			play_mode_button.icon = play_once_icon
+		Player.PlayMode.REPEAT_ONE:
+			play_mode_button.icon = repeat_one_icon
+		Player.PlayMode.LIST_LOOP:
+			play_mode_button.icon = list_loop_icon
+		Player.PlayMode.SHUFFLE:
+			play_mode_button.icon = shuffle_icon
+
+func _on_play_mode_pressed():
+	var next:=Player.current_mode + 1
+	var new_mode = next % Player.PlayMode.COUNT
+	Player.set_play_mode(new_mode)
+
+	
+func _set_cover(texture: Texture2D)->void:
+	set_cover(\"\",texture)
+func set_cover(_bvid: String, texture: Texture2D) -> void:
+	cover = texture
+func update_callback(video_info:Dictionary)->void:
+	if video_info.get(\"is_network\", true):
+		BilibiliApi.fetch_cover(video_info[\"link\"], set_cover, 70, 70)
+	elif FileAccess.file_exists(video_info[\"link\"].get_basename()+\".jpg\"):
+		var image = Image.load_from_file(video_info[\"link\"].get_basename()+\".jpg\")
+		_set_cover(ImageTexture.create_from_image(image))
+	else:
+		GdScriptFunc.generate_label_texture(Color.WHITE,video_info.get(\"title\", tr(\"本地文件\")),_set_cover,null,10,Color.BLACK,Vector2i(70,70))
+
+func _on_progress_drag_started():
+	progress_lock = true
+
+func _on_play_toggled(toggled_on: bool):
+	if toggled_on:
+		Player.resume()
+	else:
+		Player.pause()
+func resume()->void:
+	play_button.icon = preload(\"res://UI/Icon/pause.svg\")
+	play_button.set_pressed_no_signal(true)
+func pause()->void:
+	play_button.icon = preload(\"res://UI/Icon/play.svg\")
+	play_button.set_pressed_no_signal(false)
+func init_ui()->void:
+	volume = GdScriptFunc.get_data(\"PlayerData\", \"Volume\", 73)
+	Player.volume_linear = volume * 0.01
+	_update_mode_ui()
+func _ready():
+	init_ui()
+	# 连接中枢信号
+	Player.mode_changed.connect(_update_mode_ui)
+	Player.stop_audio.connect(pause)
+	Player.play_audio.connect(resume)
+	
+	
+func _on_next_pressed() -> void:
+	Player.next_song()
+	
+
+
+func _on_prev_pressed() -> void:
+	Player.prev_song()
+
+
+func _on_right_gui_input(event: InputEvent) -> void:
+	if Input.is_action_just_pressed(\"Wheel_Turn_Up\"):
+		volume=minf(volume+5,100)
+	elif Input.is_action_just_pressed(\"Wheel_Turn_Down\"):
+		volume=maxf(volume-5,0)
+"
+
+[node name="Window" type="Window" unique_id=797904427 node_paths=PackedStringArray("bottom_menu", "drag_strip", "drag_bar", "card")]
+transparent_bg = true
+use_hdr_2d = true
+oversampling_override = 1.0
+size = Vector2i(666, 360)
+borderless = true
+always_on_top = true
+transparent = true
+min_size = Vector2i(666, 360)
+max_size = Vector2i(1080, 700)
+script = SubResource("GDScript_ae35q")
+bottom_menu = NodePath("BottomMenu")
+drag_strip = NodePath("Top/strip")
+drag_bar = NodePath("Top")
+card = NodePath("Card")
+
+[node name="Card" type="Panel" parent="." unique_id=1366351328]
+clip_children = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_ovtlm")
+
+[node name="BottomArea" type="Control" parent="." unique_id=22271017]
+layout_mode = 3
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -50.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 1
+
+[node name="BottomMenu" type="Control" parent="." unique_id=1265407394 node_paths=PackedStringArray("play_button", "play_mode_button") groups=["style_panel"]]
+z_index = 1
+layout_mode = 3
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -50.0
+grow_horizontal = 2
+grow_vertical = 0
+script = SubResource("GDScript_68k2e")
+play_button = NodePath("Play")
+play_mode_button = NodePath("PlayMode")
+play_once_icon = ExtResource("1_ovtlm")
+repeat_one_icon = ExtResource("2_x1tu5")
+list_loop_icon = ExtResource("3_xies3")
+shuffle_icon = ExtResource("4_x5psd")
+
+[node name="Play" type="Button" parent="BottomMenu" unique_id=1471499448 groups=["color_icon_hover_color", "color_icon_hover_pressed_color", "color_icon_normal_color", "color_icon_pressed_color"]]
+custom_minimum_size = Vector2(40, 40)
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -20.0
+offset_top = -20.0
+offset_right = 20.0
+offset_bottom = 20.0
+grow_horizontal = 2
+grow_vertical = 2
+focus_mode = 1
+mouse_filter = 1
+mouse_default_cursor_shape = 2
+toggle_mode = true
+button_pressed = true
+icon = ExtResource("6_uc3l4")
+flat = true
+icon_alignment = 1
+expand_icon = true
+
+[node name="Next" type="Button" parent="BottomMenu/Play" unique_id=597648540 groups=["color_icon_hover_color", "color_icon_hover_pressed_color", "color_icon_normal_color", "color_icon_pressed_color"]]
+custom_minimum_size = Vector2(33, 33)
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = 20.0
+offset_top = -17.0
+offset_right = 53.0
+offset_bottom = 16.0
+grow_horizontal = 2
+grow_vertical = 2
+focus_mode = 1
+mouse_filter = 1
+mouse_default_cursor_shape = 2
+toggle_mode = true
+button_pressed = true
+icon = ExtResource("7_lgo8m")
+flat = true
+icon_alignment = 1
+expand_icon = true
+
+[node name="PREV" type="Button" parent="BottomMenu/Play" unique_id=31983787 groups=["color_icon_hover_color", "color_icon_hover_pressed_color", "color_icon_normal_color", "color_icon_pressed_color"]]
+custom_minimum_size = Vector2(33, 33)
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -18.0
+offset_top = 17.0
+offset_right = 15.0
+offset_bottom = 50.0
+grow_horizontal = 2
+grow_vertical = 2
+scale = Vector2(-1, -1)
+focus_mode = 1
+mouse_filter = 1
+mouse_default_cursor_shape = 2
+toggle_mode = true
+button_pressed = true
+icon = ExtResource("7_lgo8m")
+flat = true
+icon_alignment = 1
+expand_icon = true
+
+[node name="PlayMode" type="Button" parent="BottomMenu" unique_id=193083480 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
+custom_minimum_size = Vector2(40, 40)
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -550.0
+offset_top = -20.0
+offset_right = -510.0
+offset_bottom = 25.0
+grow_horizontal = 0
+grow_vertical = 2
+focus_mode = 1
+mouse_filter = 1
+mouse_default_cursor_shape = 2
+icon = ExtResource("2_x1tu5")
+flat = true
+expand_icon = true
+
+[node name="Home" type="Button" parent="BottomMenu" unique_id=1464469968 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
+custom_minimum_size = Vector2(40, 40)
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -611.0
+offset_top = -21.0
+offset_right = -571.0
+offset_bottom = 24.0
+grow_horizontal = 0
+grow_vertical = 2
+focus_mode = 1
+mouse_filter = 1
+mouse_default_cursor_shape = 2
+icon = ExtResource("4_jm616")
+flat = true
+expand_icon = true
+
+[node name="Right" type="Control" parent="." unique_id=1377233300]
+layout_mode = 3
+anchor_left = 0.63500005
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 0.08996582
+offset_bottom = -50.0
+grow_horizontal = 0
+grow_vertical = 2
+
+[node name="Top" type="Button" parent="." unique_id=637080362]
+modulate = Color(0.80784315, 0.80784315, 0.80784315, 0.60784316)
+anchors_preset = -1
+anchor_right = 1.0
+anchor_bottom = 0.10691824
+offset_bottom = 11.72327
+grow_horizontal = 2
+mouse_default_cursor_shape = 6
+flat = true
+
+[node name="strip" type="Sprite2D" parent="Top" unique_id=1678114374]
+modulate = Color(1, 1, 1, 0)
+position = Vector2(229, 14)
+texture = ExtResource("8_ovtlm")
+
+[connection signal="close_requested" from="." to="." method="_on_close_requested"]
+[connection signal="visibility_changed" from="." to="." method="_on_visibility_changed"]
+[connection signal="mouse_entered" from="BottomArea" to="BottomMenu" method="show"]
+[connection signal="mouse_exited" from="BottomMenu" to="BottomMenu" method="hide"]
+[connection signal="toggled" from="BottomMenu/Play" to="BottomMenu" method="_on_play_toggled"]
+[connection signal="pressed" from="BottomMenu/Play/Next" to="BottomMenu" method="_on_next_pressed"]
+[connection signal="pressed" from="BottomMenu/Play/PREV" to="BottomMenu" method="_on_prev_pressed"]
+[connection signal="pressed" from="BottomMenu/PlayMode" to="BottomMenu" method="_on_play_mode_pressed"]
+[connection signal="pressed" from="BottomMenu/Home" to="." method="_on_close_requested"]
+[connection signal="gui_input" from="Right" to="BottomMenu" method="_on_right_gui_input"]
+[connection signal="mouse_entered" from="Top" to="." method="TopMouseEntered"]
+[connection signal="mouse_exited" from="Top" to="." method="TopMouseExited"]

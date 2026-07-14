@@ -20,6 +20,7 @@
 [ext_resource type="Texture2D" uid="uid://b3xsbub1ghib" path="res://UI/Icon/RepeatOne.svg" id="12_mr7am"]
 [ext_resource type="Texture2D" uid="uid://d25kb6a85uar6" path="res://UI/Icon/next.svg" id="16_4w0o7"]
 [ext_resource type="Texture2D" uid="uid://d2nw6ay41tyxf" path="res://UI/Icon/Expand.svg" id="19_uq86q"]
+[ext_resource type="Texture2D" uid="uid://by7rcndagy6l7" path="res://UI/Icon/PiP.svg" id="20_uq86q"]
 
 [sub_resource type="GDScript" id="GDScript_aan6j"]
 script/source = "extends Panel
@@ -62,7 +63,7 @@ func _ready() -> void:
 		else:
 			get_tree().quit()
 	)
-	get_window().min_size=Vector2i(966,262)
+	get_window().min_size=Vector2i(1285,262)
 	for button in page_buttons:
 		button.connect(\"pressed\",change_page.bind(button.name))
 	get_window().size=GdScriptFunc.get_data(\"Window\",\"Size\",Vector2i(1600,1000))
@@ -289,12 +290,32 @@ func _on_prev_pressed() -> void:
 	Player.prev_song()
 
 var play_window:Window
+var play_window_mode:=\"BigWindow\" #BigWindow/PiP
 func _on_details_pressed() -> void:
 	State.play_ui_mode=1
+	if play_window_mode!=\"BigWindow\"&&play_window!=null:
+		play_window.queue_free()
+		play_window=null
 	if play_window==null:
 		play_window=preload(\"res://Scene/WindowPlayback.tscn\").instantiate()
 		get_tree().root.add_child(play_window)
 		GdScriptFunc.apply_theme_and_styles_to_node(play_window)
+		play_window_mode=\"BigWindow\"
+	play_window.show()
+	hide()
+	play_window.update(list_name,cover,Player.get_current_video_info())
+
+
+func _on_PiP_pressed() -> void:
+	State.play_ui_mode=1
+	if play_window_mode!=\"PiP\"&&play_window!=null:
+		play_window.queue_free()
+		play_window=null
+	if play_window==null:
+		play_window=preload(\"res://Scene/PiP.tscn\").instantiate()
+		get_tree().root.add_child(play_window)
+		GdScriptFunc.apply_theme_and_styles_to_node(play_window)
+		play_window_mode=\"PiP\"
 	play_window.show()
 	hide()
 	play_window.update(list_name,cover,Player.get_current_video_info())
@@ -506,6 +527,7 @@ layout_mode = 1
 [node name="Options" parent="." unique_id=708186307 instance=ExtResource("9_vm4ek")]
 visible = false
 layout_mode = 1
+BuiltinPiPThemes = Array[String]([])
 
 [node name="BottomMenu" type="Panel" parent="." unique_id=1456727291 node_paths=PackedStringArray("cover_node", "title_label", "author_label", "play_button", "volume_button", "progress_bar", "volume_progress_bar", "volume_background", "volume_exit_timer", "play_mode_button") groups=["style_panel"]]
 visible = false
@@ -568,8 +590,8 @@ anchors_preset = -1
 anchor_right = 0.43600002
 offset_left = 96.0
 offset_top = 47.0
-offset_right = -143.25604
-offset_bottom = 66.0
+offset_right = -336.21204
+offset_bottom = 70.0
 grow_horizontal = 2
 mouse_filter = 1
 theme_override_colors/font_color = Color(0.21684542, 0.21552005, 0.22141024, 1)
@@ -585,10 +607,10 @@ anchor_left = 0.52900004
 anchor_top = 0.5
 anchor_right = 1.0
 anchor_bottom = 0.5
-offset_left = 101.306946
-offset_top = -32.5
-offset_right = -479.0
-offset_bottom = 7.5
+offset_left = -33.693054
+offset_top = -33.5
+offset_right = -614.0
+offset_bottom = 6.5
 grow_horizontal = 2
 grow_vertical = 2
 focus_mode = 1
@@ -653,9 +675,9 @@ anchor_left = 1.0
 anchor_top = 0.5
 anchor_right = 1.0
 anchor_bottom = 0.5
-offset_left = -102.0
+offset_left = -142.0
 offset_top = -2.5
-offset_right = -62.0
+offset_right = -102.0
 offset_bottom = 42.5
 grow_horizontal = 0
 grow_vertical = 2
@@ -672,15 +694,35 @@ anchor_left = 1.0
 anchor_top = 0.5
 anchor_right = 1.0
 anchor_bottom = 0.5
-offset_left = -53.0
-offset_top = -2.5
-offset_right = -13.0
-offset_bottom = 42.5
+offset_left = -91.0
+offset_top = -4.5
+offset_right = -51.0
+offset_bottom = 40.5
 grow_horizontal = 0
 grow_vertical = 2
 focus_mode = 1
 toggle_mode = true
 icon = ExtResource("19_uq86q")
+flat = true
+expand_icon = true
+
+[node name="PiP" type="Button" parent="BottomMenu" unique_id=122600465 groups=["color_icon_hover_color", "color_icon_hover_pressed_color", "color_icon_normal_color", "color_icon_pressed_color"]]
+custom_minimum_size = Vector2(40, 40)
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -44.0
+offset_top = -4.5
+offset_right = -4.0
+offset_bottom = 40.5
+grow_horizontal = 0
+grow_vertical = 2
+focus_mode = 1
+toggle_mode = true
+icon = ExtResource("20_uq86q")
 flat = true
 expand_icon = true
 
@@ -691,9 +733,9 @@ anchor_left = 0.572
 anchor_top = 0.5
 anchor_right = 1.0
 anchor_bottom = 0.5
-offset_left = -233.32404
+offset_left = -491.32404
 offset_top = 9.5
-offset_right = -200.61206
+offset_right = -213.0
 offset_bottom = 29.5
 grow_horizontal = 2
 grow_vertical = 2
@@ -710,9 +752,9 @@ anchor_left = 1.0
 anchor_top = 0.5
 anchor_right = 1.0
 anchor_bottom = 0.5
-offset_left = -147.0
+offset_left = -193.0
 offset_top = -2.5
-offset_right = -107.0
+offset_right = -153.0
 offset_bottom = 37.5
 grow_horizontal = 0
 grow_vertical = 2
@@ -768,6 +810,7 @@ one_shot = true
 [connection signal="pressed" from="BottomMenu/Play/PREV" to="BottomMenu" method="_on_prev_pressed"]
 [connection signal="pressed" from="BottomMenu/PlayMode" to="BottomMenu" method="_on_play_mode_pressed"]
 [connection signal="pressed" from="BottomMenu/Details" to="BottomMenu" method="_on_details_pressed"]
+[connection signal="pressed" from="BottomMenu/PiP" to="BottomMenu" method="_on_PiP_pressed"]
 [connection signal="drag_ended" from="BottomMenu/Progress" to="BottomMenu" method="_on_progress_drag_ended"]
 [connection signal="drag_started" from="BottomMenu/Progress" to="BottomMenu" method="_on_progress_drag_started"]
 [connection signal="mouse_entered" from="BottomMenu/Volume" to="BottomMenu" method="_on_volume_mouse_entered"]

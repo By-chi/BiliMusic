@@ -6,7 +6,7 @@ script/source = "extends Control
 @export var ClearCoversCache: Button
 @export var ClearLyricsCache: Button
 @export var BuiltinThemes: Array[String]
-
+@export var BuiltinPiPThemes: Array[String]
 var _setting_controls: Dictionary = {}
 
 func _ready() -> void:
@@ -29,9 +29,11 @@ func _ready() -> void:
 			if option.name == \"Account\":
 				_setup_account(option, control)
 			elif option.name == \"Skin\":
-				_setup_skin(option, control as OptionButton)
+				_setup_skin(control as OptionButton)
 			elif option.name == \"Custom_Big_Window_Theme\":
-				_setup_big_window_theme(option, control as OptionButton)
+				_setup_big_window_theme(control as OptionButton)
+			elif option.name == \"Custom_PiP_Theme\":  # 新增：PiP主题选项
+				_setup_pip_theme(control as OptionButton)
 			elif option.name == \"Language\":
 				_setup_language(option, control as OptionButton)
 			else:
@@ -98,7 +100,7 @@ func _setup_account(option: Control, button: Button) -> void:
 		)
 	button.pressed.connect(_log_in_out.bind(option))
 
-func _setup_skin(option: Control, option_button: OptionButton) -> void:
+func _setup_skin(option_button: OptionButton) -> void:
 	var skin_dict: Dictionary = {}
 
 	var res_path = \"res://Skin/\"
@@ -165,8 +167,63 @@ func _setup_skin(option: Control, option_button: OptionButton) -> void:
 		GdScriptFunc.update_skin_theme(chosen_name)  # 同样可能需要路径
 		GdScriptFunc.update_marks_theme_and_styles()
 	)
+func _setup_pip_theme(option_button: OptionButton) -> void:
+	const BUILTIN_DIR = \"res://PiPTheme/\"
 
-func _setup_big_window_theme(option: Control, option_button: OptionButton) -> void:
+	var theme_dict: Dictionary = {}
+	for theme_name in BuiltinPiPThemes:  # 使用新导出的数组
+		theme_dict[theme_name] = BUILTIN_DIR.path_join(theme_name + \".tscn\")
+
+	var user_dir = \"user://PiPTheme/\"
+	if DirAccess.dir_exists_absolute(user_dir):
+		var dir = DirAccess.open(user_dir)
+		if dir:
+			dir.list_dir_begin()
+			var file = dir.get_next()
+			while file != \"\":
+				if not dir.current_is_dir() and file.ends_with(\".tscn\"):
+					var theme_name = file.trim_suffix(\".tscn\")
+					var theme_path = user_dir.path_join(file)
+					theme_dict[theme_name] = theme_path   # 外部覆盖
+				file = dir.get_next()
+			dir.list_dir_end()
+
+	var theme_names: Array = []
+	var theme_paths: Array = []
+	for theme_name in theme_dict:
+		theme_names.append(theme_name)
+		theme_paths.append(theme_dict[theme_name])
+
+	if theme_names.is_empty():
+		option_button.add_item(tr(\"无可用主题\"))
+		option_button.disabled = true
+		return
+
+	var sorted = theme_names.duplicate()
+	sorted.sort()
+	option_button.clear()
+	for theme_name in sorted:
+		option_button.add_item(theme_name)
+
+	var sorted_paths: Array = []
+	for theme_name in sorted:
+		sorted_paths.append(theme_dict[theme_name])
+
+	var saved_path = GdScriptFunc.get_data(\"Options\", \"Custom_PiP_Theme\", \"\")
+	var idx = sorted_paths.find(saved_path)
+	if idx == -1:
+		idx = 0
+	option_button.selected = idx
+
+	# 选择新主题时同步更新已打开的 PiP 窗口
+	option_button.item_selected.connect(func(index: int):
+		var selected_path = sorted_paths[index]
+		GdScriptFunc.set_data(\"Options\", \"Custom_PiP_Theme\", selected_path, true)
+		var main = get_node(\"/root/Main\")
+		if main and main.bottom_menu and main.bottom_menu.play_window and main.bottom_menu.play_window_mode==\"PiP\":
+			main.bottom_menu.play_window.update_pip_theme(selected_path)
+	)
+func _setup_big_window_theme(option_button: OptionButton) -> void:
 	const BUILTIN_DIR = \"res://BigWindowTheme/\"
 
 	var theme_dict: Dictionary = {}
@@ -220,7 +277,7 @@ func _setup_big_window_theme(option: Control, option_button: OptionButton) -> vo
 		GdScriptFunc.set_data(\"Options\", \"Custom_Big_Window_Theme\", selected_path, true)
 		#动态刷新已经打开的大窗口主题
 		var main = get_node(\"/root/Main\")
-		if main and main.bottom_menu and main.bottom_menu.play_window:
+		if main and main.bottom_menu and main.bottom_menu.play_window and main.bottom_menu.play_window_mode==\"BigWindow\":
 			main.bottom_menu.play_window.update_performance_node(selected_path)
 	)
 
@@ -318,6 +375,7 @@ OptionsTabContainer = NodePath("TabContainer")
 ClearCoversCache = NodePath("TabContainer/储存/VBoxContainer/ClearCoversCache")
 ClearLyricsCache = NodePath("TabContainer/储存/VBoxContainer/ClearLyricsCache")
 BuiltinThemes = Array[String](["RecordEdgeLines", "WaveCrease"])
+BuiltinPiPThemes = Array[String](["WaveCrease"])
 
 [node name="Label" type="Label" parent="." unique_id=1198818235]
 layout_mode = 0
@@ -457,6 +515,24 @@ theme_override_font_sizes/font_size = 35
 text = "自定义大窗口播放主题"
 
 [node name="Custom_Big_Window_Theme" type="OptionButton" parent="TabContainer/外观/VBoxContainer/Custom_Big_Window_Theme" unique_id=256971678]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -32.0
+offset_top = -10.0
+offset_bottom = 10.0
+grow_horizontal = 0
+grow_vertical = 2
+
+[node name="Custom_PiP_Theme" type="Label" parent="TabContainer/外观/VBoxContainer" unique_id=715150277]
+layout_mode = 2
+theme_override_font_sizes/font_size = 35
+text = "自定义小窗播放主题"
+
+[node name="Custom_PiP_Theme" type="OptionButton" parent="TabContainer/外观/VBoxContainer/Custom_PiP_Theme" unique_id=608200164]
 layout_mode = 1
 anchors_preset = 6
 anchor_left = 1.0

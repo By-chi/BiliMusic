@@ -9,7 +9,7 @@ public partial class AudioSpectrumCalculator : Node
     [Export] public int blendRadius = 1;
     [Export] public float spectrumScale = 9000.0f;
     [Export] public float attackCoefficient = 0.15f;
-    [Export] public float releaseCoefficient = 0.5f;
+    [Export] public float releaseCoefficient = 0.75f;
     [Export] public bool autoAdjustAmpScale = true;
     [Export] public float targetScaledEnergy = 1000.0f;
     [Export] public float ampScaleAdjustSpeed = 0.1f;
@@ -19,7 +19,7 @@ public partial class AudioSpectrumCalculator : Node
     [Export] public bool enableAWeighting = true;
     [Export] public float aWeightHighFreqPole = 8000.0f;
     [Export] public bool dynamicRange = true;
-    [Export] public float maxChangedSpeed = 500.0f;
+    [Export] public float maxChangedSpeed = 3000.0f;
     [Export] public float dynamicUpdateInterval = 0.2f;
     [Export] public float dynamicThreshold = 3.0f;
 

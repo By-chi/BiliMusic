@@ -846,7 +846,7 @@ func _apply_single_override(node: Control, group_name: String, value) -> void:
 			else:
 				push_warning("[ThemeManager] 加载 StyleBox 失败，值: ", value)
 		"color":
-			var color = _parse_color(value)
+			var color = Color(value)
 			if color != null and color != Color.TRANSPARENT:
 				node.add_theme_color_override(override_name, color)
 			else:
@@ -889,19 +889,3 @@ func _load_resource(value):
 	else:
 		push_warning("[ThemeManager] _load_resource 不支持的参数类型: ", typeof(value), " 值: ", value)
 	return null
-
-
-## 解析颜色(支持 "#RRGGBB" 或 "#RRGGBBAA")
-func _parse_color(value) -> Color:
-	if value is Color:
-		return value
-	if typeof(value) == TYPE_STRING:
-		var color_str = value.strip_edges()
-		if color_str.begins_with("#"):
-			var color = Color(color_str)
-			return color
-		# 可添加其他格式支持，例如 "red"
-		push_warning("[ThemeManager] _parse_color 不支持的字符串颜色格式: ", color_str)
-	else:
-		push_warning("[ThemeManager] _parse_color 不支持的参数类型: ", typeof(value))
-	return Color.TRANSPARENT
