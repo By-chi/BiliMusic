@@ -8,6 +8,7 @@ class_name BaseVideoCard
 
 var link: String
 var _reset_tween: Tween
+@warning_ignore("unused_private_class_variable")#继承于BaseVideoCard的所有子类都有调用,所以放在这里
 var _hover_tween: Tween
 var list_name := "":
 	set(value):

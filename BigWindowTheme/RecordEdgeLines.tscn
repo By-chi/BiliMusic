@@ -543,6 +543,7 @@ func find_index_greater_than(array: Array[float], target: float) -> int:
 	var left := 0
 	var right := array.size() - 1
 	while left <= right:
+		@warning_ignore(\"integer_division\")
 		var mid := left + (right - left) / 2
 		if array[mid] <= target:
 			left = mid + 1

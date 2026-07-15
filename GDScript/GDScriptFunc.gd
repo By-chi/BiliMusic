@@ -472,7 +472,8 @@ func format_time_string(input_str: String) -> String:
 	var total_minutes := int(parts[0])
 	var seconds := int(parts[1])
 
-	var hours := int(total_minutes / 60)
+	@warning_ignore("integer_division")
+	var hours := total_minutes / 60
 	var minutes := total_minutes % 60
 
 	var formatted_seconds = "%02d" % seconds

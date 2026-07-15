@@ -41,6 +41,10 @@ Player="*uid://ng3rdbd38uuj"
 AudioSpectrumCalculator="*uid://drtt3prb4e418"
 BilibiliApi="*uid://dujalxj743anw"
 
+[debug]
+
+gdscript/warnings/unused_parameter=0
+
 [display]
 
 window/size/viewport_width=1600
@@ -154,7 +158,6 @@ renderer/rendering_method.mobile="gl_compatibility"
 textures/vram_compression/import_etc2_astc=true
 2d/batching/uniform_set_cache_size=16384
 shading/overrides/force_vertex_shading=true
-anti_aliasing/quality/msaa_2d=2
 anti_aliasing/screen_space_roughness_limiter/enabled=false
 environment/defaults/default_clear_color=Color(0.96862745, 0.9764706, 1, 1)
 viewport/transparent_background=true
