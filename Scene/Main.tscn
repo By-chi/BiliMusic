@@ -527,7 +527,6 @@ layout_mode = 1
 [node name="Options" parent="." unique_id=708186307 instance=ExtResource("9_vm4ek")]
 visible = false
 layout_mode = 1
-BuiltinPiPThemes = Array[String]([])
 
 [node name="BottomMenu" type="Panel" parent="." unique_id=1456727291 node_paths=PackedStringArray("cover_node", "title_label", "author_label", "play_button", "volume_button", "progress_bar", "volume_progress_bar", "volume_background", "volume_exit_timer", "play_mode_button") groups=["style_panel"]]
 visible = false

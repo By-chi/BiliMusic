@@ -67,6 +67,7 @@ func TopMouseExited() -> void:
 	tween.tween_property(drag_strip, \"position:y\", 0.0, 0.2)
 	tween.tween_property(drag_strip, \"scale\", Vector2(0.3, 0.0), 0.2)
 	tween.tween_property(drag_strip, \"modulate:a\", 0.0, 0.2)
+	PiP_Smooth_Motion_Interpolation=GdScriptFunc.get_data(\"Options\",\"PiP_Smooth_Motion_Interpolation\",15.0)
 
 func update_click_through(reserve: float) -> void:
 	var rect := Rect2(Vector2.ZERO, size)
@@ -101,22 +102,21 @@ func _input(event: InputEvent) -> void:
 				mouse_press = false
 				TopMouseExited()   # 还原拖拽条
 				update_click_through(20.0)
-
+var PiP_Smooth_Motion_Interpolation:float=15
 func _process(_delta: float) -> void:
 	if drag_position == Vector2(-1, -1):
 		return
-
 	if mouse_press:
 		# 按住时实时跟随鼠标（全局坐标计算）
 		move_to_position = Vector2(DisplayServer.mouse_get_position()) - click_position + drag_position
 		var current_pos := Vector2(position)
 		if current_pos.distance_squared_to(move_to_position) >= 2.0:
-			var new_pos := current_pos.lerp(move_to_position, 0.15)
+			var new_pos := current_pos.lerp(move_to_position, PiP_Smooth_Motion_Interpolation*0.01)
 			position = Vector2i(new_pos.round())
 	elif not move_sleep:
 		var current_pos := Vector2(position)
 		if current_pos.distance_squared_to(move_to_position) >= 16.0:   # 4
-			var new_pos := current_pos.lerp(move_to_position, 0.1)
+			var new_pos := current_pos.lerp(move_to_position, PiP_Smooth_Motion_Interpolation*0.01)
 			position = Vector2i(new_pos.round())
 			update_click_through(20.0)
 		else:
