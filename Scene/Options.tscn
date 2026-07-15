@@ -43,7 +43,6 @@ func _ready() -> void:
 
 	_update_cache_size()
 
-# ---------- 修复后的语言设置 ----------
 func _setup_language(option: Control, option_button: OptionButton) -> void:
 	# 使用有序数组，确保名称和代码一一对应
 	var lang_names = [\"中文\", \"English\", \"日本語\"]
@@ -86,7 +85,6 @@ func _setup_language(option: Control, option_button: OptionButton) -> void:
 	)
 	GdScriptFunc.traverse_iterative(get_tree().root)
 
-# ---------- 其余函数保持不变 ----------
 func _setup_account(option: Control, button: Button) -> void:
 	var sessdata = GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\")
 	if sessdata == null:
@@ -286,13 +284,21 @@ func _setup_generic(option: Control, control: Node) -> void:
 	match control.get_class():
 		\"CheckButton\":
 			var check = control as CheckButton
-			check.button_pressed = GdScriptFunc.get_data(\"Options\", key, false)
+			check.button_pressed = GdScriptFunc.get_data(\"Options\", key, check.button_pressed)
 			check.toggled.connect(_on_option_change.bind(option, check))
 		\"LineEdit\":
 			var line_edit = control as LineEdit
-			line_edit.text = GdScriptFunc.get_data(\"Options\", key, \"\")
+			line_edit.text = GdScriptFunc.get_data(\"Options\", key, line_edit.text)
 			line_edit.focus_exited.connect(_on_option_change.bind(option, line_edit))
 			line_edit.text_submitted.connect(_on_option_change.bind(option, line_edit))
+		\"HSlider\":
+			var h_slider = control as HSlider
+			h_slider.value = GdScriptFunc.get_data(\"Options\", key, h_slider.value)
+			h_slider.drag_ended.connect(
+				func(value_changed: bool):
+					if value_changed:
+						_on_option_change(h_slider.value,option, h_slider)
+			)
 		_:
 			printerr(\"未知控件类型 %s 用于设置项 %s\" % [control.get_class(), key])
 
@@ -544,6 +550,23 @@ offset_top = -10.0
 offset_bottom = 10.0
 grow_horizontal = 0
 grow_vertical = 2
+
+[node name="PiP_Smooth_Motion_Interpolation" type="Label" parent="TabContainer/外观/VBoxContainer" unique_id=1933447214]
+layout_mode = 2
+theme_override_font_sizes/font_size = 35
+text = "小窗播放移动平滑插值"
+
+[node name="PiP_Smooth_Motion_Interpolation" type="HSlider" parent="TabContainer/外观/VBoxContainer/PiP_Smooth_Motion_Interpolation" unique_id=663213674]
+layout_mode = 1
+anchors_preset = 11
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -324.0
+offset_right = -24.0
+grow_horizontal = 0
+grow_vertical = 2
+value = 15.0
 
 [node name="储存" type="ScrollContainer" parent="TabContainer" unique_id=1345396364]
 visible = false
