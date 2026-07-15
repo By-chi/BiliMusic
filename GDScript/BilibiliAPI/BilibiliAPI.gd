@@ -1,6 +1,8 @@
 # BilibiliAPI.gd
 extends Node
 
+const LOG_PREFIX = "[BilibiliAPI]"
+
 var cover_cache: BilibiliCoverCache
 var lyrics_cache: BilibiliLyricsCache
 var subtitle_manager: BilibiliSubtitleManager
@@ -99,7 +101,8 @@ func _get_headers_with_mid(mid: int = 0) -> PackedStringArray:
 		"Origin: https://space.bilibili.com",
 		"Accept: application/json, text/plain, */*",
 		"Accept-Language: zh-CN,zh;q=0.9,en;q=0.8",
-		"Accept-Encoding: gzip, deflate, br",
+		# 【修复点1】移除了 "Accept-Encoding"，避免 Mac 网络模块对 gzip 压缩解压失败导致 JSON 乱码
+		# "Accept-Encoding: gzip, deflate, br", 
 		'Sec-Ch-Ua: "Not;A=Brand";v="8", "Chromium";v="120", "Microsoft Edge";v="120"',
 		"Sec-Ch-Ua-Mobile: ?0",
 		'Sec-Ch-Ua-Platform: "Windows"',
@@ -131,7 +134,7 @@ func _request(url: String, callback: Callable, extra: Variant = null, method: in
 	)
 	var err = http.request(url, headers, method)
 	if err != OK:
-		push_error("HTTP请求失败: %d" % err)
+		push_error(LOG_PREFIX + " HTTP请求失败: %d" % err)
 		http.queue_free()
 		callback.call(HTTPRequest.RESULT_REQUEST_FAILED, 0, [], PackedByteArray(), extra)
 
@@ -146,39 +149,92 @@ func _sign_wbi_url(url: String) -> String:
 	var img_key: String = key_data.get("img_key", "")
 	var sub_key: String = key_data.get("sub_key", "")
 	if img_key.is_empty() or sub_key.is_empty():
-		push_error("WBI 密钥不完整，无法签名")
+		push_error(LOG_PREFIX + " WBI 密钥不完整，无法签名")
 		return url
 	return BilibiliWBI.sign_url(url, img_key, sub_key)
 
 
+# 【修复点2】增强型 WBI 获取逻辑：双路请求 + 防 HTML/JSON 崩溃 + 详尽日志
 func _get_wbi_key() -> Dictionary:
 	var now = Time.get_unix_time_from_system()
+	
+	# 缓存处理
 	if now - _wbi_key_cache.get("cached_time", 0) < 1800 and not _wbi_key_cache.get("img_key", "").is_empty():
+		print(LOG_PREFIX + "[BilibiliAPI] 命中 WBI 密钥缓存，跳过请求")
 		return _wbi_key_cache
 
-	var http = HTTPRequest.new()
-	add_child(http)
-	http.request("https://api.bilibili.com/x/web-interface/nav", _get_headers(), HTTPClient.METHOD_GET)
-	var result: Array = await http.request_completed
-	http.queue_free()
-	if result[1] != 200:
-		push_error("WBI 密钥接口 HTTP %d" % result[1])
+	print(LOG_PREFIX + "[BilibiliAPI] 缓存已过期，开始请求 WBI 密钥...")
+	
+	# 备选接口：如果 nav 被风控拦截，wbi/index 极大概率能成功
+	var urls = [
+		"https://api.bilibili.com/x/web-interface/nav",
+		"https://api.bilibili.com/x/web-interface/wbi/index"
+	]
+
+	for url in urls:
+		print(LOG_PREFIX + "[BilibiliAPI] 尝试请求接口: " + url)
+		var http = HTTPRequest.new()
+		add_child(http)
+		http.request(url, _get_headers(), HTTPClient.METHOD_GET)
+		var result: Array = await http.request_completed
+		http.queue_free()
+
+		var response_code = result[1]
+		var body = result[3] as PackedByteArray
+		var body_str = body.get_string_from_utf8()
+
+		print(LOG_PREFIX + " -> HTTP 状态码: " + str(response_code))
+		print(LOG_PREFIX + " -> 原始内容预览(前80字符): " + body_str.substr(0, 80))
+
+		# 1. 基础网络错误
+		if response_code != 200:
+			print(LOG_PREFIX + "[BilibiliAPI] 接口请求失败，尝试下一个...")
+			continue
+
+		# 2. 检测 B站直接返回了 HTML 风控页面
+		var trim_body = body_str.strip_edges()
+		if trim_body.begins_with("<"):
+			print(LOG_PREFIX + "[BilibiliAPI] 【风控警告】返回了 HTML！可能是缺少 buvid3 或 IP被限制。尝试下一个接口...")
+			continue
+
+		# 3. JSON 解析
+		var json = JSON.new()
+		if json.parse(body_str) != OK:
+			print(LOG_PREFIX + "[BilibiliAPI] 【致命错误】JSON解析失败！如果不是HTML乱码，证明 Mac 解压 Gzip 失败，请务必确认请求头中删除了 Accept-Encoding。")
+			continue
+
+		var data_obj = json.get_data()
+		if data_obj.get("code", -1) != 0:
+			print(LOG_PREFIX + "[BilibiliAPI] B站业务错误: code=" + str(data_obj.get("code")) + " msg=" + data_obj.get("message", ""))
+			continue
+
+		var data = data_obj.get("data", {})
+		var img_url = ""
+		var sub_url = ""
+
+		# 4. 兼容两种接口的数据结构差异
+		if data.has("wbi_img"):
+			# nav 接口的数据在 wbi_img 里
+			img_url = data["wbi_img"].get("img_url", "")
+			sub_url = data["wbi_img"].get("sub_url", "")
+		else:
+			# wbi/index 接口的数据直接在最外层
+			img_url = data.get("img_url", "")
+			sub_url = data.get("sub_url", "")
+
+		var img_key = GdScriptFunc.extract_key_from_url(img_url)
+		var sub_key = GdScriptFunc.extract_key_from_url(sub_url)
+
+		if img_key.is_empty() or sub_key.is_empty():
+			print(LOG_PREFIX + "[BilibiliAPI] 提取到的 WBI 密钥字段为空，尝试下一个接口...")
+			continue
+
+		print(LOG_PREFIX + "[BilibiliAPI] ✅ WBI 密钥获取成功! 密钥=" + img_key + " , " + sub_key)
+		_wbi_key_cache = {"img_key": img_key, "sub_key": sub_key, "cached_time": now}
 		return _wbi_key_cache
 
-	var json = JSON.new()
-	if json.parse((result[3] as PackedByteArray).get_string_from_utf8()) != OK:
-		push_error("WBI 密钥 JSON 解析失败")
-		return _wbi_key_cache
-
-	var data = json.get_data().get("data", {})
-	var wbi_img = data.get("wbi_img", {})
-	var img_key = GdScriptFunc.extract_key_from_url(wbi_img.get("img_url", ""))
-	var sub_key = GdScriptFunc.extract_key_from_url(wbi_img.get("sub_url", ""))
-	if img_key.is_empty() or sub_key.is_empty():
-		push_error("WBI 密钥提取失败")
-		return _wbi_key_cache
-
-	_wbi_key_cache = {"img_key": img_key, "sub_key": sub_key, "cached_time": now}
+	# 如果两个都挂了
+	push_error(LOG_PREFIX + "[BilibiliAPI] 所有 WBI 接口均失败，无法签名！请检查 Mac 本地网络和 Cookies 状态。")
 	return _wbi_key_cache
 
 
@@ -268,17 +324,17 @@ func _on_search_response(_r, code, _h, body, extra):
 	var callback: Callable = extra[0]
 	var author_filter: String = extra[1] if extra.size() > 1 else ""
 	if code != 200:
-		push_error("搜索请求失败: %d" % code)
+		push_error(LOG_PREFIX + " 搜索请求失败: %d" % code)
 		callback.call([{}]); return
 	var raw = body.get_string_from_utf8()
 	if raw.strip_edges().begins_with("<"):
-		push_error("搜索被风控拦截，收到HTML"); callback.call([{}]); return
+		push_error(LOG_PREFIX + " 搜索被风控拦截，收到HTML"); callback.call([{}]); return
 	var json = JSON.new()
 	if json.parse(raw) != OK:
-		push_error("JSON解析失败"); callback.call([{}]); return
+		push_error(LOG_PREFIX + " JSON解析失败"); callback.call([{}]); return
 	var data = json.get_data()
 	if data.get("code") != 0:
-		push_error("API错误: %s" % data.get("message")); callback.call([{}]); return
+		push_error(LOG_PREFIX + " API错误: %s" % data.get("message")); callback.call([{}]); return
 	var videos = []
 	for item in data.get("data", {}).get("result", []):
 		var bvid = item.get("bvid", "")
@@ -303,7 +359,7 @@ func _fetch_music_rank_static(callback: Callable) -> void:
 func _on_all_period_response(result, code, _h, body, extra):
 	var callback: Callable = extra[0]
 	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
-		push_error("获取榜单ID失败"); callback.call([{}]); return
+		push_error(LOG_PREFIX + " 获取榜单ID失败"); callback.call([{}]); return
 	var json = JSON.new()
 	if json.parse(body.get_string_from_utf8()) != OK: callback.call([{}]); return
 	var data = json.get_data()
@@ -358,14 +414,14 @@ func _on_video_info_response(_r, code, _h, body, extra):
 	var bvid: String = extra[0]
 	var callback: Callable = extra[1]
 	if code != 200:
-		push_error("获取视频信息失败 (%s): %d" % [bvid, code])
+		push_error(LOG_PREFIX + " 获取视频信息失败 (%s): %d" % [bvid, code])
 		callback.call({}); return
 	var json = JSON.new()
 	if json.parse(body.get_string_from_utf8()) != OK:
-		push_error("JSON解析失败 (%s)" % bvid); callback.call({}); return
+		push_error(LOG_PREFIX + " JSON解析失败 (%s)" % bvid); callback.call({}); return
 	var data = json.get_data()
 	if data.get("code") != 0:
-		push_error("API错误 (%s): %s" % [bvid, data.get("message")]); callback.call({}); return
+		push_error(LOG_PREFIX + " API错误 (%s): %s" % [bvid, data.get("message")]); callback.call({}); return
 	var vd = data.get("data", {})
 	if vd.is_empty(): callback.call({}); return
 	var owner = vd.get("owner", {})
@@ -434,7 +490,7 @@ func start_qr_login(login_callback: Callable) -> void:
 		HTTPClient.METHOD_GET
 	)
 	if err != OK:
-		push_error("二维码生成请求失败: %d" % err)
+		push_error(LOG_PREFIX + " 二维码生成请求失败: %d" % err)
 		http.queue_free()
 
 
@@ -468,7 +524,7 @@ func _display_qrcode(content: String) -> void:
 			var tex = ImageTexture.create_from_image(img)
 			qr_window.get_node("QRImage").texture = tex
 		else:
-			push_error("二维码图片加载失败")
+			push_error(LOG_PREFIX + " 二维码图片加载失败")
 	)
 	img_request.request(qr_api, PackedStringArray(), HTTPClient.METHOD_GET)
 
@@ -567,12 +623,12 @@ func _exchange_cookie(login_url: String) -> void:
 								GdScriptFunc.set_data("AccountData", "bili_ticket", value)
 							"bili_ticket_expires":
 								GdScriptFunc.set_data("AccountData", "bili_ticket_expires", value)
-		print("所有登录 cookie 已保存")
+		print(LOG_PREFIX + "[BilibiliAPI] 所有登录 cookie 已保存")
 		_load_avatar_and_delayed_close()
 	)
 	var err = http.request(login_url, headers, HTTPClient.METHOD_GET)
 	if err != OK:
-		push_error("请求失败: %d" % err)
+		push_error(LOG_PREFIX + " 请求失败: %d" % err)
 		_close_qr_window()
 		if on_qr_login_result:
 			on_qr_login_result.call(false)
