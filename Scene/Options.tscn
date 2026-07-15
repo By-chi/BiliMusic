@@ -50,6 +50,8 @@ func _setup_language(option: Control, option_button: OptionButton) -> void:
 	var lang_codes = [\"zh\", \"en\", \"ja\"]
 
 	option_button.clear()
+	var option_popup = option_button.get_popup()
+	option_popup.add_theme_font_size_override(\"font_size\", 35)
 	for lang_name in lang_names:
 		option_button.add_item(lang_name)
 
@@ -101,6 +103,11 @@ func _setup_account(option: Control, button: Button) -> void:
 	button.pressed.connect(_log_in_out.bind(option))
 
 func _setup_skin(option_button: OptionButton) -> void:
+	# 设置OptionButton字体大小
+	var option_popup = option_button.get_popup()
+	option_popup.add_theme_font_size_override(\"font_size\", 35)
+	
+	
 	var skin_dict: Dictionary = {}
 
 	var res_path = \"res://Skin/\"
@@ -168,6 +175,10 @@ func _setup_skin(option_button: OptionButton) -> void:
 		GdScriptFunc.update_marks_theme_and_styles()
 	)
 func _setup_pip_theme(option_button: OptionButton) -> void:
+	# 设置OptionButton字体大小
+	var option_popup = option_button.get_popup()
+	option_popup.add_theme_font_size_override(\"font_size\", 35)
+	
 	const BUILTIN_DIR = \"res://PiPTheme/\"
 
 	var theme_dict: Dictionary = {}
@@ -195,7 +206,7 @@ func _setup_pip_theme(option_button: OptionButton) -> void:
 		theme_paths.append(theme_dict[theme_name])
 
 	if theme_names.is_empty():
-		option_button.add_item(tr(\"无可用主题\"))
+		option_button.add_item(tr(\"暂无可用主题\"))
 		option_button.disabled = true
 		return
 
@@ -224,6 +235,10 @@ func _setup_pip_theme(option_button: OptionButton) -> void:
 			main.bottom_menu.play_window.update_pip_theme(selected_path)
 	)
 func _setup_big_window_theme(option_button: OptionButton) -> void:
+	# 设置OptionButton字体大小
+	var option_popup = option_button.get_popup()
+	option_popup.add_theme_font_size_override(\"font_size\", 35)
+	
 	const BUILTIN_DIR = \"res://BigWindowTheme/\"
 
 	var theme_dict: Dictionary = {}
@@ -251,7 +266,7 @@ func _setup_big_window_theme(option_button: OptionButton) -> void:
 		theme_paths.append(theme_dict[theme_name])
 
 	if theme_names.is_empty():
-		option_button.add_item(tr(\"无可用主题\"))
+		option_button.add_item(tr(\"暂无可用主题\"))
 		option_button.disabled = true
 		return
 
@@ -403,9 +418,10 @@ offset_right = -26.0
 offset_bottom = -34.0
 grow_horizontal = 2
 grow_vertical = 2
-current_tab = 0
+current_tab = 2
 
 [node name="账号" type="ScrollContainer" parent="TabContainer" unique_id=1036775212]
+visible = false
 layout_mode = 2
 metadata/_tab_index = 0
 
@@ -434,7 +450,7 @@ grow_horizontal = 0
 grow_vertical = 2
 theme_override_colors/font_color = Color(0.95, 0, 0.06333327, 1)
 theme_override_font_sizes/font_size = 24
-text = "点击登陆"
+text = "点击登录"
 
 [node name="常规" type="ScrollContainer" parent="TabContainer" unique_id=264393034]
 visible = false
@@ -480,9 +496,9 @@ offset_top = -24.0
 offset_bottom = 24.0
 grow_horizontal = 0
 grow_vertical = 2
+theme_override_font_sizes/font_size = 35
 
 [node name="外观" type="ScrollContainer" parent="TabContainer" unique_id=1953152351]
-visible = false
 layout_mode = 2
 metadata/_tab_index = 2
 
