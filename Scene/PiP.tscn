@@ -259,7 +259,7 @@ func resume()->void:
 func pause()->void:
 	play_button.icon = preload(\"res://UI/Icon/play.svg\")
 	play_button.set_pressed_no_signal(false)
-func init_ui()->void:
+func init_ui() -> void:
 	volume = GdScriptFunc.get_data(\"PlayerData\", \"Volume\", 73)
 	Player.volume_linear = volume * 0.01
 	_update_mode_ui()
@@ -342,31 +342,7 @@ repeat_one_icon = ExtResource("2_x1tu5")
 list_loop_icon = ExtResource("3_xies3")
 shuffle_icon = ExtResource("4_x5psd")
 
-[node name="Play" type="Button" parent="BottomMenu" unique_id=1471499448 groups=["color_icon_hover_color", "color_icon_hover_pressed_color", "color_icon_normal_color", "color_icon_pressed_color"]]
-custom_minimum_size = Vector2(40, 40)
-layout_mode = 1
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -20.0
-offset_top = -20.0
-offset_right = 20.0
-offset_bottom = 20.0
-grow_horizontal = 2
-grow_vertical = 2
-focus_mode = 1
-mouse_filter = 1
-mouse_default_cursor_shape = 2
-toggle_mode = true
-button_pressed = true
-icon = ExtResource("6_uc3l4")
-flat = true
-icon_alignment = 1
-expand_icon = true
-
-[node name="Next" type="Button" parent="BottomMenu/Play" unique_id=597648540 groups=["color_icon_hover_color", "color_icon_hover_pressed_color", "color_icon_normal_color", "color_icon_pressed_color"]]
+[node name="Next" type="Button" parent="BottomMenu" unique_id=597648540 groups=["color_icon_hover_color", "color_icon_hover_pressed_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 custom_minimum_size = Vector2(33, 33)
 layout_mode = 1
 anchors_preset = 8
@@ -390,7 +366,7 @@ flat = true
 icon_alignment = 1
 expand_icon = true
 
-[node name="PREV" type="Button" parent="BottomMenu/Play" unique_id=31983787 groups=["color_icon_hover_color", "color_icon_hover_pressed_color", "color_icon_normal_color", "color_icon_pressed_color"]]
+[node name="PREV" type="Button" parent="BottomMenu" unique_id=31983787 groups=["color_icon_hover_color", "color_icon_hover_pressed_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 custom_minimum_size = Vector2(33, 33)
 layout_mode = 1
 anchors_preset = 8
@@ -411,6 +387,30 @@ mouse_default_cursor_shape = 2
 toggle_mode = true
 button_pressed = true
 icon = ExtResource("7_lgo8m")
+flat = true
+icon_alignment = 1
+expand_icon = true
+
+[node name="Play" type="Button" parent="BottomMenu" unique_id=1471499448 groups=["color_icon_hover_color", "color_icon_hover_pressed_color", "color_icon_normal_color", "color_icon_pressed_color"]]
+custom_minimum_size = Vector2(35, 35)
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -16.0
+offset_top = -17.0
+offset_right = 19.0
+offset_bottom = 18.0
+grow_horizontal = 2
+grow_vertical = 2
+focus_mode = 1
+mouse_filter = 1
+mouse_default_cursor_shape = 2
+toggle_mode = true
+button_pressed = true
+icon = ExtResource("6_uc3l4")
 flat = true
 icon_alignment = 1
 expand_icon = true
@@ -486,9 +486,9 @@ texture = ExtResource("8_ovtlm")
 [connection signal="visibility_changed" from="." to="." method="_on_visibility_changed"]
 [connection signal="mouse_entered" from="BottomArea" to="BottomMenu" method="show"]
 [connection signal="mouse_exited" from="BottomMenu" to="BottomMenu" method="hide"]
+[connection signal="pressed" from="BottomMenu/Next" to="BottomMenu" method="_on_next_pressed"]
+[connection signal="pressed" from="BottomMenu/PREV" to="BottomMenu" method="_on_prev_pressed"]
 [connection signal="toggled" from="BottomMenu/Play" to="BottomMenu" method="_on_play_toggled"]
-[connection signal="pressed" from="BottomMenu/Play/Next" to="BottomMenu" method="_on_next_pressed"]
-[connection signal="pressed" from="BottomMenu/Play/PREV" to="BottomMenu" method="_on_prev_pressed"]
 [connection signal="pressed" from="BottomMenu/PlayMode" to="BottomMenu" method="_on_play_mode_pressed"]
 [connection signal="pressed" from="BottomMenu/Home" to="." method="_on_close_requested"]
 [connection signal="gui_input" from="Right" to="BottomMenu" method="_on_right_gui_input"]

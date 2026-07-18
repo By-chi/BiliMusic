@@ -204,10 +204,11 @@ func _on_volume_mouse_exit_timer_timeout():
 func _on_volume_slider_drag_ended(_value_changed: bool):
 	volume_exit_timer.start()
 	GdScriptFunc.set_data(\"PlayerData\", \"Volume\", volume)
-func init_ui()->void:
-	volume_progress_bar.value = GdScriptFunc.get_data(\"PlayerData\", \"Volume\", 73)
-	volume = volume_progress_bar.value
-	Player.volume_linear = volume * 0.01
+func init_ui() -> void:
+	var saved_vol = GdScriptFunc.get_data(\"PlayerData\", \"Volume\", 73)
+	volume_progress_bar.value = saved_vol
+	volume = saved_vol
+	Player.volume_linear = saved_vol * 0.01
 	_update_mode_ui()
 func _ready():
 	init_ui()
@@ -298,7 +299,6 @@ grow_vertical = 0
 mouse_filter = 1
 
 [node name="BottomMenu" type="Panel" parent="." unique_id=1488671911 node_paths=PackedStringArray("cover_node", "play_button", "volume_button", "progress_bar", "volume_progress_bar", "volume_background", "volume_exit_timer", "play_mode_button") groups=["style_panel"]]
-visible = false
 z_index = 1
 anchors_preset = 12
 anchor_top = 1.0
@@ -322,31 +322,66 @@ repeat_one_icon = ExtResource("4_rsqnk")
 list_loop_icon = ExtResource("3_rsqnk")
 shuffle_icon = ExtResource("4_qurl1")
 
-[node name="Cover" type="TextureRect" parent="BottomMenu" unique_id=1688930974]
+[node name="Next" type="Button" parent="BottomMenu" unique_id=1167225884 groups=["color_icon_hover_color", "color_icon_hover_pressed_color", "color_icon_normal_color", "color_icon_pressed_color"]]
+custom_minimum_size = Vector2(33, 33)
 layout_mode = 1
-anchors_preset = 4
+anchors_preset = 8
+anchor_left = 0.5
 anchor_top = 0.5
+anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = 13.0
-offset_top = -25.0
-offset_right = 63.0
-offset_bottom = 25.0
+offset_left = 572.5
+offset_top = -10.5
+offset_right = 605.5
+offset_bottom = 22.5
+grow_horizontal = 2
 grow_vertical = 2
-texture = ExtResource("1_fxre3")
-expand_mode = 5
-stretch_mode = 6
+focus_mode = 1
+mouse_filter = 1
+mouse_default_cursor_shape = 2
+toggle_mode = true
+button_pressed = true
+icon = ExtResource("3_2qfa3")
+flat = true
+icon_alignment = 1
+expand_icon = true
+
+[node name="PREV" type="Button" parent="BottomMenu" unique_id=791728535 groups=["color_icon_hover_color", "color_icon_hover_pressed_color", "color_icon_normal_color", "color_icon_pressed_color"]]
+custom_minimum_size = Vector2(33, 33)
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = 534.5
+offset_top = 23.5
+offset_right = 567.5
+offset_bottom = 56.5
+grow_horizontal = 2
+grow_vertical = 2
+scale = Vector2(-1, -1)
+focus_mode = 1
+mouse_filter = 1
+mouse_default_cursor_shape = 2
+toggle_mode = true
+button_pressed = true
+icon = ExtResource("3_2qfa3")
+flat = true
+icon_alignment = 1
+expand_icon = true
 
 [node name="Play" type="Button" parent="BottomMenu" unique_id=1277233588 groups=["color_icon_hover_color", "color_icon_hover_pressed_color", "color_icon_normal_color", "color_icon_pressed_color"]]
-custom_minimum_size = Vector2(40, 40)
+custom_minimum_size = Vector2(35, 35)
 layout_mode = 1
 anchors_preset = -1
 anchor_left = 0.94100004
 anchor_top = 0.5
 anchor_right = 0.94100004
 anchor_bottom = 0.5
-offset_left = -173.6001
-offset_top = -16.0
-offset_right = -133.6001
+offset_left = -170.6001
+offset_top = -11.0
+offset_right = -135.6001
 offset_bottom = 24.0
 grow_horizontal = 2
 grow_vertical = 2
@@ -360,54 +395,19 @@ flat = true
 icon_alignment = 1
 expand_icon = true
 
-[node name="Next" type="Button" parent="BottomMenu/Play" unique_id=1167225884 groups=["color_icon_hover_color", "color_icon_hover_pressed_color", "color_icon_normal_color", "color_icon_pressed_color"]]
-custom_minimum_size = Vector2(33, 33)
+[node name="Cover" type="TextureRect" parent="BottomMenu" unique_id=1688930974]
 layout_mode = 1
-anchors_preset = 8
-anchor_left = 0.5
+anchors_preset = 4
 anchor_top = 0.5
-anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = 20.0
-offset_top = -17.0
-offset_right = 53.0
-offset_bottom = 16.0
-grow_horizontal = 2
+offset_left = 13.0
+offset_top = -25.0
+offset_right = 63.0
+offset_bottom = 25.0
 grow_vertical = 2
-focus_mode = 1
-mouse_filter = 1
-mouse_default_cursor_shape = 2
-toggle_mode = true
-button_pressed = true
-icon = ExtResource("3_2qfa3")
-flat = true
-icon_alignment = 1
-expand_icon = true
-
-[node name="PREV" type="Button" parent="BottomMenu/Play" unique_id=791728535 groups=["color_icon_hover_color", "color_icon_hover_pressed_color", "color_icon_normal_color", "color_icon_pressed_color"]]
-custom_minimum_size = Vector2(33, 33)
-layout_mode = 1
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -18.0
-offset_top = 17.0
-offset_right = 15.0
-offset_bottom = 50.0
-grow_horizontal = 2
-grow_vertical = 2
-scale = Vector2(-1, -1)
-focus_mode = 1
-mouse_filter = 1
-mouse_default_cursor_shape = 2
-toggle_mode = true
-button_pressed = true
-icon = ExtResource("3_2qfa3")
-flat = true
-icon_alignment = 1
-expand_icon = true
+texture = ExtResource("1_fxre3")
+expand_mode = 5
+stretch_mode = 6
 
 [node name="PlayMode" type="Button" parent="BottomMenu" unique_id=1212575384 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 custom_minimum_size = Vector2(40, 40)
@@ -498,6 +498,7 @@ offset_top = 8.0
 offset_right = 20.0
 offset_bottom = 149.0
 grow_horizontal = 2
+mouse_filter = 1
 theme_override_styles/slider = SubResource("StyleBoxFlat_d483f")
 theme_override_styles/grabber_area = SubResource("StyleBoxFlat_4j5gr")
 theme_override_styles/grabber_area_highlight = SubResource("StyleBoxFlat_ssina")
@@ -512,9 +513,9 @@ one_shot = true
 [connection signal="visibility_changed" from="." to="." method="_on_visibility_changed"]
 [connection signal="mouse_entered" from="BottomArea" to="BottomMenu" method="show"]
 [connection signal="mouse_exited" from="BottomMenu" to="BottomMenu" method="hide"]
+[connection signal="pressed" from="BottomMenu/Next" to="BottomMenu" method="_on_next_pressed"]
+[connection signal="pressed" from="BottomMenu/PREV" to="BottomMenu" method="_on_prev_pressed"]
 [connection signal="toggled" from="BottomMenu/Play" to="BottomMenu" method="_on_play_toggled"]
-[connection signal="pressed" from="BottomMenu/Play/Next" to="BottomMenu" method="_on_next_pressed"]
-[connection signal="pressed" from="BottomMenu/Play/PREV" to="BottomMenu" method="_on_prev_pressed"]
 [connection signal="pressed" from="BottomMenu/PlayMode" to="BottomMenu" method="_on_play_mode_pressed"]
 [connection signal="drag_ended" from="BottomMenu/Progress" to="BottomMenu" method="_on_progress_drag_ended"]
 [connection signal="drag_started" from="BottomMenu/Progress" to="BottomMenu" method="_on_progress_drag_started"]

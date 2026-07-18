@@ -93,9 +93,10 @@ func _on_list_received(result: int, response_code: int, _headers: PackedStringAr
 
 func _try_download(index: int, candidates: Array, bvid: String, info: Dictionary, callback: Callable, skip_correction: bool, save_path: String) -> void:
 	if index >= candidates.size():
-		push_error("所有候选字幕失败 (%s)" % bvid)
-		callback.call({})
+		push_warning("所有候选字幕失败 (%s)，尝试外部字幕" % bvid)
+		_fallback_external(info, callback, save_path)
 		return
+
 	var c = candidates[index]
 	var url: String = c.url
 	var is_ai: bool = c.is_ai
@@ -104,36 +105,41 @@ func _try_download(index: int, candidates: Array, bvid: String, info: Dictionary
 		"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 		"Referer: https://www.bilibili.com/video/" + bvid
 	]
-	# 字幕文件使用普通下载请求，不签名
+
 	_download_request_func.call(url, func(result, code, _h, body, ext):
 		if code != 200:
 			push_warning("字幕下载失败 (%s) HTTP %d" % [bvid, code])
-			_try_download(index+1, candidates, bvid, info, callback, skip_correction, save_path)
+			_try_download(index + 1, candidates, bvid, info, callback, skip_correction, save_path)
 			return
+
 		var json = JSON.new()
 		if json.parse(body.get_string_from_utf8()) != OK:
 			push_warning("字幕JSON解析失败 (%s)" % bvid)
-			_try_download(index+1, candidates, bvid, info, callback, skip_correction, save_path)
+			_try_download(index + 1, candidates, bvid, info, callback, skip_correction, save_path)
 			return
+
 		var content = json.get_data()
 		if typeof(content) != TYPE_DICTIONARY:
 			push_warning("字幕结构异常 (%s)" % bvid)
-			_try_download(index+1, candidates, bvid, info, callback, skip_correction, save_path)
+			_try_download(index + 1, candidates, bvid, info, callback, skip_correction, save_path)
 			return
+
+		# 纯音乐占比过高则跳过当前候选，继续尝试下一个
 		if _check_music_ratio(content):
 			push_warning("纯音乐占比过高 (%s)" % bvid)
-			_try_download(index+1, candidates, bvid, info, callback, skip_correction, save_path)
+			_try_download(index + 1, candidates, bvid, info, callback, skip_correction, save_path)
 			return
 
 		var final_skip = true
 		if is_ai:
 			final_skip = skip_correction or not GdScriptFunc.get_data("Options", "SubtitleTextCorrection", false)
+
 		if final_skip:
 			_generate_lrc(content, bvid, callback, save_path)
 		else:
 			_perform_correction(content, bvid, info, callback, save_path)
-	, [bvid, info, callback, save_path, candidates, index, skip_correction], HTTPClient.METHOD_GET, headers)
 
+	, [bvid, info, callback, save_path, candidates, index, skip_correction], HTTPClient.METHOD_GET, headers)
 func _check_music_ratio(sub: Dictionary) -> bool:
 	var body = sub.get("body", [])
 	if not body is Array or body.is_empty():

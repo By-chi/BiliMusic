@@ -144,25 +144,54 @@ func _on_cover_downloaded(result: int, response_code: int, _headers: PackedStrin
 	_save_mutex.unlock()
 	_save_semaphore.post()
 
-# ------ 缓存相关（不变） ------
 func _get_cached_file(link: String, width: int, height: int) -> String:
 	_load_index()
-	var key = _cache_key(link, width, height)
-	if not _index.has(key):
-		return ""
-	var entry: Dictionary = _index[key]
-	var path = BilibiliConstants.CACHE_DIR.path_join(entry.file)
-	if not FileAccess.file_exists(path):
-		_index.erase(key)
-		_save_index()
-		return ""
-	return path
+	var exact_key = _cache_key(link, width, height)
+	#精确命中
+	if _index.has(exact_key):
+		var entry: Dictionary = _index[exact_key]
+		var path = BilibiliConstants.CACHE_DIR.path_join(entry.file)
+		if FileAccess.file_exists(path):
+			return path
+		else:
+			_index.erase(exact_key)
+			_save_index()
+
+	#找 link 相同且宽高均 >= 请求尺寸的最小图片
+	var best_entry = null
+	var best_area = INF
+	for key in _index:
+		var entry = _index[key]
+		if entry.get("link", "") != link:
+			continue
+		if entry.width >= width and entry.height >= height:
+			var area = entry.width * entry.height
+			if area < best_area:
+				best_area = area
+				best_entry = entry
+
+	if best_entry != null:
+		var path = BilibiliConstants.CACHE_DIR.path_join(best_entry.file)
+		if FileAccess.file_exists(path):
+			return path
+		else:
+			# 文件丢失，清理该索引
+			var missing_key = _cache_key(link, best_entry.width, best_entry.height)
+			_index.erase(missing_key)
+			_save_index()
+	return ""
 
 func _add_to_index(link: String, width: int, height: int, filename: String) -> void:
 	_load_index()
 	var key = _cache_key(link, width, height)
 	var now = Time.get_unix_time_from_system()
-	_index[key] = {"file": filename, "time": now}
+	_index[key] = {
+		"file": filename,
+		"time": now,
+		"link": link,
+		"width": width,
+		"height": height
+	}
 	if _index.size() > BilibiliConstants.MAX_CACHE_SIZE:
 		_evict()
 	_save_index()
@@ -175,9 +204,20 @@ func _load_index() -> void:
 		var entry = GdScriptFunc.get_data("CoverCache", key)
 		if typeof(entry) == TYPE_DICTIONARY:
 			var file = entry.get("file", "")
+			if file.is_empty():
+				continue
+			# 兼容旧数据，缺失字段给默认值（宽高为0，导致大带小失效但不报错）
 			var time = entry.get("time", 0)
-			if not file.is_empty():
-				_index[key] = {"file": file, "time": time}
+			var link = entry.get("link", "")
+			var width = entry.get("width", 0)
+			var height = entry.get("height", 0)
+			_index[key] = {
+				"file": file,
+				"time": time,
+				"link": link,
+				"width": width,
+				"height": height
+			}
 	_index_loaded = true
 
 func _save_index() -> void:
@@ -211,29 +251,56 @@ func _process_one_task() -> void:
 	var link: String = task.link
 	var callback: Callable = task.callback
 	var cached_path: String = task.cached_path
+	var req_width: int = task.width
+	var req_height: int = task.height
+
 	if not FileAccess.file_exists(cached_path):
 		push_error("缓存文件丢失，重新下载 (%s)" % link)
-		_get_cover_url(link, task.width, task.height, func(url):
+		_get_cover_url(link, req_width, req_height, func(url):
 			if url.is_empty():
 				GdScriptFunc.safe_callback(link, null, callback)
 				return
-			_download_cover(url, link, task.width, task.height, callback)
+			_download_cover(url, link, req_width, req_height, callback)
 		)
-	else:
-		var img = Image.new()
-		if img.load(cached_path) == OK:
-			var tex = ImageTexture.create_from_image(img)
-			GdScriptFunc.safe_callback(link, tex, callback)
-		else:
-			push_error("缓存图片损坏，重新下载 (%s)" % link)
-			DirAccess.remove_absolute(cached_path)
-			_get_cover_url(link, task.width, task.height, func(url):
-				if url.is_empty():
-					GdScriptFunc.safe_callback(link, null, callback)
-					return
-				_download_cover(url, link, task.width, task.height, callback)
-			)
+		return
 
+	var img = Image.new()
+	if img.load(cached_path) != OK:
+		push_error("缓存图片损坏，重新下载 (%s)" % link)
+		DirAccess.remove_absolute(cached_path)
+		_get_cover_url(link, req_width, req_height, func(url):
+			if url.is_empty():
+				GdScriptFunc.safe_callback(link, null, callback)
+				return
+			_download_cover(url, link, req_width, req_height, callback)
+		)
+		return
+
+	# 尺寸匹配则直接使用，否则等比缩放并中心裁剪至请求尺寸
+	if img.get_width() != req_width or img.get_height() != req_height:
+		img = _resize_and_crop_center(img, req_width, req_height)
+
+	var tex = ImageTexture.create_from_image(img)
+	GdScriptFunc.safe_callback(link, tex, callback)
+# 等比缩放至完全覆盖目标区域，然后中心裁剪
+func _resize_and_crop_center(src: Image, target_width: int, target_height: int) -> Image:
+	var sw = src.get_width()
+	var sh = src.get_height()
+	var scale = max(float(target_width) / sw, float(target_height) / sh)
+	var new_w = int(sw * scale)
+	var new_h = int(sh * scale)
+
+	# 先等比放大到完全覆盖目标尺寸
+	src.resize(new_w, new_h, Image.INTERPOLATE_LANCZOS)  # 若报错可换成 Image.INTERPOLATE_BILINEAR
+
+	# 计算中心裁剪区域
+	@warning_ignore("integer_division")
+	var crop_x = (new_w - target_width) / 2
+	@warning_ignore("integer_division")
+	var crop_y = (new_h - target_height) / 2
+	var rect = Rect2i(crop_x, crop_y, target_width, target_height)
+
+	return src.get_region(rect)
 func _save_worker() -> void:
 	while not _stop_save_thread:
 		_save_semaphore.wait()
