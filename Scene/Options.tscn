@@ -40,9 +40,9 @@ func _ready() -> void:
 				_setup_generic(option, control)
 
 			_setting_controls[option.name] = control
-
+	GdScriptFunc.traverse_iterative_no_text_ui(get_tree().root)
 	_update_cache_size()
-
+	
 func _setup_language(option: Control, option_button: OptionButton) -> void:
 	# 使用有序数组，确保名称和代码一一对应
 	var lang_names = [\"中文\", \"English\", \"日本語\"]
@@ -84,10 +84,9 @@ func _setup_language(option: Control, option_button: OptionButton) -> void:
 		var selected_code = lang_codes[index]
 		GdScriptFunc.set_data(\"Options\", \"Language\", selected_code, true)
 		TranslationServer.set_locale(selected_code)
-		GdScriptFunc.traverse_iterative_on_tabBar(get_tree().root)
+		GdScriptFunc.traverse_iterative_no_text_ui(get_tree().root)
 		_update_cache_size()
 	)
-
 func _setup_account(option: Control, button: Button) -> void:
 	var sessdata = GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\")
 	if sessdata == null:
