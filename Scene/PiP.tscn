@@ -189,7 +189,8 @@ script/source = "# 仅处理界面显示与用户输入，实际播放逻辑调�
 
 extends Control
 @export var play_button: Button
-
+@export var volume_label: Label
+@export var volume_hide_timer: Timer
 # 模式相关UI
 @export var play_mode_button: Button
 @export var play_once_icon: Texture2D
@@ -283,8 +284,14 @@ func _on_prev_pressed() -> void:
 func _on_right_gui_input(event: InputEvent) -> void:
 	if Input.is_action_just_pressed(\"Wheel_Turn_Up\"):
 		volume=minf(volume+5,100)
+		volume_label.show()
+		volume_label.text=str(int(volume))+\"%\"
+		volume_hide_timer.start(2)
 	elif Input.is_action_just_pressed(\"Wheel_Turn_Down\"):
 		volume=maxf(volume-5,0)
+		volume_label.show()
+		volume_label.text=str(int(volume))+\"%\"
+		volume_hide_timer.start(2)
 "
 
 [node name="Window" type="Window" unique_id=797904427 node_paths=PackedStringArray("bottom_menu", "drag_strip", "drag_bar", "card")]
@@ -324,7 +331,7 @@ grow_horizontal = 2
 grow_vertical = 0
 mouse_filter = 1
 
-[node name="BottomMenu" type="Control" parent="." unique_id=1265407394 node_paths=PackedStringArray("play_button", "play_mode_button") groups=["style_panel"]]
+[node name="BottomMenu" type="Control" parent="." unique_id=1265407394 node_paths=PackedStringArray("play_button", "volume_label", "volume_hide_timer", "play_mode_button") groups=["style_panel"]]
 z_index = 1
 layout_mode = 3
 anchors_preset = 12
@@ -336,6 +343,8 @@ grow_horizontal = 2
 grow_vertical = 0
 script = SubResource("GDScript_68k2e")
 play_button = NodePath("Play")
+volume_label = NodePath("../Volume")
+volume_hide_timer = NodePath("../Volume/Timer")
 play_mode_button = NodePath("PlayMode")
 play_once_icon = ExtResource("1_ovtlm")
 repeat_one_icon = ExtResource("2_x1tu5")
@@ -482,6 +491,25 @@ modulate = Color(1, 1, 1, 0)
 position = Vector2(229, 14)
 texture = ExtResource("8_ovtlm")
 
+[node name="Volume" type="Label" parent="." unique_id=480756262 groups=["color_font_color"]]
+visible = false
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -106.0
+offset_top = -17.0
+offset_right = -58.0
+offset_bottom = 17.0
+grow_horizontal = 0
+grow_vertical = 2
+theme_override_font_sizes/font_size = 26
+text = "73%"
+
+[node name="Timer" type="Timer" parent="Volume" unique_id=1730817062]
+one_shot = true
+
 [connection signal="close_requested" from="." to="." method="_on_close_requested"]
 [connection signal="visibility_changed" from="." to="." method="_on_visibility_changed"]
 [connection signal="mouse_entered" from="BottomArea" to="BottomMenu" method="show"]
@@ -494,3 +522,4 @@ texture = ExtResource("8_ovtlm")
 [connection signal="gui_input" from="Right" to="BottomMenu" method="_on_right_gui_input"]
 [connection signal="mouse_entered" from="Top" to="." method="TopMouseEntered"]
 [connection signal="mouse_exited" from="Top" to="." method="TopMouseExited"]
+[connection signal="timeout" from="Volume/Timer" to="Volume" method="hide"]
