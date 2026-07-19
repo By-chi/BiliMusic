@@ -34,19 +34,40 @@ var cover: Texture2D:
 		var colors: Array[Color] = CSharpFunc.ExtractThemeColors(value.get_image(), 1, true, 0.15)
 		if colors.size() > 0:
 			color_rect.color = colors[0].blend(Color(1, 1, 1, 0.5))
+func _format_for_tooltip(raw_text: String, chars_per_line: int = 35, max_lines: int = 8) -> String:
+	if raw_text.is_empty():
+		return ""
+	
+	var lines: Array[String] = []
+	var current_line := ""
+	
+	for ch in raw_text:
+		current_line += ch
+		if current_line.length() >= chars_per_line:
+			lines.append(current_line)
+			current_line = ""
+			if lines.size() >= max_lines:
+				break
+	
+	if not current_line.is_empty() and lines.size() < max_lines:
+		lines.append(current_line)
+	
+	if lines.size() >= max_lines:
+		var last_line := lines[max_lines - 1]
+		if raw_text.length() > last_line.length() + (lines.size() - 1) * chars_per_line:
+			lines[max_lines - 1] = last_line + "…"
+	
+	return "\n".join(lines)
 
 var description := "":
 	set(value):
 		description = value
-		tooltip_text = CSharpFunc.ExtractSongName(title)
-		printt(title, tooltip_text)
-
+		tooltip_text =_format_for_tooltip(value)
 var title := "":
 	set(value):
 		title = value
 		if title_label != null:
 			title_label.text = value
-		tooltip_text = title + "\n" + description
 		_after_text_changed()
 var block_play := false
 

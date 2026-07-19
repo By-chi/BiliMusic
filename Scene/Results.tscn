@@ -17,7 +17,6 @@ script/source = "extends Control
 @export var loading: Control
 @export var error: TextureRect
 @export var obstacle: Panel
-
 var current_execution_number := 0
 var current_count := 0
 var current_page := 1

@@ -22,7 +22,7 @@ public partial class AudioSpectrumCalculator : Node
     [Export] public float maxChangedSpeed = 3000.0f;
     [Export] public float dynamicUpdateInterval = 0.2f;
     [Export] public float dynamicThreshold = 3.0f;
-
+    private AudioStreamPlayer playerNode;
     private AudioEffectSpectrumAnalyzerInstance analyzer;
     private float[] smoothedBandEnergies;
     private float smoothedOverallEnergy = 0.0f;
@@ -39,6 +39,7 @@ public partial class AudioSpectrumCalculator : Node
         // 获取第 1 个总线的第 0 个效果（需确保总线上有 SpectrumAnalyzer 效果）
         var instance = AudioServer.GetBusEffectInstance(1, 0);
         analyzer = instance as AudioEffectSpectrumAnalyzerInstance;
+        playerNode=GetNode<AudioStreamPlayer>("/root/Player");
         maxFrequency = AudioServer.GetMixRate() / 2.0f;
         ampScale = spectrumScale;
 
@@ -72,7 +73,7 @@ public partial class AudioSpectrumCalculator : Node
         currentAlphaRelease = ComputeAlphaCoefficient(releaseCoefficient, delta);
     }
 
-    private float ComputeAlphaCoefficient(float coeff, float delta)
+    private static float ComputeAlphaCoefficient(float coeff, float delta)
     {
         if (coeff >= 1.0f) return 0.0f;
         if (coeff <= 0.0f) return 1.0f;
@@ -83,7 +84,9 @@ public partial class AudioSpectrumCalculator : Node
 
     private float GetRawBandEnergy(float minFreq, float maxFreq)
     {
-        Vector2 mag = analyzer.GetMagnitudeForFrequencyRange(minFreq, maxFreq);
+        if (playerNode.VolumeLinear <= 0.0f)
+            return 0.0f;
+        Vector2 mag = analyzer.GetMagnitudeForFrequencyRange(minFreq, maxFreq)/playerNode.VolumeLinear;
         return mag.X * mag.X + mag.Y * mag.Y;
     }
 

@@ -27,7 +27,7 @@ public class LyricsFetcher
     /// <summary>
     /// 验证歌词内容是否有效（非占位文本且至少包含两行实际歌词）
     /// </summary>
-    private bool IsLyricContentValid(string rawLrc)
+    private static bool IsLyricContentValid(string rawLrc)
     {
         if (string.IsNullOrWhiteSpace(rawLrc))
             return false;
