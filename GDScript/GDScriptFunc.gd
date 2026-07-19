@@ -1,13 +1,13 @@
 extends Node
 
 
-func traverse_iterative(root: Node):
+func traverse_iterative_on_tabBar(root: Node):
 	var stack = [root]
 	while stack.size() > 0:
 		var node = stack.pop_back()  # 取出最后一个
-		var tr_name := tr(node.name)
-		if node.name != tr_name:
-			node.name = tr_name
+		if node is TabBar:
+			for i in node.tab_count:
+				node.set_tab_title(i,tr(node.get_tab_title()))
 		# 将子节点压入栈（顺序无所谓）
 		for child in node.get_children():
 			stack.append(child)

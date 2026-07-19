@@ -84,8 +84,9 @@ func _setup_language(option: Control, option_button: OptionButton) -> void:
 		var selected_code = lang_codes[index]
 		GdScriptFunc.set_data(\"Options\", \"Language\", selected_code, true)
 		TranslationServer.set_locale(selected_code)
+		GdScriptFunc.traverse_iterative_on_tabBar(get_tree().root)
+		_update_cache_size()
 	)
-	GdScriptFunc.traverse_iterative(get_tree().root)
 
 func _setup_account(option: Control, button: Button) -> void:
 	var sessdata = GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\")
@@ -373,6 +374,7 @@ func _update_cache_size() -> void:
 	if DirAccess.dir_exists_absolute(\"user://bilibili_cover_cache/\"):
 		var cache_size = CSharpFunc.GetDirectorySize(ProjectSettings.globalize_path(\"user://bilibili_cover_cache/\"))
 		ClearCoversCache.text = tr(\"清理封面缓存(%.2fMB)\") % cache_size
+		print(ClearCoversCache.text)
 	if DirAccess.dir_exists_absolute(\"user://lyrics/\"):
 		var cache_size = CSharpFunc.GetDirectorySize(ProjectSettings.globalize_path(\"user://lyrics/\"))
 		ClearLyricsCache.text = tr(\"清理歌词缓存(%.2fMB)\") % cache_size
