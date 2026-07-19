@@ -1,0 +1,298 @@
+[gd_scene format=3 uid="uid://dmtg18r2mi5se"]
+
+[ext_resource type="Texture2D" uid="uid://xnvpcuxqr5u0" path="res://UI/Icon/ShadouMuYou.png" id="1_jb8ak"]
+
+[sub_resource type="GDScript" id="GDScript_jb8ak"]
+script/source = "extends Button
+
+@export var Background: TextureRect
+@export var Cover: TextureRect
+@export var Title: Label
+@export var CountLabel: Label
+
+var directory_name: String = \"\":
+	set(value):
+		directory_name = value
+		if Title:
+			Title.text = value
+
+var videos: Array = []:
+	set(value):
+		videos = value
+		_update_appearance()
+
+var _hover_tween: Tween
+var _cover_images: Array[Image] = []
+
+func _ready() -> void:
+	if Background:
+		Background.set_anchors_preset(Control.PRESET_FULL_RECT)
+		Background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		Background.modulate.a = 0.0
+	if Cover:
+		Cover.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		Cover.stretch_mode = TextureRect.STRETCH_SCALE
+		Cover.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+func _update_appearance() -> void:
+	if videos.is_empty():
+		_clear_display()
+		return
+
+	_build_cover_images()
+	_update_cover_and_background()
+	_update_count()
+
+func _clear_display() -> void:
+	if Cover: Cover.texture = null
+	if Background: Background.texture = null
+	if CountLabel: CountLabel.text = \"♪0\"
+	_cover_images.clear()
+
+func _build_cover_images() -> void:
+	_cover_images.clear()
+	for i in min(3, videos.size()):
+		var img = _get_cover_image(videos[i], i)
+		_cover_images.append(img)
+
+func _get_cover_image(video_data: Dictionary, index: int) -> Image:
+	var link = video_data.get(\"link\", \"\")
+	var is_network = video_data.get(\"is_network\", true)
+
+	if not is_network:
+		var cover_path = link.get_basename() + \".jpg\"
+		if FileAccess.file_exists(cover_path):
+			var img = Image.load_from_file(cover_path)
+			if img and not img.is_empty():
+				img.convert(Image.FORMAT_RGBA8)
+				return img
+		return _create_placeholder(video_data.get(\"title\", \"\"))
+	else:
+		var bvid = video_data.get(\"BV\", link)
+		BilibiliApi.fetch_cover(bvid, func(_bid, tex):
+			if is_instance_valid(self) and tex:
+				_on_network_cover_ready(index, tex)
+		, 200, 200)
+		return _create_placeholder(video_data.get(\"title\", \"\"))
+
+func _create_placeholder(title: String) -> Image:
+	var img = Image.create(200, 200, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0.2, 0.2, 0.2))
+	return img
+
+func _on_network_cover_ready(index: int, texture: Texture2D) -> void:
+	if not is_inside_tree() or index < 0 or index >= videos.size():
+		return
+	if not texture:
+		return
+	var downloaded_img = texture.get_image()
+	if downloaded_img == null or downloaded_img.is_empty():
+		return
+	downloaded_img.convert(Image.FORMAT_RGBA8)
+	if _cover_images.size() <= index:
+		_cover_images.resize(max(3, index + 1))
+	_cover_images[index] = downloaded_img
+	_update_cover_and_background()
+
+func _update_cover_and_background() -> void:
+	if not Cover or _cover_images.is_empty():
+		return
+
+	Cover.texture = _create_combined_cover(_cover_images)
+
+	if Background:
+		_update_background_from_images(_cover_images)
+		Background.modulate.a = 0.0
+
+func _create_combined_cover(images: Array[Image]) -> ImageTexture:
+	if images.is_empty():
+		return null
+
+	const TARGET_W = 224
+	const TARGET_H = 90
+
+	var cell_count = images.size()
+	var cell_w: int = TARGET_W / cell_count
+	var cell_h: int = TARGET_H
+
+	var final_img = Image.create(TARGET_W, TARGET_H, false, Image.FORMAT_RGBA8)
+
+	#缩放每张子图至 cell_w × cell_h (KEEP_ASPECT_COVERED)
+	var scaled_images: Array[Image] = []
+	for i in cell_count:
+		var src = images[i]
+		if src == null or src.is_empty():
+			scaled_images.append(null)
+			continue
+		src.convert(Image.FORMAT_RGBA8)
+		var scaled = _scale_to_cover(src, cell_w, cell_h)
+		scaled_images.append(scaled)
+
+	#将缩放后的子图绘制到 final_img 对应位置
+	for i in cell_count:
+		var img = scaled_images[i]
+		if img == null:
+			continue
+		var dest_x = i * cell_w
+		final_img.blit_rect(img, Rect2i(0, 0, cell_w, cell_h), Vector2i(dest_x, 0))
+
+	#添加单向向左阴影（交界处）
+	var blend_width = 10
+	for i in range(1, cell_count):
+		var seam_x = i * cell_w
+		var start_x = seam_x - blend_width
+		for x in range(start_x, seam_x):
+			if x < 0 or x >= TARGET_W:
+				continue
+			var t = float(x - start_x) / (blend_width - 1) if blend_width > 1 else 0.0
+			var alpha = smoothstep(0.0, 1.0, t) * 0.6
+			var shadow = Color(0, 0, 0, alpha)
+			for y in range(TARGET_H):
+				var original = final_img.get_pixel(x, y)
+				var blended = original.lerp(shadow, alpha)
+				blended.a = 1.0
+				final_img.set_pixel(x, y, blended)
+
+	return ImageTexture.create_from_image(final_img)
+func _scale_to_cover(src: Image, target_w: int, target_h: int) -> Image:
+	src.convert(Image.FORMAT_RGBA8)
+	var src_w = src.get_width()
+	var src_h = src.get_height()
+	if src_w == 0 or src_h == 0:
+		return Image.create(target_w, target_h, false, Image.FORMAT_RGBA8)
+
+	var img_scale = max(float(target_w) / src_w, float(target_h) / src_h)
+	var new_w = int(src_w * img_scale)
+	var new_h = int(src_h * img_scale)
+
+	# 1. 复制原图并缩放至覆盖尺寸
+	var scaled = src.duplicate()          # 创建副本，不破坏原图
+	scaled.resize(new_w, new_h, Image.INTERPOLATE_LANCZOS)
+
+	# 2. 从缩放后的图中居中裁切 target_w × target_h
+	var result = Image.create(target_w, target_h, false, Image.FORMAT_RGBA8)
+	var src_rect = Rect2i(
+		(new_w - target_w) / 2,
+		(new_h - target_h) / 2,
+		target_w,
+		target_h
+	)
+	result.blit_rect(scaled, src_rect, Vector2i.ZERO)
+	return result
+
+func _update_background_from_images(images: Array[Image]) -> void:
+	if not Background or images.is_empty():
+		return
+
+	var colors: Array[Color] = []
+	for img in images:
+		if img and not img.is_empty():
+			var color = CSharpFunc.ExtractThemeColors(img, 1, true, 0.15)
+			if color.size() > 0:
+				colors.append(color[0])
+
+	if colors.is_empty():
+		colors = [Color(0.2, 0.2, 0.2)]
+
+	var avg_h = 0.0
+	var avg_s = 0.0
+	var avg_v = 0.0
+	for c in colors:
+		avg_h += c.h
+		avg_s += c.s
+		avg_v += c.v
+	avg_h /= colors.size()
+	avg_s /= colors.size()
+	avg_v /= colors.size()
+
+	var gradient = Gradient.new()
+	var base = Color.from_hsv(avg_h, min(avg_s, 0.6), min(avg_v, 0.7))
+	gradient.add_point(0.0, base.lightened(0.4))
+	gradient.add_point(0.5, base.lightened(0.1))
+	gradient.add_point(1.0, base.darkened(0.3))
+
+	var tex = GradientTexture2D.new()
+	tex.gradient = gradient
+	tex.width = 256
+	tex.height = 256
+	Background.texture = tex
+
+func _update_count() -> void:
+	if CountLabel:
+		CountLabel.text = \"♪\"+str(videos.size())
+
+func _on_mouse_entered() -> void:
+	if _hover_tween and _hover_tween.is_running():
+		_hover_tween.kill()
+	_hover_tween = create_tween()
+	_hover_tween.tween_property(Background, \"modulate:a\", 0.7, 0.2)
+	modulate = Color(0.9, 0.9, 1.0)
+
+func _on_mouse_exited() -> void:
+	if _hover_tween and _hover_tween.is_running():
+		_hover_tween.kill()
+	_hover_tween = create_tween()
+	_hover_tween.tween_property(Background, \"modulate:a\", 0.0, 0.25).set_trans(Tween.TRANS_CUBIC)
+	modulate = Color.WHITE
+"
+
+[node name="ListDeck" type="Button" unique_id=229001080 node_paths=PackedStringArray("Background", "Cover", "Title", "CountLabel")]
+clip_children = 2
+custom_minimum_size = Vector2(0, 90)
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 8.0
+grow_horizontal = 2
+script = SubResource("GDScript_jb8ak")
+Background = NodePath("Background")
+Cover = NodePath("Cover")
+Title = NodePath("Title")
+CountLabel = NodePath("Count")
+
+[node name="Background" type="TextureRect" parent="." unique_id=148834845]
+modulate = Color(1, 1, 1, 0)
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 224.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Cover" type="TextureRect" parent="." unique_id=831564856]
+custom_minimum_size = Vector2(70, 70)
+layout_mode = 1
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_right = 224.0
+grow_vertical = 2
+mouse_filter = 2
+texture = ExtResource("1_jb8ak")
+expand_mode = 1
+
+[node name="Title" type="Label" parent="." unique_id=1768150538]
+layout_mode = 1
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_left = 284.0
+offset_right = 1600.0
+grow_vertical = 2
+mouse_filter = 1
+theme_override_font_sizes/font_size = 24
+text = "Title"
+vertical_alignment = 1
+
+[node name="Count" type="Label" parent="." unique_id=2113842097]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -40.0
+offset_top = -23.0
+grow_horizontal = 0
+grow_vertical = 0
+
+[connection signal="mouse_entered" from="." to="." method="_on_mouse_entered"]
+[connection signal="mouse_exited" from="." to="." method="_on_mouse_exited"]

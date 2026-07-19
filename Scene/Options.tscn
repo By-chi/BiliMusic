@@ -84,8 +84,9 @@ func _setup_language(option: Control, option_button: OptionButton) -> void:
 		var selected_code = lang_codes[index]
 		GdScriptFunc.set_data(\"Options\", \"Language\", selected_code, true)
 		TranslationServer.set_locale(selected_code)
+		GdScriptFunc.traverse_iterative_on_tabBar(get_tree().root)
+		_update_cache_size()
 	)
-	GdScriptFunc.traverse_iterative(get_tree().root)
 
 func _setup_account(option: Control, button: Button) -> void:
 	var sessdata = GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\")

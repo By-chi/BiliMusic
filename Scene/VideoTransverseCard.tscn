@@ -9,7 +9,12 @@ script/source = "extends BaseVideoCard
 @export var play_label: Label
 @export var share_button: Button
 @export var duration_label: Label
-
+func set_share_visible(vis) -> void:
+	share_button.visible=vis
+func set_play_visible(vis) -> void:
+	play_label.visible=vis
+func set_duration_visible(vis) -> void:
+	duration_label.visible=vis
 var keywords:=\"\":
 	set(value):
 		keywords = value
@@ -133,7 +138,7 @@ grow_vertical = 2
 mouse_filter = 2
 texture = ExtResource("1_olim5")
 expand_mode = 5
-stretch_mode = 5
+stretch_mode = 6
 
 [node name="Title" type="RichTextLabel" parent="." unique_id=1883313943]
 layout_mode = 1
