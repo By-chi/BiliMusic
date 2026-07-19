@@ -1,13 +1,13 @@
 extends Node
 
 
-func traverse_iterative_on_tabBar(root: Node):
+func traverse_iterative_no_text_ui(root: Node):
 	var stack = [root]
 	while stack.size() > 0:
 		var node = stack.pop_back()  # 取出最后一个
 		if node is TabBar:
 			for i in node.tab_count:
-				node.set_tab_title(i,tr(node.get_tab_title()))
+				node.set_tab_title(i,tr(node.get_parent().get_child(i).name))
 		# 将子节点压入栈（顺序无所谓）
 		for child in node.get_children():
 			stack.append(child)
@@ -722,10 +722,12 @@ func apply_theme_from_path(path: String) -> bool:
 
 
 func update_marks_theme_and_styles() -> void:
-	for i in theme_and_styles_marks:
-		if is_instance_valid(i) and i.is_queued_for_deletion():
-			continue
-		apply_theme_and_styles_to_node(i)
+	for idx in range(theme_and_styles_marks.size() - 1, -1, -1):
+		var node = theme_and_styles_marks[idx]
+		if not is_instance_valid(node) or node.is_queued_for_deletion():
+			theme_and_styles_marks.remove_at(idx)   # 移除失效节点
+		else:
+			apply_theme_and_styles_to_node(node)
 
 
 ## 对动态加载节点仅应用特殊样式(不改变主题)
