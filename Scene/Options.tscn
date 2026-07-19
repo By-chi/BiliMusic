@@ -150,7 +150,7 @@ func _setup_skin(option_button: OptionButton) -> void:
 		sorted_paths.append(skin_dict[skin_name])
 
 	for d in skin_names:
-		option_button.add_item(d)
+		option_button.add_item(tr(d))
 
 	# 恢复上次选中的皮肤
 	var saved_path = GdScriptFunc.get_data(\"Options\", \"Skin\", \"\")
@@ -212,7 +212,7 @@ func _setup_pip_theme(option_button: OptionButton) -> void:
 	sorted.sort()
 	option_button.clear()
 	for theme_name in sorted:
-		option_button.add_item(theme_name)
+		option_button.add_item(tr(theme_name))
 
 	var sorted_paths: Array = []
 	for theme_name in sorted:
@@ -272,7 +272,8 @@ func _setup_big_window_theme(option_button: OptionButton) -> void:
 	sorted.sort()
 	option_button.clear()
 	for theme_name in sorted:
-		option_button.add_item(theme_name)
+		print(\"sdd\", tr(theme_name))
+		option_button.add_item(tr(theme_name))
 
 	var sorted_paths: Array = []
 	for theme_name in sorted:

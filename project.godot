@@ -139,7 +139,7 @@ pointing/emulate_touch_from_mouse=true
 [internationalization]
 
 locale/translations=PackedStringArray("res://Translate/translations_template.en.translation", "res://Translate/translations_template.ja.translation", "res://Translate/translations_template.zh.translation")
-locale/translations_pot_files=PackedStringArray("res://Scene/Deck.tscn", "res://Scene/Discover.tscn", "res://Scene/Favorites.tscn", "res://Scene/Import.tscn", "res://Scene/Log_in.tscn", "res://Scene/Main.tscn", "res://Scene/MetadataManager.tscn", "res://Scene/Options.tscn", "res://Scene/Player.tscn", "res://Scene/ProgressBarWindow.tscn", "res://Scene/Results.tscn", "res://Scene/UpPpreview.tscn", "res://Scene/VideoCard.tscn", "res://Scene/VideoTransverseCard.tscn", "res://Scene/WindowPlayback.tscn")
+locale/translations_pot_files=PackedStringArray("res://Scene/Deck.tscn", "res://Scene/Discover.tscn", "res://Scene/Favorites.tscn", "res://Scene/Import.tscn", "res://Scene/Log_in.tscn", "res://Scene/Main.tscn", "res://Scene/MetadataManager.tscn", "res://Scene/Options.tscn", "res://Scene/Player.tscn", "res://Scene/ProgressBarWindow.tscn", "res://Scene/Results.tscn", "res://Scene/UpPpreview.tscn", "res://Scene/VideoCard.tscn", "res://Scene/VideoTransverseCard.tscn", "res://Scene/WindowPlayback.tscn", "res://Translate/translations_template.csv")
 locale/translation_add_builtin_strings_to_pot=true
 locale/fallback="zh"
 
