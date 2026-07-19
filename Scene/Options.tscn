@@ -272,7 +272,6 @@ func _setup_big_window_theme(option_button: OptionButton) -> void:
 	sorted.sort()
 	option_button.clear()
 	for theme_name in sorted:
-		print(\"sdd\", tr(theme_name))
 		option_button.add_item(tr(theme_name))
 
 	var sorted_paths: Array = []
