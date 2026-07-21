@@ -636,6 +636,8 @@ func extract_key_from_url(url: String) -> String:
 func create_frosted_texture_async(
 	source: Texture2D, sigma: float = 3.0, tint: Color = Color.TRANSPARENT
 ) -> ImageTexture:
+	if source==null:
+		return ImageTexture.new()
 	var vp = SubViewport.new()
 	vp.transparent_bg = true
 	vp.size = source.get_size()
