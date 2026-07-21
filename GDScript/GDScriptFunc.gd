@@ -8,10 +8,6 @@ func traverse_iterative_no_text_ui(root: Node):
 		if node is TabBar:
 			for i in node.tab_count:
 				node.set_tab_title(i,tr(node.get_parent().get_child(i).name))
-		elif node is OptionButton:
-			var popup = node.get_popup()
-			for i in popup.item_count:
-				popup.set_item_language(i, TranslationServer.get_locale())
 		# 将子节点压入栈（顺序无所谓ka）
 		for child in node.get_children():
 			stack.append(child)
