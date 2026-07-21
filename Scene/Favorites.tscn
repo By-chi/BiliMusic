@@ -184,7 +184,7 @@ func _create_deck_node(dir_name: String) -> Node:
 	if list_view_mode:
 		var deck = ListDeckScene.instantiate()
 		deck.directory_name = dir_name
-		deck.videos = GdScriptFunc.get_data(\"Favorites\", dir_name)
+		deck.videos = GdScriptFunc.get_data(\"Favorites\", dir_name,[])
 		deck.pressed.connect(_on_deck_pressed.bind(deck))
 		deck.gui_input.connect(_on_child_gui_input.bind(deck))
 		return deck

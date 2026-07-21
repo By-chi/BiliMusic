@@ -7,14 +7,14 @@ script/source = "extends Button
 
 @export var Background: TextureRect
 @export var Cover: TextureRect
-@export var Title: Label
+@export var text_node: LineEdit
 @export var CountLabel: Label
 
 var directory_name: String = \"\":
 	set(value):
 		directory_name = value
-		if Title:
-			Title.text = value
+		if text_node:
+			text_node.text = value
 
 var videos: Array = []:
 	set(value):
@@ -236,17 +236,20 @@ func _on_mouse_exited() -> void:
 	modulate = Color.WHITE
 "
 
-[node name="ListDeck" type="Button" unique_id=229001080 node_paths=PackedStringArray("Background", "Cover", "Title", "CountLabel")]
+[sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_jb8ak"]
+
+[node name="ListDeck" type="Button" unique_id=229001080 node_paths=PackedStringArray("Background", "Cover", "text_node", "CountLabel")]
 clip_children = 2
 custom_minimum_size = Vector2(0, 90)
 anchors_preset = 10
 anchor_right = 1.0
 offset_bottom = 8.0
 grow_horizontal = 2
+mouse_default_cursor_shape = 2
 script = SubResource("GDScript_jb8ak")
 Background = NodePath("Background")
 Cover = NodePath("Cover")
-Title = NodePath("Title")
+text_node = NodePath("Title")
 CountLabel = NodePath("Count")
 
 [node name="Background" type="TextureRect" parent="." unique_id=148834845]
@@ -270,17 +273,21 @@ mouse_filter = 2
 texture = ExtResource("1_jb8ak")
 expand_mode = 1
 
-[node name="Title" type="Label" parent="." unique_id=1768150538]
+[node name="Title" type="LineEdit" parent="." unique_id=936321444]
 layout_mode = 1
-anchors_preset = 9
+anchors_preset = -1
+anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 284.0
-offset_right = 1600.0
+offset_left = 236.0
+grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 1
 theme_override_font_sizes/font_size = 24
+theme_override_styles/normal = SubResource("StyleBoxEmpty_jb8ak")
+theme_override_styles/read_only = SubResource("StyleBoxEmpty_jb8ak")
+theme_override_styles/focus = SubResource("StyleBoxEmpty_jb8ak")
 text = "Title"
-vertical_alignment = 1
+flat = true
 
 [node name="Count" type="Label" parent="." unique_id=2113842097]
 layout_mode = 1
