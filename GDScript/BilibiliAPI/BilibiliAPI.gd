@@ -24,7 +24,6 @@ func _ready() -> void:
 
 	var api_func = Callable(self, "_request_with_sign")
 	var dl_func  = Callable(self, "_request")
-
 	cover_cache = BilibiliCoverCache.new(api_func, dl_func)
 	lyrics_cache = BilibiliLyricsCache.new()
 	subtitle_manager = BilibiliSubtitleManager.new(api_func, dl_func, sub_corr, m4s_player)   # 现在为 4 个参数

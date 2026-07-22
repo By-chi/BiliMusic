@@ -224,6 +224,7 @@ func _lazy_update_video_cards() -> void:
 			if old_is_network != new_is_network:
 				card.reset()
 				if new_is_network:
+					print(\"7\")
 					BilibiliApi.fetch_cover(card.link, set_cover.bind(card), 70 if list_view_mode else 583, 70 if list_view_mode else 364)
 				elif FileAccess.file_exists(card.link.get_basename() + \".jpg\"):
 					var image = Image.load_from_file(card.link.get_basename() + \".jpg\")
@@ -881,6 +882,11 @@ func update_view() -> void:
 
 func _on_view_mode_pressed() -> void:
 	list_view_mode = !list_view_mode
+
+
+func _on_visibility_changed() -> void:
+	if visible:
+		_rebuild_current_view()
 "
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_1siev"]
@@ -1106,6 +1112,7 @@ icon = ExtResource("8_l7kha")
 expand_icon = true
 
 [connection signal="resized" from="." to="." method="_on_thumbnails_scroll_resized"]
+[connection signal="visibility_changed" from="." to="." method="_on_visibility_changed"]
 [connection signal="pressed" from="Bar/Add" to="." method="_on_add_pressed"]
 [connection signal="pressed" from="Bar/Cut" to="." method="_on_cut_pressed"]
 [connection signal="pressed" from="Bar/Copy" to="." method="_on_copy_pressed"]
