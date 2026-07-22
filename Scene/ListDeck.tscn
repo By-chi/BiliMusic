@@ -234,6 +234,20 @@ func _on_mouse_exited() -> void:
 	_hover_tween = create_tween()
 	_hover_tween.tween_property(Background, \"modulate:a\", 0.0, 0.25).set_trans(Tween.TRANS_CUBIC)
 	modulate = Color.WHITE
+
+
+func _on_title_text_submitted(new_text: String) -> void:
+	new_text=new_text.strip_edges()
+	var err:=GdScriptFunc.set_key(\"Favorites\", directory_name, new_text)
+	if err==OK:
+		directory_name = new_text
+		text_node.release_focus()
+	elif err==ERR_ALREADY_EXISTS:
+		text_node.text = directory_name
+	elif err==ERR_DOES_NOT_EXIST:
+		GdScriptFunc.set_data(\"Favorites\", new_text,[])
+		directory_name = new_text
+		text_node.release_focus()
 "
 
 [sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_jb8ak"]
@@ -303,3 +317,4 @@ grow_vertical = 0
 
 [connection signal="mouse_entered" from="." to="." method="_on_mouse_entered"]
 [connection signal="mouse_exited" from="." to="." method="_on_mouse_exited"]
+[connection signal="text_submitted" from="Title" to="." method="_on_title_text_submitted"]

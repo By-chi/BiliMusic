@@ -296,6 +296,15 @@ func search_bilibili(callback: Callable, keyword: String, num: int = 10, order =
 		qs += k + "=" + str(query[k]).uri_encode()
 	var url = "https://api.bilibili.com/x/web-interface/search/type?" + qs
 	url = await _sign_wbi_url(url)
+	var headers = _get_headers()
+	for i in range(headers.size()):
+		if headers[i].begins_with("Referer: "):
+			headers[i] = "Referer: https://www.bilibili.com"
+			break
+	for i in range(headers.size()):
+		if headers[i].begins_with("Origin: "):
+			headers[i] = "Origin: https://www.bilibili.com"
+			break
 	_request(url, _on_search_response, [callback, author])
 
 
