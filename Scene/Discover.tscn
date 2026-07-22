@@ -28,9 +28,27 @@ func _ready() -> void:
 		)
 	list_box.transform_changed.connect(on_list_rolling)
 	on_list_rolling()
-
+	full_refresh()
+func full_refresh() -> void:
+	if GdScriptFunc.get_data(\"Options\",\"DiscoverPageLazyUpdate\",true):
+		return
+	for up_node in up_nodes:
+		var hbox = up_node.get_node_or_null(\"ScrollContainer/HBoxContainer\")
+		if hbox:
+			for child in hbox.get_children():
+				child.queue_free()
+	up_preview_visible_id = 0
+	for up_node in up_nodes:
+		var hbox = up_node.get_node_or_null(\"ScrollContainer/HBoxContainer\")
+		if hbox:
+			BilibiliApi.search_bilibili(
+				load_cards_callback.bind(hbox),
+				up_node.text, 10, 0, 1, up_node.text
+			)
 # 核心懒加载逻辑
 func on_list_rolling() -> void:
+	if !GdScriptFunc.get_data(\"Options\",\"DiscoverPageLazyUpdate\",true):
+		return
 	var bottom := -list_box.position.y + scroll_container.size.y
 	
 	if bottom >= 169 + up_preview_visible_id * 350:

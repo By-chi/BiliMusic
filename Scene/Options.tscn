@@ -424,7 +424,7 @@ offset_right = -26.0
 offset_bottom = -34.0
 grow_horizontal = 2
 grow_vertical = 2
-current_tab = 2
+current_tab = 1
 
 [node name="账号" type="ScrollContainer" parent="TabContainer" unique_id=1036775212]
 visible = false
@@ -459,7 +459,6 @@ theme_override_font_sizes/font_size = 24
 text = "点击登录"
 
 [node name="常规" type="ScrollContainer" parent="TabContainer" unique_id=264393034]
-visible = false
 layout_mode = 2
 metadata/_tab_index = 1
 
@@ -485,6 +484,11 @@ layout_mode = 2
 button_pressed = true
 text = "记住窗口状态"
 
+[node name="DiscoverPageLazyUpdate" type="CheckButton" parent="TabContainer/常规/VBoxContainer" unique_id=1397116632]
+layout_mode = 2
+button_pressed = true
+text = "发现界面懒更新"
+
 [node name="Language" type="Label" parent="TabContainer/常规/VBoxContainer" unique_id=1691698795]
 layout_mode = 2
 theme_override_font_sizes/font_size = 35
@@ -505,6 +509,7 @@ grow_vertical = 2
 theme_override_font_sizes/font_size = 35
 
 [node name="外观" type="ScrollContainer" parent="TabContainer" unique_id=1953152351]
+visible = false
 layout_mode = 2
 metadata/_tab_index = 2
 
