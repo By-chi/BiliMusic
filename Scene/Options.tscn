@@ -469,11 +469,13 @@ size_flags_vertical = 3
 
 [node name="Automatically_obtain_subtitles" type="CheckButton" parent="TabContainer/常规/VBoxContainer" unique_id=701302890]
 layout_mode = 2
-text = "自动获取字幕(有些误差)"
+tooltip_text = "启用此功能后，BiliMusic 将尝试获取对应视频的字幕\\n [!] 此功能在获取的字幕在某些时候不太准确"
+text = "自动获取字幕"
 
 [node name="SubtitleTextCorrection" type="CheckButton" parent="TabContainer/常规/VBoxContainer" unique_id=1121978215]
 layout_mode = 2
-text = "字幕文本修正(作用不太大)"
+tooltip_text = "启用此功能后，BiliMusic将会尝试对自动获取到的字幕进行文本修正\\n [!] 在某些情况下，此功能作用影响较小"
+text = "字幕文本修正"
 
 [node name="Self_triggered" type="CheckButton" parent="TabContainer/常规/VBoxContainer" unique_id=222246544]
 layout_mode = 2
@@ -486,6 +488,7 @@ text = "记住窗口状态"
 
 [node name="DiscoverPageLazyUpdate" type="CheckButton" parent="TabContainer/常规/VBoxContainer" unique_id=1397116632]
 layout_mode = 2
+tooltip_text = "当此功能未开启时，首页（发现页面）中所视频封面与标题预加载数会根据窗口大小而变\\n当此功能开启时，首页（发现页面）中无论窗口大小如何，都会预加载所有视频封面与标题"
 button_pressed = true
 text = "发现界面懒更新"
 
