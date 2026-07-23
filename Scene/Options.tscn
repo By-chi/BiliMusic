@@ -587,7 +587,8 @@ offset_left = -324.0
 offset_right = -24.0
 grow_horizontal = 0
 grow_vertical = 2
-value = 15.0
+min_value = 1.0
+value = 13.0
 
 [node name="储存" type="ScrollContainer" parent="TabContainer" unique_id=1345396364]
 visible = false
