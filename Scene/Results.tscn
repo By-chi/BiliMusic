@@ -84,6 +84,23 @@ func update_page(keyword: String) -> void:
 	if keyword.begins_with(\"UID:\"):
 		var mid = keyword.substr(4)  # 提取UID
 		BilibiliApi.fetch_user_videos(mid, update_callback.bind(current_execution_number), page_number, 30, SortModeButton.selected)
+	elif keyword.begins_with(\"UP主:\"):
+		# 格式：UP主:mid:username
+		var after = keyword.substr(5)  # 去掉 \"UP主:\"
+		var colon_idx = after.find(\":\")
+		if colon_idx != -1:
+			var mid = after.substr(0, colon_idx)
+			var username = after.substr(colon_idx + 1)
+			# 调用备用 medialist 接口（多一个 username 参数）
+			BilibiliApi.fetch_user_videos_medialist(
+				mid,
+				username,
+				update_callback.bind(current_execution_number),
+				page_number,
+				30
+			)
+		else:
+			BilibiliApi.fetch_user_videos(after, update_callback.bind(current_execution_number), page_number, 30, SortModeButton.selected)
 	else:
 		BilibiliApi.search_bilibili(update_callback.bind(current_execution_number), keyword, 30, SortModeButton.selected, page_number, \"\", TidsButton.selected)
 
@@ -197,7 +214,7 @@ func _on_tids_item_selected(_index: int) -> void:
 	update_page(current_keyword)
 "
 
-[node name="Page2" type="Control" unique_id=585043204 node_paths=PackedStringArray("rsults_list", "page_edit", "label", "sub_label", "SortModeButton", "TidsButton", "loading", "error", "obstacle")]
+[node name="Page3" type="Control" unique_id=585043204 node_paths=PackedStringArray("rsults_list", "page_edit", "label", "sub_label", "SortModeButton", "TidsButton", "loading", "error", "obstacle")]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0

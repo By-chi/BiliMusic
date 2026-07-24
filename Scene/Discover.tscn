@@ -26,7 +26,7 @@ func _ready() -> void:
 			if GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\") != null:
 				get_node(\"/root/Main\")._on_search_text_submitted(\"UID:\" + node.name)
 			else:
-				get_node(\"/root/Main\")._on_search_text_submitted(node.text)
+				get_node(\"/root/Main\")._on_search_text_submitted(\"UP主:\"+node.name+\":\"+node.text)
 		)
 		link_node.mouse_entered.connect(func():
 			node.get_node(\"Link/Panel\").hide()
@@ -127,8 +127,10 @@ func _load_videos_for_up(up_node: Control) -> void:
 	if hbox.get_child_count() > 0:
 		return
 
-	if up_node.name == \"bilibili音乐周榜\" or GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\") == null:
+	if up_node.name == \"bilibili音乐周榜\":
 		BilibiliApi.search_bilibili(load_cards_callback.bind(hbox), up_node.text, 10, 0, 1, up_node.text)
+	elif GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\") == null:
+		BilibiliApi.fetch_user_videos_medialist(up_node.name,up_node.text,load_cards_callback.bind(hbox))
 	else:
 		BilibiliApi.fetch_user_videos(up_node.name, load_cards_callback.bind(hbox))
 

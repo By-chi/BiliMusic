@@ -196,8 +196,6 @@ func _get_wbi_key() -> Dictionary:
 		if not img_key.is_empty() and not sub_key.is_empty():
 			_wbi_key_cache = {"img_key": img_key, "sub_key": sub_key, "cached_time": now}
 			return _wbi_key_cache
-
-	push_error("[BilibiliAPI] 所有 WBI 接口均失败，无法签名！")
 	return _wbi_key_cache
 
 func fetch_user_info_by_mid(mid: String, callback: Callable, max_retries: int = 3) -> void:
@@ -797,3 +795,176 @@ static func _generate_rpdid() -> String:
 
 static func _generate_b_lsid() -> String:
 	return _random_string(8).to_upper() + "_" + _random_string(12).to_upper()
+# ============================================================
+# 新增：本地 BV/AV 转换 + medialist 备用方案
+# ============================================================
+
+# Bilibili 本地 BV 转 AV 算法
+# 参考：https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/other/bvid_desc.md
+const XOR_CODE: int = 23442827791579
+const MASK_CODE: int = 2251799813685247
+const MAX_AID: int = 1 << 51
+const BASE: int = 58
+const BV_CHARS: String = "FcwAPNKTMug3GV5Lj7EJnHpWsx4tb8haYeviqBz6rkCy12mUSDQX9RdoZf"
+
+# 将 bvid 转换为 aid，失败返回 0
+func bv_to_aid(bvid: String) -> int:
+	if not bvid.begins_with("BV1") or bvid.length() != 12:
+		return 0
+	var part = bvid.substr(3)  # 去掉 "BV1"
+	var aid: int = 0
+	for i in range(part.length()):
+		var idx = BV_CHARS.find(part[i])
+		if idx == -1:
+			return 0
+		aid = aid * BASE + idx
+	aid = (aid & MASK_CODE) ^ XOR_CODE
+	return aid if aid < MAX_AID else 0
+
+# 异步网络请求（返回完整数组 [result, response_code, headers, body]）
+func _request_async(url: String, method: int = HTTPClient.METHOD_GET, custom_headers: PackedStringArray = _get_headers()) -> Array:
+	var http = HTTPRequest.new()
+	add_child(http)
+	http.request(url, custom_headers, method)
+	var result = await http.request_completed
+	http.queue_free()
+	return result
+
+# 搜索某个 UP 主的任意一个视频，返回其 bvid（空串表示未找到）
+func _search_one_video_bvid(username: String) -> String:
+	var keyword_encoded = username.uri_encode()
+	var url = "https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=%s&page=1&page_size=1" % keyword_encoded
+	var headers = _get_headers()
+	# 修改为搜索页的 Referer 和 Origin
+	for i in range(headers.size()):
+		if headers[i].begins_with("Referer: "):
+			headers[i] = "Referer: https://search.bilibili.com"
+			break
+	for i in range(headers.size()):
+		if headers[i].begins_with("Origin: "):
+			headers[i] = "Origin: https://search.bilibili.com"
+			break
+	
+	var res = await _request_async(url, HTTPClient.METHOD_GET, headers)
+	var code = res[1]
+	var body = res[3] as PackedByteArray
+	if code != 200:
+		return ""
+	var json = JSON.new()
+	var body_str = body.get_string_from_utf8()
+	if body_str.strip_edges().begins_with("<"):
+		return ""
+	if json.parse(body_str) != OK:
+		return ""
+	var data = json.get_data()
+	if data.get("code") != 0:
+		return ""
+	var result_list = data.get("data", {}).get("result", [])
+	if result_list.is_empty():
+		return ""
+	return result_list[0].get("bvid", "")
+
+# 备用视频列表获取（需要 UP 的 mid 和用户名）
+func fetch_user_videos_medialist(mid: String, username: String, callback: Callable, page: int = 1, page_size: int = 20) -> void:
+	print("[medialist] 开始获取 mid=%s, username=%s" % [mid, username])
+	
+	# 1. 搜索用户的一个视频
+	var bvid = await _search_one_video_bvid(username)
+	if bvid.is_empty():
+		print("[medialist] 搜索视频失败")
+		callback.call(null)
+		return
+	
+	# 2. 本地 BV → AV
+	var aid = bv_to_aid(bvid)
+	if aid == 0:
+		print("[medialist] BV 转 AV 失败: %s" % bvid)
+		callback.call(null)
+		return
+	
+	print("[medialist] 获取到 AV 号: %d" % aid)
+	
+	# 3. 构造 medialist 请求
+	var base = "https://api.bilibili.com/x/v2/medialist/resource/list"
+	var query_params = {
+		"out_referer": "https://space.bilibili.com/%s/upload/video" % mid,
+		"mobi_app": "web",
+		"type": "1",
+		"biz_id": mid,
+		"ps": str(page_size),
+		"desc": "true",
+		"sort_field": "1",
+		"tid": "0",
+		"bvid": "",
+		"oid": str(aid),
+		"otype": "2",
+		"with_current": "false",
+		"direction": "false",
+		"preview": "0",
+		"use_pn": "false",
+		"pn": str(page)
+	}
+	var qs = ""
+	for key in query_params:
+		if not qs.is_empty():
+			qs += "&"
+		qs += key + "=" + query_params[key].uri_encode()
+	var url = base + "?" + qs
+	
+	# 4. 发送请求并解析
+	var res = await _request_async(url)
+	var code = res[1]
+	var body = res[3] as PackedByteArray
+	if code != 200:
+		print("[medialist] HTTP 错误: %d" % code)
+		callback.call(null)
+		return
+	
+	var json = JSON.new()
+	var body_str = body.get_string_from_utf8()
+	if body_str.strip_edges().begins_with("<"):
+		print("[medialist] 被风控拦截")
+		callback.call(null)
+		return
+	if json.parse(body_str) != OK:
+		print("[medialist] JSON 解析失败")
+		callback.call(null)
+		return
+	
+	var data = json.get_data()
+	if data.get("code") != 0:
+		print("[medialist] API 错误: %d, %s" % [data.get("code", -1), data.get("message", "")])
+		callback.call(null)
+		return
+	
+	var media_list = data.get("data", {}).get("media_list", [])
+	var videos = []
+	for item in media_list:
+		var bvid_item = item.get("bv_id", "")
+		if bvid_item.is_empty():
+			continue
+		videos.append({
+			"link": bvid_item,
+			"BV": bvid_item,
+			"title": decode_html_entities(item.get("title", "")),
+			"author": item.get("upper", {}).get("name", username),
+			"play": 0,
+			"danmaku": 0,
+			"duration": _format_duration(item.get("duration", 0)),
+			"description": decode_html_entities(item.get("intro", ""))
+		})
+	
+	if videos.is_empty():
+		print("[medialist] 未获取到视频")
+		callback.call(null)
+	else:
+		callback.call(videos)
+
+# 秒数转 mm:ss 格式
+func _format_duration(seconds) -> String:
+	if seconds is String:
+		return seconds
+	var s = int(seconds)
+	var m = s / 60
+	var sec = s % 60
+	return "%02d:%02d" % [m, sec]
