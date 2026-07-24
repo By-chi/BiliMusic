@@ -916,9 +916,9 @@ func format_for_tooltip(raw_text: String, max_pixel_width: float, font: Font, fo
 
 	var i = 0
 	while i < loop_max:
-		var range: Vector2i = para.get_line_range(i)
-		var start = range.x
-		var end = range.y
+		var _range: Vector2i = para.get_line_range(i)
+		var start = _range.x
+		var end = _range.y
 		var line_str = raw_text.substr(start, end - start)
 		line_str = line_str.rstrip("\n").lstrip("\n")
 		lines.append(line_str)
@@ -930,5 +930,4 @@ func format_for_tooltip(raw_text: String, max_pixel_width: float, font: Font, fo
 	# 拼接文本，去除末尾多余换行
 	var res = "\n".join(lines)
 	if res == "": res = "[暂无简介]"
-	print("总行数：", para.get_line_count())
 	return res

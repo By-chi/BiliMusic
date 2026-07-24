@@ -139,10 +139,8 @@ func _sign_wbi_url(url: String) -> String:
 	var img_key: String = key_data.get("img_key", "")
 	var sub_key: String = key_data.get("sub_key", "")
 	if img_key.is_empty() or sub_key.is_empty():
-		push_error("[BilibiliAPI] WBI 密钥不完整，无法签名")
 		return url
 	var signed_url = BilibiliWBI.sign_url(url, img_key, sub_key)
-	print("[WBI] 签名后 URL: %s" % signed_url)  # 添加这行
 	return signed_url
 func _get_wbi_key() -> Dictionary:
 	var now = Time.get_unix_time_from_system()
@@ -367,7 +365,6 @@ func search_bilibili(callback: Callable, keyword: String, num: int = 10, order =
 		if not qs.is_empty(): qs += "&"
 		qs += k + "=" + str(query[k]).uri_encode()
 	var url = "https://api.bilibili.com/x/web-interface/search/type?" + qs
-	url = await _sign_wbi_url(url)
 	var headers = _get_headers()
 	for i in range(headers.size()):
 		if headers[i].begins_with("Referer: "):

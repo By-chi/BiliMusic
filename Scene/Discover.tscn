@@ -16,12 +16,17 @@ func _ready() -> void:
 	for mid in ups:
 		var node := preload(\"res://Scene/UpPpreview.tscn\").instantiate()
 		node.name = mid
+		# 初始化名称就绪标记
+		node.set_meta(\"name_ready\", false)
 		up_nodes.append(node)
 		list_box.add_child(node)
 		GdScriptFunc.apply_theme_and_styles_to_node(node)
 		var link_node: Button = node.get_node(\"Link\")
 		link_node.pressed.connect(func():
-			get_node(\"/root/Main\")._on_search_text_submitted(\"UID:\"+node.name)
+			if GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\") != null:
+				get_node(\"/root/Main\")._on_search_text_submitted(\"UID:\" + node.name)
+			else:
+				get_node(\"/root/Main\")._on_search_text_submitted(node.text)
 		)
 		link_node.mouse_entered.connect(func():
 			node.get_node(\"Link/Panel\").hide()
@@ -29,13 +34,17 @@ func _ready() -> void:
 		link_node.mouse_exited.connect(func():
 			node.get_node(\"Link/Panel\").show()
 		)
-		if mid!=\"bilibili音乐周榜\":
+		if mid != \"bilibili音乐周榜\":
 			var icon: TextureRect = node.get_node(\"Link/Panel/Icon\")
 			BilibiliApi.fetch_user_info_by_mid(mid, func(info):
 				if info:
 					var font: Font = get_theme_font(\"font\", \"Label\")
 					tooltip_text = GdScriptFunc.format_for_tooltip(info.sign, 1000, font, 30, 30, 8)
 					node.text = info.name
+					# 标记名称已就绪，并尝试加载视频
+					node.set_meta(\"name_ready\", true)
+					_try_load_up_videos(node)
+
 					if info.face != \"\":
 						var img_request = HTTPRequest.new()
 						add_child(img_request)
@@ -54,6 +63,7 @@ func _ready() -> void:
 			)
 		else:
 			node.text = node.name
+			node.set_meta(\"name_ready\", true)   # 音乐周榜直接视为就绪
 	list_box.transform_changed.connect(on_list_rolling)
 	on_list_rolling()
 	full_refresh()
@@ -63,37 +73,64 @@ func _ready() -> void:
 func full_refresh() -> void:
 	if GdScriptFunc.get_data(\"Options\", \"DiscoverPageLazyUpdate\", true):
 		return
+	# 清空所有已加载的视频
 	for up_node in up_nodes:
 		var hbox = up_node.get_node_or_null(\"ScrollContainer/HBoxContainer\")
 		if hbox:
 			for child in hbox.get_children():
 				child.queue_free()
 	up_preview_visible_id = 0
+	# 只对名称已就绪的节点发起加载
 	for up_node in up_nodes:
-		var hbox = up_node.get_node_or_null(\"ScrollContainer/HBoxContainer\")
-		if hbox:
-			if hbox.name==\"bilibili音乐周榜\":
-				BilibiliApi.search_bilibili(load_cards_callback.bind(hbox), up_node.text, 10, 0, 1, up_node.text)
-			else:
-				BilibiliApi.fetch_user_videos(up_node.name, load_cards_callback.bind(hbox))
+		if up_node.get_meta(\"name_ready\", false):
+			_load_videos_for_up(up_node)
 
 
 func on_list_rolling() -> void:
 	if !GdScriptFunc.get_data(\"Options\", \"DiscoverPageLazyUpdate\", true):
 		return
 	var bottom := -list_box.position.y + scroll_container.size.y
-	
-	if bottom >= 169 + up_preview_visible_id * 350:
-		if up_preview_visible_id < up_nodes.size():
-			var current_up_node := up_nodes[up_preview_visible_id]
-			var target_hbox := current_up_node.get_node_or_null(\"ScrollContainer/HBoxContainer\")
-			
-			if target_hbox:
-				if current_up_node.name==\"bilibili音乐周榜\":
-					BilibiliApi.search_bilibili(load_cards_callback.bind(target_hbox), current_up_node.text, 10, 0, 1, current_up_node.text)
-				else:
-					BilibiliApi.fetch_user_videos(current_up_node.name, load_cards_callback.bind(target_hbox))
+	# 根据底部位置计算应该加载到的索引（原逻辑 169 + id * 350）
+	var target_idx := maxi((bottom - 169) / 350, 0)
+	target_idx = mini(target_idx, up_nodes.size() - 1)
+
+	while up_preview_visible_id <= target_idx and up_preview_visible_id < up_nodes.size():
+		var current_up_node := up_nodes[up_preview_visible_id]
+		if current_up_node.get_meta(\"name_ready\", false):
+			_load_videos_for_up(current_up_node)
+		# 无论名称是否就绪，visible_id 都前进；未就绪的节点将在名称就绪时通过 _try_load_up_videos 补加载
 		up_preview_visible_id += 1
+
+
+# 尝试为 up_node 加载视频，会根据当前加载模式和节点是否已经滚过决定
+func _try_load_up_videos(up_node: Control) -> void:
+	var idx = up_nodes.find(up_node)
+	if idx == -1:
+		return
+
+	var lazy = GdScriptFunc.get_data(\"Options\", \"DiscoverPageLazyUpdate\", true)
+	if not lazy:
+		# 非惰性模式：直接加载
+		_load_videos_for_up(up_node)
+	else:
+		# 惰性模式：只有已经触发过的才加载（索引小于 visible_id 表示已经滚动过该区域）
+		if idx < up_preview_visible_id:
+			_load_videos_for_up(up_node)
+
+
+# 为指定 up_node 加载视频列表（带防重复判断）
+func _load_videos_for_up(up_node: Control) -> void:
+	var hbox = up_node.get_node_or_null(\"ScrollContainer/HBoxContainer\")
+	if not hbox:
+		return
+	# 避免重复加载
+	if hbox.get_child_count() > 0:
+		return
+
+	if up_node.name == \"bilibili音乐周榜\" or GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\") == null:
+		BilibiliApi.search_bilibili(load_cards_callback.bind(hbox), up_node.text, 10, 0, 1, up_node.text)
+	else:
+		BilibiliApi.fetch_user_videos(up_node.name, load_cards_callback.bind(hbox))
 
 
 func load_cards_callback(videos, list_node: BoxContainer) -> void:
