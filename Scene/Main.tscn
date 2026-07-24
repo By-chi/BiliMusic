@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://d3y0m53pwfo5a"]
 
-[ext_resource type="Texture2D" uid="uid://bu3hypyoam7f3" path="res://UI/Icon/bilibili.svg" id="2_djkur"]
+[ext_resource type="Texture2D" uid="uid://dmqb2b0uwh35y" path="res://UI/DefaultprofilePicture.png" id="1_uq86q"]
 [ext_resource type="Texture2D" uid="uid://b34pnocr74oyw" path="res://UI/Icon/Options.svg" id="2_g6ejq"]
 [ext_resource type="Texture2D" uid="uid://cuo2jbqmb5lrf" path="res://UI/Icon/Discover.svg" id="3_h175a"]
 [ext_resource type="Texture2D" uid="uid://5hx7joul85hg" path="res://UI/Icon/Favorites.svg" id="4_6a8me"]
@@ -88,7 +88,6 @@ corner_radius_top_left = 30
 corner_radius_top_right = 30
 corner_radius_bottom_right = 30
 corner_radius_bottom_left = 30
-anti_aliasing = false
 
 [sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_h175a"]
 content_margin_left = 6.0
@@ -427,7 +426,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-texture = ExtResource("2_djkur")
+texture = ExtResource("1_uq86q")
 expand_mode = 1
 
 [node name="ScrollContainer" type="ScrollContainer" parent="LeftMenu" unique_id=74204146]

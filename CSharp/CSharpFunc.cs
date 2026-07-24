@@ -3,7 +3,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using RunOnStartup;
-using System.Diagnostics;
 using System.IO;
 
 public partial class CSharpFunc : Node
@@ -343,26 +342,6 @@ public partial class CSharpFunc : Node
 	}
 
 	#endregion
-
-	public override void _Ready()
-	{
-		if (OperatingSystem.IsWindows())
-		{
-			try
-			{
-				Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.High;
-				GD.Print("[CSharpFunc] 进程优先级已设置为 High");
-			}
-			catch (Exception ex)
-			{
-				GD.PrintErr($"[CSharpFunc] 设置进程优先级失败: {ex.Message}");
-			}
-		}
-		else
-		{
-			GD.Print($"[CSharpFunc] 当前平台: {(OperatingSystem.IsMacOS() ? "macOS" : OperatingSystem.IsLinux() ? "Linux" : "Unknown")}，进程优先级设置功能不支持");
-		}
-	}
 
 	public static float GetDirectorySize(string path)
 	{

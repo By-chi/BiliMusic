@@ -5,32 +5,63 @@ script/source = "extends Control
 
 @export var list_box: VBoxContainer
 @export var scroll_container: ScrollContainer
-@export var ups: Array[Dictionary] = []
+
+@export var ups: Array[String] = []
 
 var up_nodes: Array[Label] = []
 var up_preview_visible_id := 0
 
+
 func _ready() -> void:
-	for item in ups:
-		var key: String = item[\"key\"]
-		var color: Color = item[\"value\"]
-		
+	for mid in ups:
 		var node := preload(\"res://Scene/UpPpreview.tscn\").instantiate()
-		node.name = key
-		node.text = key
-		node.self_modulate = color
-		
+		node.name = mid
 		up_nodes.append(node)
 		list_box.add_child(node)
 		GdScriptFunc.apply_theme_and_styles_to_node(node)
-		node.get_node(\"Link\").pressed.connect(func():
-			get_node(\"/root/Main\")._on_search_text_submitted(node.name)
+		var link_node: Button = node.get_node(\"Link\")
+		link_node.pressed.connect(func():
+			get_node(\"/root/Main\")._on_search_text_submitted(\"UID:\"+node.name)
 		)
+		link_node.mouse_entered.connect(func():
+			node.get_node(\"Link/Panel\").hide()
+		)
+		link_node.mouse_exited.connect(func():
+			node.get_node(\"Link/Panel\").show()
+		)
+		if mid!=\"bilibili音乐周榜\":
+			var icon: TextureRect = node.get_node(\"Link/Panel/Icon\")
+			BilibiliApi.fetch_user_info_by_mid(mid, func(info):
+				if info:
+					var font: Font = get_theme_font(\"font\", \"Label\")
+					tooltip_text = GdScriptFunc.format_for_tooltip(info.sign, 1000, font, 30, 30, 8)
+					node.text = info.name
+					if info.face != \"\":
+						var img_request = HTTPRequest.new()
+						add_child(img_request)
+						img_request.request_completed.connect(func(_r, _c, _h, img_body):
+							img_request.queue_free()
+							var img = Image.new()
+							if img.load_jpg_from_buffer(img_body) == OK or img.load_png_from_buffer(img_body) == OK:
+								var tex = ImageTexture.create_from_image(img)
+								icon.texture = tex
+							else:
+								print(\"头像下载失败\")
+						)
+						img_request.request(info.face, BilibiliApi._get_image_headers(), HTTPClient.METHOD_GET)
+				else:
+					print(\"获取用户信息失败:\", mid)
+			)
+		else:
+			node.text = node.name
 	list_box.transform_changed.connect(on_list_rolling)
 	on_list_rolling()
 	full_refresh()
+
+
+# 完全刷新（当禁用惰性更新时）
 func full_refresh() -> void:
-	if GdScriptFunc.get_data(\"Options\",\"DiscoverPageLazyUpdate\",true):
+	if GdScriptFunc.get_data(\"Options\", \"DiscoverPageLazyUpdate\", true):
 		return
 	for up_node in up_nodes:
 		var hbox = up_node.get_node_or_null(\"ScrollContainer/HBoxContainer\")
@@ -41,13 +72,14 @@ func full_refresh() -> void:
 	for up_node in up_nodes:
 		var hbox = up_node.get_node_or_null(\"ScrollContainer/HBoxContainer\")
 		if hbox:
-			BilibiliApi.search_bilibili(
-				load_cards_callback.bind(hbox),
-				up_node.text, 10, 0, 1, up_node.text
-			)
-# 核心懒加载逻辑
+			if hbox.name==\"bilibili音乐周榜\":
+				BilibiliApi.search_bilibili(load_cards_callback.bind(hbox), up_node.text, 10, 0, 1, up_node.text)
+			else:
+				BilibiliApi.fetch_user_videos(up_node.name, load_cards_callback.bind(hbox))
+
+
 func on_list_rolling() -> void:
-	if !GdScriptFunc.get_data(\"Options\",\"DiscoverPageLazyUpdate\",true):
+	if !GdScriptFunc.get_data(\"Options\", \"DiscoverPageLazyUpdate\", true):
 		return
 	var bottom := -list_box.position.y + scroll_container.size.y
 	
@@ -57,57 +89,74 @@ func on_list_rolling() -> void:
 			var target_hbox := current_up_node.get_node_or_null(\"ScrollContainer/HBoxContainer\")
 			
 			if target_hbox:
-				BilibiliApi.search_bilibili(
-					load_cards_callback.bind(target_hbox),
-					current_up_node.text, 10, 0, 1, current_up_node.text
-				)
+				if current_up_node.name==\"bilibili音乐周榜\":
+					BilibiliApi.search_bilibili(load_cards_callback.bind(target_hbox), current_up_node.text, 10, 0, 1, current_up_node.text)
+				else:
+					BilibiliApi.fetch_user_videos(current_up_node.name, load_cards_callback.bind(target_hbox))
 		up_preview_visible_id += 1
 
-# Tween 动画重构
-func load_cards_callback(videos: Array, list_node: BoxContainer) -> void:
-	if videos.is_empty() or not is_instance_valid(list_node):
+
+func load_cards_callback(videos, list_node: BoxContainer) -> void:
+	if videos == null or not is_instance_valid(list_node):
+		return
+		
+	# 1. 判断返回类型：字典（fetch_user_videos）或数组（search_bilibili）
+	var video_list = []
+	if typeof(videos) == TYPE_DICTIONARY and videos.has(\"list\"):
+		# fetch_user_videos 返回 { \"list\": [...], \"page\": {...} }
+		video_list = videos.list
+	elif videos is Array:
+		# search_bilibili 直接返回数组
+		video_list = videos
+	else:
+		print(\"[load_cards_callback] 未知数据结构: \", videos)
+		return
+	
+	if video_list.is_empty():
 		return
 		
 	var spawn_tween := create_tween()
-	
-	for i in videos.size():
-		var video = videos[i]
+	for i in video_list.size():
+		var video = video_list[i]
 		spawn_tween.tween_callback(_instantiate_and_setup_card.bind(video, list_node))
 		spawn_tween.tween_interval(0.08)
 
-# 独立出来的卡片创建与动画函数
+
+# 实例化视频卡片并填充数据
 func _instantiate_and_setup_card(video: Dictionary, list_node: BoxContainer) -> void:
 	if video.is_empty():
 		return
 	var video_card := preload(\"res://Scene/VideoCard.tscn\").instantiate()
 	list_node.add_child(video_card)
 	GdScriptFunc.apply_theme_and_styles_to_node(video_card)
-	# 赋值逻辑
+	
 	video_card.video_info = video
-	video_card.title = video.get(\"title\",\"\")
-	video_card.author = video.get(\"author\",\"\")
-	video_card.description = video.get(\"description\",\"\")
-	video_card.link = video.link
+	# 标题、作者、描述 — 兼容两种返回的字段名
+	video_card.title = video.get(\"title\", \"\")
+	video_card.author = video.get(\"author\", \"\")
+	video_card.description = video.get(\"description\", \"\")
+	# 链接：fetch_user_videos 用 bvid，search_bilibili 用 link 或 BV
+	video_card.link = video.get(\"bvid\", video.get(\"link\", video.get(\"BV\", \"\")))
+	
 	video_card.reset()
 	if video.get(\"is_network\", true):
-		BilibiliApi.fetch_cover(video.link, set_cover.bind(video_card))
-	elif FileAccess.file_exists(video.link.get_basename()+\".jpg\"):
-		var image = Image.load_from_file(video.link.get_basename()+\".jpg\")
-		_set_cover(ImageTexture.create_from_image(image),video_card)
+		BilibiliApi.fetch_cover(video_card.link, set_cover.bind(video_card))
+	elif FileAccess.file_exists(video.link.get_basename() + \".jpg\"):
+		var image = Image.load_from_file(video.link.get_basename() + \".jpg\")
+		_set_cover(ImageTexture.create_from_image(image), video_card)
 	else:
-		GdScriptFunc.generate_label_texture(Color.WHITE,video.get(\"title\", tr(\"本地文件\")),_set_cover.bind(video_card),null,50)
+		GdScriptFunc.generate_label_texture(Color.WHITE, video.get(\"title\", tr(\"本地文件\")), _set_cover.bind(video_card), null, 50)
 	
-	# 连接右键事件
 	video_card.gui_input.connect(_on_video_card_gui_input.bind(video_card, video))
 
-# -------------------- 右键收藏--------------------
+
 func _on_video_card_gui_input(event: InputEvent, video_card: Control, video_data: Dictionary) -> void:
 	if not (event is InputEventMouseButton):
 		return
 	if event.button_index != MOUSE_BUTTON_RIGHT or not event.pressed:
 		return
 	
-	var link = video_data.get(\"link\", \"\")
+	var link = video_data.get(\"link\", video_data.get(\"bvid\", video_data.get(\"BV\", \"\")))
 	var is_collected = _is_video_collected(link)
 	
 	var menu: Array[Dictionary] = []
@@ -126,7 +175,7 @@ func _on_video_card_gui_input(event: InputEvent, video_card: Control, video_data
 	
 	GdScriptFunc.open_right_click_menu_window(DisplayServer.mouse_get_position(), menu)
 
-# 检查视频是否已在任意收藏夹中
+
 func _is_video_collected(link: String) -> bool:
 	var favs = GdScriptFunc.get_keys(\"Favorites\")
 	if favs == null:
@@ -138,16 +187,17 @@ func _is_video_collected(link: String) -> bool:
 				return true
 	return false
 
-# 收藏操作（多选 + 去重）
+
 func _on_collect(video_data: Dictionary) -> void:
 	await _do_collect(video_data)
+
 
 func _do_collect(video_data: Dictionary) -> void:
 	var selected_favs = await GdScriptFunc.open_select_favorites_window()
 	if selected_favs == null or selected_favs.is_empty():
 		return
 	
-	var link = video_data.get(\"link\", \"\")
+	var link = video_data.get(\"link\", video_data.get(\"bvid\", video_data.get(\"BV\", \"\")))
 	for dir_name in selected_favs:
 		var list = GdScriptFunc.get_data(\"Favorites\", dir_name, [])
 		var repeated = false
@@ -167,18 +217,20 @@ func _do_collect(video_data: Dictionary) -> void:
 		GdScriptFunc.set_data(\"Favorites\", dir_name, list)
 	GdScriptFunc.flush()
 
-# 取消收藏（从所有收藏夹中移除该视频）
+
 func _on_cancel_collect(link: String) -> void:
 	GdScriptFunc.cancel_collection(link)
-# -------------------------------------------------------------------
 
-func _set_cover(texture: Texture2D, video_card: Control)->void:
-	set_cover(\"\",texture, video_card)
+
+func _set_cover(texture: Texture2D, video_card: Control) -> void:
+	set_cover(\"\", texture, video_card)
+
+
 func set_cover(_bvid: String, texture: Texture2D, video_card: Control) -> void:
 	if is_instance_valid(video_card):
 		video_card.cover = texture
 
-# 滚动状态与防冲突处理
+
 @export var time_cd: Timer
 var is_vertical_sliding := false:
 	set(value):
@@ -193,6 +245,7 @@ var is_vertical_sliding := false:
 
 var is_on_vertical_scroll := false
 
+
 func _on_scroll_container_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		if (event.button_index == MOUSE_BUTTON_WHEEL_DOWN or event.button_index == MOUSE_BUTTON_WHEEL_UP) and is_on_vertical_scroll:
@@ -203,11 +256,14 @@ func _on_scroll_container_gui_input(event: InputEvent) -> void:
 		is_vertical_sliding = false
 		time_cd.stop()
 
+
 func _on_cd_timer_timeout() -> void:
 	is_vertical_sliding = false
 
+
 func _on_scroll_container_mouse_entered() -> void:
 	is_on_vertical_scroll = true
+
 
 func _on_scroll_container_mouse_exited() -> void:
 	is_on_vertical_scroll = false
@@ -237,33 +293,8 @@ mouse_filter = 1
 script = SubResource("GDScript_61i7r")
 list_box = NodePath("ScrollContainer/VBoxContainer")
 scroll_container = NodePath("ScrollContainer")
-ups = Array[Dictionary]([{
-"key": "JLRS-LeoFM",
-"value": Color(0.7137255, 0.4745098, 0.36862746, 1)
-}, {
-"key": "星痴_Daily_",
-"value": Color(0.76862746, 0.8235294, 0.8784314, 1)
-}, {
-"key": "Yuki_可依",
-"value": Color(0.9764706, 0.93333334, 0.8784314, 1)
-}, {
-"key": "橙子青提",
-"value": Color(0.63529414, 0.26666668, 0.27058825, 1)
-}, {
-"key": "纸鸢ika",
-"value": Color(0.9607843, 0.8392157, 0.84705883, 1)
-}, {
-"key": "FANTASONIC",
-"value": Color(0.2, 0.46666667, 0.72156864, 1)
-}, {
-"key": "bilibili音乐周榜",
-"value": Color(0.6666667, 0.76862746, 1, 1)
-}, {
-"key": "ProjectMili",
-"value": Color(0.3882353, 0.7058824, 0.7137255, 1)
-}])
+ups = Array[String](["3493093607213343", "496958358", "399267210", "401234815", "1395786030", "86111379", "bilibili音乐周榜", "23340150"])
 time_cd = NodePath("ScrollContainer/CDTimer")
-metadata/_edit_pinned_properties_ = [&"ups"]
 
 [node name="ScrollContainer" type="ScrollContainer" parent="." unique_id=352955920]
 layout_mode = 1

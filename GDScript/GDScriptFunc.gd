@@ -895,3 +895,40 @@ func _load_resource(value):
 	else:
 		push_warning("[ThemeManager] _load_resource 不支持的参数类型: ", typeof(value), " 值: ", value)
 	return null
+func format_for_tooltip(raw_text: String, max_pixel_width: float, font: Font, font_size: int, font_size_fake: int, max_lines: int) -> String:
+	if raw_text.is_empty():
+		return ""
+
+	var para := TextParagraph.new()
+	para.clear()
+	para.add_string(raw_text, font, font_size)
+	para.set_width(max_pixel_width)
+	# 只保留 set_width，删除 para.width = 重复代码
+
+	# 断行标识，如果报常量不存在直接注释本行
+
+	var flags = TextServer.BREAK_MANDATORY | TextServer.BREAK_WORD_BOUND | TextServer.BREAK_ADAPTIVE | TextServer.BREAK_TRIM_EDGE_SPACES
+	para.set_break_flags(flags)
+
+	var lines: Array[String] = []
+	var total_lines = para.get_line_count()
+	var loop_max = min(total_lines, max_lines)
+
+	var i = 0
+	while i < loop_max:
+		var range: Vector2i = para.get_line_range(i)
+		var start = range.x
+		var end = range.y
+		var line_str = raw_text.substr(start, end - start)
+		line_str = line_str.rstrip("\n").lstrip("\n")
+		lines.append(line_str)
+		i += 1
+
+	if total_lines > max_lines:
+		lines[lines.size() - 1] += "…"
+
+	# 拼接文本，去除末尾多余换行
+	var res = "\n".join(lines)
+	if res == "": res = "[暂无简介]"
+	print("总行数：", para.get_line_count())
+	return res

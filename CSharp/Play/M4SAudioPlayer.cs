@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -64,7 +65,27 @@ public partial class M4SAudioPlayer : Node
         var generator = new AudioStreamGenerator { MixRate = 44100, BufferLength = 2f };
         _audioPlayer.Stream = generator;
     }
-
+    public override void _Ready()
+	{
+        if ((bool)GetNode("/root/GdScriptFunc").Call("get_data", "Options", "Enable_HigherProcessPriority", true)){
+            if (OperatingSystem.IsWindows())
+            {
+                try
+                {
+                    Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.High;
+                    GD.Print("[CSharpFunc] 进程优先级已设置为 High");
+                }
+                catch (Exception ex)
+                {
+                    GD.PrintErr($"[CSharpFunc] 设置进程优先级失败: {ex.Message}");
+                }
+            }
+            else
+            {
+                GD.Print($"[CSharpFunc] 当前平台: {(OperatingSystem.IsMacOS() ? "macOS" : OperatingSystem.IsLinux() ? "Linux" : "Unknown")}，进程优先级设置功能不支持");
+            }
+        }
+	}
     public override void _Process(double delta)
     {
         if (_audioPlayer == null || _playback == null || _isStopped)

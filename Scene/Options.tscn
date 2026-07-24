@@ -481,6 +481,11 @@ text = "字幕文本修正"
 layout_mode = 2
 text = "开机自启动"
 
+[node name="Enable_HigherProcessPriority" type="CheckButton" parent="TabContainer/常规/VBoxContainer" unique_id=82088222]
+layout_mode = 2
+button_pressed = true
+text = "启用更高的进程优先级"
+
 [node name="RememberWindow" type="CheckButton" parent="TabContainer/常规/VBoxContainer" unique_id=741804647]
 layout_mode = 2
 button_pressed = true

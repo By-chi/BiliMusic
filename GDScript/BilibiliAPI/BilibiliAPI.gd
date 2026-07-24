@@ -1,4 +1,3 @@
-# BilibiliAPI.gd
 extends Node
 
 var cover_cache: BilibiliCoverCache
@@ -26,7 +25,7 @@ func _ready() -> void:
 	var dl_func  = Callable(self, "_request")
 	cover_cache = BilibiliCoverCache.new(api_func, dl_func)
 	lyrics_cache = BilibiliLyricsCache.new()
-	subtitle_manager = BilibiliSubtitleManager.new(api_func, dl_func, sub_corr, m4s_player)   # 现在为 4 个参数
+	subtitle_manager = BilibiliSubtitleManager.new(api_func, dl_func, sub_corr, m4s_player)
 
 	if is_instance_valid(sub_corr) and not sub_corr.SubtitleProcessed.is_connected(_on_subtitle_processed):
 		sub_corr.SubtitleProcessed.connect(_on_subtitle_processed)
@@ -37,7 +36,6 @@ func _process(delta: float) -> void:
 	if cover_cache:
 		cover_cache.update(delta)
 
-
 func _exit_tree() -> void:
 	if cover_cache:
 		cover_cache.shutdown()
@@ -45,7 +43,6 @@ func _exit_tree() -> void:
 
 func _get_headers() -> PackedStringArray:
 	return _get_headers_with_mid(0)
-
 
 func _get_headers_with_mid(mid: int = 0) -> PackedStringArray:
 	var cookies = [
@@ -98,7 +95,6 @@ func _get_headers_with_mid(mid: int = 0) -> PackedStringArray:
 		"Origin: https://space.bilibili.com",
 		"Accept: application/json, text/plain, */*",
 		"Accept-Language: zh-CN,zh;q=0.9,en;q=0.8",
-		# 移除了 Accept-Encoding，避免跨平台 Gzip 解压失败
 		'Sec-Ch-Ua: "Not;A=Brand";v="8", "Chromium";v="120", "Microsoft Edge";v="120"',
 		"Sec-Ch-Ua-Mobile: ?0",
 		'Sec-Ch-Ua-Platform: "Windows"',
@@ -110,13 +106,11 @@ func _get_headers_with_mid(mid: int = 0) -> PackedStringArray:
 		"Cookie: " + cookie
 	]
 
-
 func _get_image_headers() -> PackedStringArray:
 	return [
 		"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 		"Referer: https://www.bilibili.com"
 	]
-
 
 func _request(url: String, callback: Callable, extra: Variant = null, method: int = HTTPClient.METHOD_GET, custom_headers: PackedStringArray = _get_headers(), mid: int = 0) -> void:
 	var http = HTTPRequest.new()
@@ -147,26 +141,17 @@ func _sign_wbi_url(url: String) -> String:
 	if img_key.is_empty() or sub_key.is_empty():
 		push_error("[BilibiliAPI] WBI 密钥不完整，无法签名")
 		return url
-	return BilibiliWBI.sign_url(url, img_key, sub_key)
-
-
-# 获取WBI密钥
+	var signed_url = BilibiliWBI.sign_url(url, img_key, sub_key)
+	print("[WBI] 签名后 URL: %s" % signed_url)  # 添加这行
+	return signed_url
 func _get_wbi_key() -> Dictionary:
-	#  如果本地没有保存登录态，直接跳过请求 WBI，节省流量和报错
-	var sessdata = GdScriptFunc.get_data("AccountData", "SESSDATA", "")
-	if sessdata == null or sessdata == "":
-		return _wbi_key_cache
-
 	var now = Time.get_unix_time_from_system()
-	
-	# 缓存处理
 	if now - _wbi_key_cache.get("cached_time", 0) < 1800 and not _wbi_key_cache.get("img_key", "").is_empty():
 		return _wbi_key_cache
 	
-	# 备选接口
 	var urls = [
 		"https://api.bilibili.com/x/web-interface/nav",
-		"https://api.bilibili.com/x/web-interface/wbi/index"
+        "https://api.bilibili.com/x/web-interface/wbi/index"
 	]
 
 	for url in urls:
@@ -183,8 +168,7 @@ func _get_wbi_key() -> Dictionary:
 		if response_code != 200:
 			continue
 
-		var trim_body = body_str.strip_edges()
-		if trim_body.begins_with("<"):
+		if body_str.strip_edges().begins_with("<"):
 			continue
 
 		var json = JSON.new()
@@ -192,11 +176,13 @@ func _get_wbi_key() -> Dictionary:
 			continue
 
 		var data_obj = json.get_data()
+		if data_obj.get("code") != 0:
+			continue
+
 		var data = data_obj.get("data", {})
 		var img_url = ""
 		var sub_url = ""
 
-		# 兼容两种接口的数据结构差异
 		if data.has("wbi_img"):
 			img_url = data["wbi_img"].get("img_url", "")
 			sub_url = data["wbi_img"].get("sub_url", "")
@@ -207,80 +193,167 @@ func _get_wbi_key() -> Dictionary:
 		var img_key = GdScriptFunc.extract_key_from_url(img_url)
 		var sub_key = GdScriptFunc.extract_key_from_url(sub_url)
 
+		print("[WBI] 从 %s 提取的 img_key=%s, sub_key=%s" % [url, img_key, sub_key])  # 关键日志
+
 		if not img_key.is_empty() and not sub_key.is_empty():
 			_wbi_key_cache = {"img_key": img_key, "sub_key": sub_key, "cached_time": now}
 			return _wbi_key_cache
 
-	# 所有接口都失败时，直接返回现有缓存
 	push_error("[BilibiliAPI] 所有 WBI 接口均失败，无法签名！")
 	return _wbi_key_cache
 
+func fetch_user_info_by_mid(mid: String, callback: Callable, max_retries: int = 3) -> void:
+	print("[fetch_user_info_by_mid] 开始获取 mid=%s" % mid)
+	_fetch_with_retry(mid, callback, max_retries)
 
-static func get_or_generate_buvid() -> String:
-	if not _cached_buvid.is_empty():
-		return _cached_buvid
-	_cached_buvid = GdScriptFunc.get_data("Network", "buvid3", "")
-	if _cached_buvid != "":
-		return _cached_buvid
-	_cached_buvid = generate_fingerprint_buvid()
-	GdScriptFunc.set_data("Network", "buvid3", _cached_buvid)
-	return _cached_buvid
+func _fetch_with_retry(mid: String, callback: Callable, retries_left: int) -> void:
+	var keyword = "uid:" + mid
+	var url = "https://api.bilibili.com/x/web-interface/search/type?search_type=bili_user&keyword=%s&page=1&page_size=1&from_source=web_search&platform=pc" % keyword
+	
+	var headers = _get_headers().duplicate()
+	for i in range(headers.size()):
+		if headers[i].begins_with("Referer: "):
+			headers[i] = "Referer: https://search.bilibili.com"
+		elif headers[i].begins_with("Origin: "):
+			headers[i] = "Origin: https://search.bilibili.com"
+	
+	var http = HTTPRequest.new()
+	add_child(http)
+	http.request(url, headers, HTTPClient.METHOD_GET)
+	
+	var result = await http.request_completed
+	http.queue_free()
+	
+	var response_code = result[1]
+	var body = result[3] as PackedByteArray
+	
+	if response_code != 200:
+		print("[fetch] HTTP 错误: %d" % response_code)
+		if retries_left > 0:
+			await _wait_and_retry(mid, callback, retries_left - 1)
+		else:
+			callback.call(null)
+		return
+	
+	var body_str = body.get_string_from_utf8()
+	var json = JSON.new()
+	if json.parse(body_str) != OK:
+		print("[fetch] JSON 解析失败")
+		if retries_left > 0:
+			await _wait_and_retry(mid, callback, retries_left - 1)
+		else:
+			callback.call(null)
+		return
+	
+	var data = json.get_data()
+	var api_code = data.get("code", -1)
+	
+	if api_code != 0:
+		print("[fetch] API 错误: %d, %s" % [api_code, data.get("message", "")])
+		if api_code == -799 and retries_left > 0:
+			await _wait_and_retry(mid, callback, retries_left - 1)
+		else:
+			callback.call(null)
+		return
+	
+	var result_list = data.get("data", {}).get("result", [])
+	if result_list.is_empty():
+		print("[fetch] 未找到用户")
+		callback.call(null)
+		return
+	
+	var user = result_list[0]
+	var info = {
+		"mid": user.get("mid", 0),
+		"name": user.get("uname", ""),
+		"face": user.get("upic", "").replace("//", "https://"),
+		"sign": user.get("usign", ""),
+		"level": user.get("level", 0),
+		"fans": user.get("fans", 0),
+		"videos": user.get("videos", 0)
+	}
+	print("[fetch] 成功获取用户名: %s" % info.name)
+	callback.call(info)
+
+func _wait_and_retry(mid: String, callback: Callable, retries_left: int) -> void:
+	var wait_time = 2 * (4 - retries_left)
+	print("[fetch] 等待 %d 秒后重试 (剩余 %d 次)" % [wait_time, retries_left])
+	await get_tree().create_timer(wait_time).timeout
+	_fetch_with_retry(mid, callback, retries_left)
 
 
-static func generate_fingerprint_buvid() -> String:
-	var sz = DisplayServer.screen_get_size()
-	var info = [
-		OS.get_name(),
-		str(OS.get_processor_count()),
-		str(sz.x),
-		str(sz.y),
-		OS.get_locale(),
-		"GodotEngine/" + Engine.get_version_info().string,
-		DisplayServer.get_name()
-	]
-	var h = "||".join(info).md5_text().to_upper()
-	return h.substr(0, 8) + "-" + h.substr(8, 4) + "-" + h.substr(12, 4) + "-" + h.substr(16, 4) + "-" + h.substr(20, 12) + "infoc"
+func fetch_user_videos(mid: String, callback: Callable, page: int = 1, page_size: int = 20, order = "pubdate") -> void:
+	var order_str = order
+	if order is int:
+		order_str = BilibiliConstants.ORDER_MAP.get(order, "pubdate")
+	order_str = str(order_str)
+	var base = "https://api.bilibili.com/x/space/wbi/arc/search?"
+	var query = "pn=" + str(page) + \
+				"&ps=" + str(page_size) + \
+				"&tid=0&special_type=&order=" + order_str + \
+				"&mid=" + mid + \
+				"&index=0&keyword=&order_avoided=true&platform=web&web_location=333.1387" + \
+				"&dm_img_list=[]" + \
+				"&dm_img_str=V2ViR0wgMS4wIChPcGVuR0wgRVMgMi4wIENocm9taXVtKQ" + \
+				"&dm_cover_img_str=QU5HTEUgKEFNRCwgQU1EIFJhZGVvbihUTSkgVmVnYSA4IEdyYXBoaWNzICgweDAwMDAxNUQ4KSBEaXJlY3QzRDExIHZzXzVfMCBwc181XzAsIEQzRDExKUdvb2dsZSBJbmMuIChBTU" + \
+                "&dm_img_inter=%7B%22ds%22:[],%22wh%22:[3030,2380,102],%22of%22:[205,410,205]%7D"
+	var url = base + query
+	var headers = _get_headers().duplicate()
+	for i in range(headers.size()):
+		if headers[i].begins_with("Referer: "):
+			headers[i] = "Referer: https://space.bilibili.com"
+		elif headers[i].begins_with("Origin: "):
+			headers[i] = "Origin: https://space.bilibili.com"
+	
+	_request_with_sign(url, _on_user_videos_response, [callback], HTTPClient.METHOD_GET, headers)
+func _dict_to_query(dict: Dictionary) -> String:
+	var parts = []
+	for key in dict.keys():
+		var value = dict[key]
+		if value is String:
+			parts.append(key + "=" + value.uri_encode())
+		else:
+			parts.append(key + "=" + str(value).uri_encode())
+	return "&".join(parts)
 
+func _on_user_videos_response(_result, code, _headers, body, extra):
+	var callback: Callable = extra[0]
+	if code != 200:
+		callback.call(null)
+		return
 
-static func decode_html_entities(text: String) -> String:
-	return BilibiliHTMLDecoder.decode(text)
+	var json = JSON.new()
+	var body_str = body.get_string_from_utf8()
+	if json.parse(body_str) != OK:
+		callback.call(null)
+		return
 
+	var data = json.get_data()
+	var api_code = data.get("code", -1)
+	if api_code != 0:
+		print("[fetch_user_videos] API 错误: %d, %s" % [api_code, data.get("message", "")])
+		callback.call(null)
+		return
 
-static func generate_fake_b_nut() -> String:
-	return str(Time.get_unix_time_from_system())
+	var list_data = data.get("data", {})
+	if list_data.is_empty():
+		callback.call(null)
+		return
 
-
-static func _random_string(length: int = 16) -> String:
-	const CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	var res = ""
-	for i in range(length):
-		res += CHARS[randi() % CHARS.length()]
-	return res
-
-
-static func _get_or_generate_cookie_field(key: String, generator: Callable) -> String:
-	var val = GdScriptFunc.get_data("Network", key, "")
-	if val.is_empty():
-		val = generator.call()
-		GdScriptFunc.set_data("Network", key, val)
-	return val
-
-
-static func _generate_buvid4() -> String:
-	var uuid = "%04x%04x-%04x-%04x-%04x-%04x%04x%04x" % [randi() % 0xFFFF, randi() % 0xFFFF, randi() % 0xFFFF, (randi() % 0xFFFF) | 0x4000, (randi() % 0xFFFF) | 0x8000, randi() % 0xFFFF, randi() % 0xFFFF, randi() % 0xFFFF]
-	return uuid + "-" + str(Time.get_unix_time_from_system()) + "-" + _random_string(20)
-
-
-static func _generate_fingerprint() -> String:
-	return _random_string(32).md5_text()
-
-
-static func _generate_rpdid() -> String:
-	return _random_string(30)
-
-
-static func _generate_b_lsid() -> String:
-	return _random_string(8).to_upper() + "_" + _random_string(12).to_upper()
+	var vlist = list_data.get("list", {}).get("vlist", [])
+	var videos = []
+	for item in vlist:
+		videos.append({
+			"link": item.get("bvid", ""),
+			"BV": item.get("bvid", ""),
+			"title": decode_html_entities(item.get("title", "")),
+			"author": item.get("author", ""),
+			"play": item.get("play", 0),
+			"danmaku": item.get("video_review", 0),
+			"duration": item.get("length", ""),
+			"description": decode_html_entities(item.get("description", ""))
+		})
+	callback.call(videos)
 
 
 func search_bilibili(callback: Callable, keyword: String, num: int = 10, order = 0, page := 1, author: String = "", _tids := 3) -> void:
@@ -305,7 +378,6 @@ func search_bilibili(callback: Callable, keyword: String, num: int = 10, order =
 			headers[i] = "Origin: https://www.bilibili.com"
 			break
 	_request(url, _on_search_response, [callback, author])
-
 
 func _on_search_response(_r, code, _h, body, extra):
 	var callback: Callable = extra[0]
@@ -338,10 +410,8 @@ func _on_search_response(_r, code, _h, body, extra):
 		})
 	callback.call(videos)
 
-
 func _fetch_music_rank_static(callback: Callable) -> void:
 	_request("https://api.bilibili.com/x/copyright-music-publicity/toplist/all_period?list_type=1", _on_all_period_response, [callback])
-
 
 func _on_all_period_response(result, code, _h, body, extra):
 	var callback: Callable = extra[0]
@@ -361,10 +431,8 @@ func _on_all_period_response(result, code, _h, body, extra):
 	if latest_id == 0: callback.call([{}]); return
 	_fetch_music_list_static(latest_id, callback)
 
-
 func _fetch_music_list_static(list_id: int, callback: Callable) -> void:
 	_request("https://api.bilibili.com/x/copyright-music-publicity/toplist/music_list?list_id=%d" % list_id, _on_music_list_response, [callback])
-
 
 func _on_music_list_response(_r, code, _h, body, extra):
 	var callback: Callable = extra[0]
@@ -388,14 +456,11 @@ func _on_music_list_response(_r, code, _h, body, extra):
 		})
 	callback.call(videos)
 
-
 func fetch_cover(link: String, callback: Callable, width: int = 160, height: int = 160) -> void:
 	cover_cache.fetch_cover(link, callback, width, height)
 
-
 func fetch_video_info(bvid: String, callback: Callable) -> void:
 	_request("https://api.bilibili.com/x/web-interface/view?bvid=" + bvid, _on_video_info_response, [bvid, callback])
-
 
 func _on_video_info_response(_r, code, _h, body, extra):
 	var bvid: String = extra[0]
@@ -442,7 +507,6 @@ func _on_video_info_response(_r, code, _h, body, extra):
 	}
 	callback.call(info)
 
-
 func fetch_subtitle_auto(bvid: String, callback: Callable, save_path: String = "") -> void:
 	fetch_video_info(bvid, func(info: Dictionary):
 		if info.is_empty():
@@ -452,7 +516,6 @@ func fetch_subtitle_auto(bvid: String, callback: Callable, save_path: String = "
 		subtitle_manager.fetch_subtitle_auto(bvid, info, callback, save_path)
 	)
 
-
 func fetch_subtitle_with_info(info: Dictionary, callback: Callable, save_path: String = "") -> void:
 	var bvid = info.get("link", "")
 	if bvid.is_empty() or info.get("cid", 0) == 0:
@@ -461,10 +524,8 @@ func fetch_subtitle_with_info(info: Dictionary, callback: Callable, save_path: S
 	_video_info_cache[bvid] = info
 	subtitle_manager.fetch_subtitle_auto(bvid, info, callback, save_path)
 
-
 func _on_subtitle_processed(lrc_path: String, request_id: String) -> void:
 	subtitle_manager.handle_correction_result(request_id, lrc_path)
-
 
 func start_qr_login(login_callback: Callable) -> void:
 	on_qr_login_result = login_callback
@@ -480,7 +541,6 @@ func start_qr_login(login_callback: Callable) -> void:
 		push_error("[BilibiliAPI] 二维码生成请求失败: %d" % err)
 		http.queue_free()
 
-
 func _on_qr_generated(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	if response_code != 200:
 		return
@@ -492,7 +552,6 @@ func _on_qr_generated(_result: int, response_code: int, _headers: PackedStringAr
 	var qrcode_key = data["qrcode_key"]
 	_display_qrcode(url)
 	_poll_login_status(qrcode_key)
-
 
 func _display_qrcode(content: String) -> void:
 	qr_window = preload("res://Scene/Log_in.tscn").instantiate()
@@ -515,7 +574,6 @@ func _display_qrcode(content: String) -> void:
 	)
 	img_request.request(qr_api, PackedStringArray(), HTTPClient.METHOD_GET)
 
-
 func _on_qr_window_closed() -> void:
 	if qr_window:
 		qr_window.queue_free()
@@ -531,10 +589,8 @@ func _on_qr_window_closed() -> void:
 	if on_qr_login_result:
 		on_qr_login_result.call(false)
 
-
 func _close_qr_window() -> void:
 	_on_qr_window_closed()
-
 
 func _poll_login_status(qrcode_key: String) -> void:
 	_poll_timer = Timer.new()
@@ -542,7 +598,6 @@ func _poll_login_status(qrcode_key: String) -> void:
 	_poll_timer.autostart = true
 	_poll_timer.timeout.connect(_check_qr_status.bind(qrcode_key))
 	add_child(_poll_timer)
-
 
 func _check_qr_status(qrcode_key: String) -> void:
 	var http = HTTPRequest.new()
@@ -569,7 +624,6 @@ func _check_qr_status(qrcode_key: String) -> void:
 		PackedStringArray(),
 		HTTPClient.METHOD_GET
 	)
-
 
 func _exchange_cookie(login_url: String) -> void:
 	var http = HTTPRequest.new()
@@ -619,14 +673,12 @@ func _exchange_cookie(login_url: String) -> void:
 		if on_qr_login_result:
 			on_qr_login_result.call(false)
 
-
 func _load_avatar_and_delayed_close() -> void:
 	fetch_user_avatar(func(texture: ImageTexture):
 		if is_instance_valid(qr_window) and texture != null:
 			qr_window.get_node("QRImage").texture = texture
 		_start_delayed_close()
 	)
-
 
 func _start_delayed_close() -> void:
 	if not is_instance_valid(qr_window):
@@ -638,12 +690,10 @@ func _start_delayed_close() -> void:
 	add_child(_close_delay_timer)
 	_close_delay_timer.start()
 
-
 func _on_delayed_close_timeout() -> void:
 	if on_qr_login_result:
 		on_qr_login_result.call(true)
 	_close_qr_window()
-
 
 func fetch_user_avatar(callback: Callable) -> void:
 	var sessdata = GdScriptFunc.get_data("AccountData", "SESSDATA")
@@ -691,6 +741,62 @@ func fetch_user_avatar(callback: Callable) -> void:
 	)
 	http_nav.request("https://api.bilibili.com/x/web-interface/nav", nav_headers, HTTPClient.METHOD_GET)
 
-
 func get_csrf() -> String:
 	return GdScriptFunc.get_data("AccountData", "bili_jct", "")
+
+static func get_or_generate_buvid() -> String:
+	if not _cached_buvid.is_empty():
+		return _cached_buvid
+	_cached_buvid = GdScriptFunc.get_data("Network", "buvid3", "")
+	if _cached_buvid != "":
+		return _cached_buvid
+	_cached_buvid = generate_fingerprint_buvid()
+	GdScriptFunc.set_data("Network", "buvid3", _cached_buvid)
+	return _cached_buvid
+
+static func generate_fingerprint_buvid() -> String:
+	var sz = DisplayServer.screen_get_size()
+	var info = [
+		OS.get_name(),
+		str(OS.get_processor_count()),
+		str(sz.x),
+		str(sz.y),
+		OS.get_locale(),
+		"GodotEngine/" + Engine.get_version_info().string,
+		DisplayServer.get_name()
+	]
+	var h = "||".join(info).md5_text().to_upper()
+	return h.substr(0, 8) + "-" + h.substr(8, 4) + "-" + h.substr(12, 4) + "-" + h.substr(16, 4) + "-" + h.substr(20, 12) + "infoc"
+
+static func decode_html_entities(text: String) -> String:
+	return BilibiliHTMLDecoder.decode(text)
+
+static func generate_fake_b_nut() -> String:
+	return str(Time.get_unix_time_from_system())
+
+static func _random_string(length: int = 16) -> String:
+	const CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	var res = ""
+	for i in range(length):
+		res += CHARS[randi() % CHARS.length()]
+	return res
+
+static func _get_or_generate_cookie_field(key: String, generator: Callable) -> String:
+	var val = GdScriptFunc.get_data("Network", key, "")
+	if val.is_empty():
+		val = generator.call()
+		GdScriptFunc.set_data("Network", key, val)
+	return val
+
+static func _generate_buvid4() -> String:
+	var uuid = "%04x%04x-%04x-%04x-%04x-%04x%04x%04x" % [randi() % 0xFFFF, randi() % 0xFFFF, randi() % 0xFFFF, (randi() % 0xFFFF) | 0x4000, (randi() % 0xFFFF) | 0x8000, randi() % 0xFFFF, randi() % 0xFFFF, randi() % 0xFFFF]
+	return uuid + "-" + str(Time.get_unix_time_from_system()) + "-" + _random_string(20)
+
+static func _generate_fingerprint() -> String:
+	return _random_string(32).md5_text()
+
+static func _generate_rpdid() -> String:
+	return _random_string(30)
+
+static func _generate_b_lsid() -> String:
+	return _random_string(8).to_upper() + "_" + _random_string(12).to_upper()
