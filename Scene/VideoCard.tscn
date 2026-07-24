@@ -38,15 +38,6 @@ func rename_title(new_title:String)-> void:
 				title_label.text=new_title
 				break
 		GdScriptFunc.set_data(\"Favorites\",list_name,data)
-
-## TODO: 同上
-func _on_title_text_submitted(new_text: String) -> void:
-	rename_title(new_text)
-	title_label.release_focus()
-
-
-func _on_title_focus_exited() -> void:
-	rename_title(title_label.text)
 "
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_vdm7u"]

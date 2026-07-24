@@ -46,10 +46,6 @@ func _format_for_tooltip(raw_text: String, max_pixel_width: float, font: Font, f
 	para.clear()
 	para.add_string(raw_text, font, font_size)
 	para.set_width(max_pixel_width)
-	# 只保留 set_width，删除 para.width = 重复代码
-
-	# 断行标识，如果报常量不存在直接注释本行
-
 	var flags = TextServer.BREAK_MANDATORY | TextServer.BREAK_WORD_BOUND | TextServer.BREAK_ADAPTIVE | TextServer.BREAK_TRIM_EDGE_SPACES
 	para.set_break_flags(flags)
 
@@ -59,9 +55,9 @@ func _format_for_tooltip(raw_text: String, max_pixel_width: float, font: Font, f
 
 	var i = 0
 	while i < loop_max:
-		var range: Vector2i = para.get_line_range(i)
-		var start = range.x
-		var end = range.y
+		var _range: Vector2i = para.get_line_range(i)
+		var start = _range.x
+		var end = _range.y
 		var line_str = raw_text.substr(start, end - start)
 		line_str = line_str.rstrip("\n").lstrip("\n")
 		lines.append(line_str)
@@ -70,17 +66,15 @@ func _format_for_tooltip(raw_text: String, max_pixel_width: float, font: Font, f
 	if total_lines > max_lines:
 		lines[lines.size() - 1] += "…"
 
-	# 拼接文本，去除末尾多余换行
+	# 拼接文本，去除末尾换行
 	var res = "\n".join(lines)
 	if res == "": res = "[暂无简介]"
-	print("总行数：", para.get_line_count())
 	return res
 
 var description := "":
 	set(value):
 		description = value
 		var font: Font = title_label.get_theme_font("font", "Label")
-		var font_size: int = title_label.get_theme_font_size("font_size", "Label")
 		tooltip_text = _format_for_tooltip(value, 1000, font, 30, 30, 8)
 var title := "":
 	set(value):
