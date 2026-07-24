@@ -16,17 +16,16 @@ func _ready() -> void:
 	for mid in ups:
 		var node := preload(\"res://Scene/UpPpreview.tscn\").instantiate()
 		node.name = mid
-		# 初始化名称就绪标记
-		node.set_meta(\"name_ready\", false)
 		up_nodes.append(node)
 		list_box.add_child(node)
 		GdScriptFunc.apply_theme_and_styles_to_node(node)
+
 		var link_node: Button = node.get_node(\"Link\")
 		link_node.pressed.connect(func():
 			if GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\") != null:
 				get_node(\"/root/Main\")._on_search_text_submitted(\"UID:\" + node.name)
 			else:
-				get_node(\"/root/Main\")._on_search_text_submitted(\"UP主:\"+node.name+\":\"+node.text)
+				get_node(\"/root/Main\")._on_search_text_submitted(\"UP主:\" + node.name + \":\" + node.text)
 		)
 		link_node.mouse_entered.connect(func():
 			node.get_node(\"Link/Panel\").hide()
@@ -34,14 +33,14 @@ func _ready() -> void:
 		link_node.mouse_exited.connect(func():
 			node.get_node(\"Link/Panel\").show()
 		)
+
 		if mid != \"bilibili音乐周榜\":
 			var icon: TextureRect = node.get_node(\"Link/Panel/Icon\")
 			BilibiliApi.fetch_user_info_by_mid(mid, func(info):
 				if info:
 					var font: Font = get_theme_font(\"font\", \"Label\")
-					tooltip_text = GdScriptFunc.format_for_tooltip(info.sign, 1000, font, 30, 30, 8)
+					node.tooltip_text = GdScriptFunc.format_for_tooltip(info.sign, 1000, font, 30, 30, 8)
 					node.text = info.name
-					# 标记名称已就绪，并尝试加载视频
 					node.set_meta(\"name_ready\", true)
 					_try_load_up_videos(node)
 
@@ -63,24 +62,22 @@ func _ready() -> void:
 			)
 		else:
 			node.text = node.name
-			node.set_meta(\"name_ready\", true)   # 音乐周榜直接视为就绪
+			node.set_meta(\"name_ready\", true)
+
 	list_box.transform_changed.connect(on_list_rolling)
 	on_list_rolling()
 	full_refresh()
 
 
-# 完全刷新（当禁用惰性更新时）
 func full_refresh() -> void:
 	if GdScriptFunc.get_data(\"Options\", \"DiscoverPageLazyUpdate\", true):
 		return
-	# 清空所有已加载的视频
 	for up_node in up_nodes:
 		var hbox = up_node.get_node_or_null(\"ScrollContainer/HBoxContainer\")
 		if hbox:
 			for child in hbox.get_children():
 				child.queue_free()
 	up_preview_visible_id = 0
-	# 只对名称已就绪的节点发起加载
 	for up_node in up_nodes:
 		if up_node.get_meta(\"name_ready\", false):
 			_load_videos_for_up(up_node)
@@ -90,7 +87,6 @@ func on_list_rolling() -> void:
 	if !GdScriptFunc.get_data(\"Options\", \"DiscoverPageLazyUpdate\", true):
 		return
 	var bottom := -list_box.position.y + scroll_container.size.y
-	# 根据底部位置计算应该加载到的索引（原逻辑 169 + id * 350）
 	var target_idx := maxi((bottom - 169) / 350, 0)
 	target_idx = mini(target_idx, up_nodes.size() - 1)
 
@@ -98,39 +94,26 @@ func on_list_rolling() -> void:
 		var current_up_node := up_nodes[up_preview_visible_id]
 		if current_up_node.get_meta(\"name_ready\", false):
 			_load_videos_for_up(current_up_node)
-		# 无论名称是否就绪，visible_id 都前进；未就绪的节点将在名称就绪时通过 _try_load_up_videos 补加载
 		up_preview_visible_id += 1
 
 
-# 尝试为 up_node 加载视频，会根据当前加载模式和节点是否已经滚过决定
 func _try_load_up_videos(up_node: Control) -> void:
 	var idx = up_nodes.find(up_node)
-	if idx == -1:
-		return
-
+	if idx == -1: return
 	var lazy = GdScriptFunc.get_data(\"Options\", \"DiscoverPageLazyUpdate\", true)
-	if not lazy:
-		# 非惰性模式：直接加载
+	if not lazy or idx < up_preview_visible_id:
 		_load_videos_for_up(up_node)
-	else:
-		# 惰性模式：只有已经触发过的才加载（索引小于 visible_id 表示已经滚动过该区域）
-		if idx < up_preview_visible_id:
-			_load_videos_for_up(up_node)
 
 
-# 为指定 up_node 加载视频列表（带防重复判断）
 func _load_videos_for_up(up_node: Control) -> void:
 	var hbox = up_node.get_node_or_null(\"ScrollContainer/HBoxContainer\")
-	if not hbox:
-		return
-	# 避免重复加载
-	if hbox.get_child_count() > 0:
+	if not hbox or hbox.get_child_count() > 0:
 		return
 
 	if up_node.name == \"bilibili音乐周榜\":
 		BilibiliApi.search_bilibili(load_cards_callback.bind(hbox), up_node.text, 10, 0, 1, up_node.text)
 	elif GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\") == null:
-		BilibiliApi.fetch_user_videos_medialist(up_node.name,up_node.text,load_cards_callback.bind(hbox))
+		BilibiliApi.fetch_user_videos_medialist(up_node.name, up_node.text, load_cards_callback.bind(hbox))
 	else:
 		BilibiliApi.fetch_user_videos(up_node.name, load_cards_callback.bind(hbox))
 
@@ -138,22 +121,15 @@ func _load_videos_for_up(up_node: Control) -> void:
 func load_cards_callback(videos, list_node: BoxContainer) -> void:
 	if videos == null or not is_instance_valid(list_node):
 		return
-		
-	# 1. 判断返回类型：字典（fetch_user_videos）或数组（search_bilibili）
 	var video_list = []
 	if typeof(videos) == TYPE_DICTIONARY and videos.has(\"list\"):
-		# fetch_user_videos 返回 { \"list\": [...], \"page\": {...} }
 		video_list = videos.list
 	elif videos is Array:
-		# search_bilibili 直接返回数组
 		video_list = videos
 	else:
-		print(\"[load_cards_callback] 未知数据结构: \", videos)
 		return
-	
-	if video_list.is_empty():
-		return
-		
+	if video_list.is_empty(): return
+
 	var spawn_tween := create_tween()
 	for i in video_list.size():
 		var video = video_list[i]
@@ -161,22 +137,16 @@ func load_cards_callback(videos, list_node: BoxContainer) -> void:
 		spawn_tween.tween_interval(0.08)
 
 
-# 实例化视频卡片并填充数据
 func _instantiate_and_setup_card(video: Dictionary, list_node: BoxContainer) -> void:
-	if video.is_empty():
-		return
+	if video.is_empty(): return
 	var video_card := preload(\"res://Scene/VideoCard.tscn\").instantiate()
 	list_node.add_child(video_card)
 	GdScriptFunc.apply_theme_and_styles_to_node(video_card)
-	
 	video_card.video_info = video
-	# 标题、作者、描述 — 兼容两种返回的字段名
 	video_card.title = video.get(\"title\", \"\")
 	video_card.author = video.get(\"author\", \"\")
 	video_card.description = video.get(\"description\", \"\")
-	# 链接：fetch_user_videos 用 bvid，search_bilibili 用 link 或 BV
 	video_card.link = video.get(\"bvid\", video.get(\"link\", video.get(\"BV\", \"\")))
-	
 	video_card.reset()
 	if video.get(\"is_network\", true):
 		BilibiliApi.fetch_cover(video_card.link, set_cover.bind(video_card))
@@ -185,45 +155,29 @@ func _instantiate_and_setup_card(video: Dictionary, list_node: BoxContainer) -> 
 		_set_cover(ImageTexture.create_from_image(image), video_card)
 	else:
 		GdScriptFunc.generate_label_texture(Color.WHITE, video.get(\"title\", tr(\"本地文件\")), _set_cover.bind(video_card), null, 50)
-	
 	video_card.gui_input.connect(_on_video_card_gui_input.bind(video_card, video))
 
 
 func _on_video_card_gui_input(event: InputEvent, video_card: Control, video_data: Dictionary) -> void:
-	if not (event is InputEventMouseButton):
-		return
-	if event.button_index != MOUSE_BUTTON_RIGHT or not event.pressed:
-		return
-	
+	if not (event is InputEventMouseButton): return
+	if event.button_index != MOUSE_BUTTON_RIGHT or not event.pressed: return
 	var link = video_data.get(\"link\", video_data.get(\"bvid\", video_data.get(\"BV\", \"\")))
 	var is_collected = _is_video_collected(link)
-	
 	var menu: Array[Dictionary] = []
 	if not is_collected:
-		menu.append({
-			\"label\": tr(\"收藏\"),
-			\"action\": func(_d): _on_collect(video_data),
-			\"enabled\": true
-		})
+		menu.append({\"label\": tr(\"收藏\"), \"action\": func(_d): _on_collect(video_data), \"enabled\": true})
 	else:
-		menu.append({
-			\"label\": tr(\"取消收藏\"),
-			\"action\": func(_d): _on_cancel_collect(link),
-			\"enabled\": true
-		})
-	
+		menu.append({\"label\": tr(\"取消收藏\"), \"action\": func(_d): _on_cancel_collect(link), \"enabled\": true})
 	GdScriptFunc.open_right_click_menu_window(DisplayServer.mouse_get_position(), menu)
 
 
 func _is_video_collected(link: String) -> bool:
 	var favs = GdScriptFunc.get_keys(\"Favorites\")
-	if favs == null:
-		return false
+	if favs == null: return false
 	for dir in favs:
 		var list = GdScriptFunc.get_data(\"Favorites\", dir, [])
 		for item in list:
-			if item.get(\"link\") == link:
-				return true
+			if item.get(\"link\") == link: return true
 	return false
 
 
@@ -233,9 +187,7 @@ func _on_collect(video_data: Dictionary) -> void:
 
 func _do_collect(video_data: Dictionary) -> void:
 	var selected_favs = await GdScriptFunc.open_select_favorites_window()
-	if selected_favs == null or selected_favs.is_empty():
-		return
-	
+	if selected_favs == null or selected_favs.is_empty(): return
 	var link = video_data.get(\"link\", video_data.get(\"bvid\", video_data.get(\"BV\", \"\")))
 	for dir_name in selected_favs:
 		var list = GdScriptFunc.get_data(\"Favorites\", dir_name, [])
@@ -244,15 +196,8 @@ func _do_collect(video_data: Dictionary) -> void:
 			if item.get(\"link\") == link:
 				repeated = true
 				break
-		if repeated:
-			continue
-		list.append({
-			\"link\": link,
-			\"title\": video_data.get(\"title\", \"\"),
-			\"author\": video_data.get(\"author\", \"\"),
-			\"description\": video_data.get(\"description\", \"\"),
-			\"is_network\": true,
-		})
+		if repeated: continue
+		list.append({\"link\": link, \"title\": video_data.get(\"title\", \"\"), \"author\": video_data.get(\"author\", \"\"), \"description\": video_data.get(\"description\", \"\"), \"is_network\": true})
 		GdScriptFunc.set_data(\"Favorites\", dir_name, list)
 	GdScriptFunc.flush()
 
@@ -266,17 +211,14 @@ func _set_cover(texture: Texture2D, video_card: Control) -> void:
 
 
 func set_cover(_bvid: String, texture: Texture2D, video_card: Control) -> void:
-	if is_instance_valid(video_card):
-		video_card.cover = texture
+	if is_instance_valid(video_card): video_card.cover = texture
 
 
 @export var time_cd: Timer
 var is_vertical_sliding := false:
 	set(value):
-		if value == is_vertical_sliding:
-			return
+		if value == is_vertical_sliding: return
 		is_vertical_sliding = value
-		
 		for node in up_nodes:
 			var inner_scroll := node.get_node_or_null(\"ScrollContainer\")
 			if inner_scroll:
@@ -284,25 +226,20 @@ var is_vertical_sliding := false:
 
 var is_on_vertical_scroll := false
 
-
 func _on_scroll_container_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		if (event.button_index == MOUSE_BUTTON_WHEEL_DOWN or event.button_index == MOUSE_BUTTON_WHEEL_UP) and is_on_vertical_scroll:
 			is_vertical_sliding = true
 			time_cd.start()
-			
 	if event is InputEventMouseMotion and time_cd.is_stopped():
 		is_vertical_sliding = false
 		time_cd.stop()
 
-
 func _on_cd_timer_timeout() -> void:
 	is_vertical_sliding = false
 
-
 func _on_scroll_container_mouse_entered() -> void:
 	is_on_vertical_scroll = true
-
 
 func _on_scroll_container_mouse_exited() -> void:
 	is_on_vertical_scroll = false

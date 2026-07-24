@@ -149,7 +149,7 @@ func _get_wbi_key() -> Dictionary:
 	
 	var urls = [
 		"https://api.bilibili.com/x/web-interface/nav",
-        "https://api.bilibili.com/x/web-interface/wbi/index"
+		"https://api.bilibili.com/x/web-interface/wbi/index"
 	]
 
 	for url in urls:
@@ -292,7 +292,7 @@ func fetch_user_videos(mid: String, callback: Callable, page: int = 1, page_size
 				"&dm_img_list=[]" + \
 				"&dm_img_str=V2ViR0wgMS4wIChPcGVuR0wgRVMgMi4wIENocm9taXVtKQ" + \
 				"&dm_cover_img_str=QU5HTEUgKEFNRCwgQU1EIFJhZGVvbihUTSkgVmVnYSA4IEdyYXBoaWNzICgweDAwMDAxNUQ4KSBEaXJlY3QzRDExIHZzXzVfMCBwc181XzAsIEQzRDExKUdvb2dsZSBJbmMuIChBTU" + \
-                "&dm_img_inter=%7B%22ds%22:[],%22wh%22:[3030,2380,102],%22of%22:[205,410,205]%7D"
+				"&dm_img_inter=%7B%22ds%22:[],%22wh%22:[3030,2380,102],%22of%22:[205,410,205]%7D"
 	var url = base + query
 	var headers = _get_headers().duplicate()
 	for i in range(headers.size()):
@@ -795,12 +795,6 @@ static func _generate_rpdid() -> String:
 
 static func _generate_b_lsid() -> String:
 	return _random_string(8).to_upper() + "_" + _random_string(12).to_upper()
-# ============================================================
-# 新增：本地 BV/AV 转换 + medialist 备用方案
-# ============================================================
-
-# Bilibili 本地 BV 转 AV 算法
-# 参考：https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/other/bvid_desc.md
 const XOR_CODE: int = 23442827791579
 const MASK_CODE: int = 2251799813685247
 const MAX_AID: int = 1 << 51
@@ -866,25 +860,16 @@ func _search_one_video_bvid(username: String) -> String:
 
 # 备用视频列表获取（需要 UP 的 mid 和用户名）
 func fetch_user_videos_medialist(mid: String, username: String, callback: Callable, page: int = 1, page_size: int = 20) -> void:
-	print("[medialist] 开始获取 mid=%s, username=%s" % [mid, username])
-	
-	# 1. 搜索用户的一个视频
 	var bvid = await _search_one_video_bvid(username)
 	if bvid.is_empty():
-		print("[medialist] 搜索视频失败")
-		callback.call(null)
+		callback.call([])
 		return
-	
-	# 2. 本地 BV → AV
+
 	var aid = bv_to_aid(bvid)
 	if aid == 0:
-		print("[medialist] BV 转 AV 失败: %s" % bvid)
-		callback.call(null)
+		callback.call([])
 		return
-	
-	print("[medialist] 获取到 AV 号: %d" % aid)
-	
-	# 3. 构造 medialist 请求
+
 	var base = "https://api.bilibili.com/x/v2/medialist/resource/list"
 	var query_params = {
 		"out_referer": "https://space.bilibili.com/%s/upload/video" % mid,
@@ -906,43 +891,36 @@ func fetch_user_videos_medialist(mid: String, username: String, callback: Callab
 	}
 	var qs = ""
 	for key in query_params:
-		if not qs.is_empty():
-			qs += "&"
+		if not qs.is_empty(): qs += "&"
 		qs += key + "=" + query_params[key].uri_encode()
 	var url = base + "?" + qs
-	
-	# 4. 发送请求并解析
+
 	var res = await _request_async(url)
 	var code = res[1]
 	var body = res[3] as PackedByteArray
 	if code != 200:
-		print("[medialist] HTTP 错误: %d" % code)
-		callback.call(null)
+		callback.call([])
 		return
-	
+
 	var json = JSON.new()
 	var body_str = body.get_string_from_utf8()
-	if body_str.strip_edges().begins_with("<"):
-		print("[medialist] 被风控拦截")
-		callback.call(null)
+	if body_str.strip_edges().begins_with("<") or json.parse(body_str) != OK:
+		callback.call([])
 		return
-	if json.parse(body_str) != OK:
-		print("[medialist] JSON 解析失败")
-		callback.call(null)
-		return
-	
+
 	var data = json.get_data()
 	if data.get("code") != 0:
-		print("[medialist] API 错误: %d, %s" % [data.get("code", -1), data.get("message", "")])
-		callback.call(null)
+		callback.call([])
 		return
-	
-	var media_list = data.get("data", {}).get("media_list", [])
+
+	var media_list = data.get("data", {}).get("media_list")
+	if not media_list is Array:
+		media_list = []
+
 	var videos = []
 	for item in media_list:
 		var bvid_item = item.get("bv_id", "")
-		if bvid_item.is_empty():
-			continue
+		if bvid_item.is_empty(): continue
 		videos.append({
 			"link": bvid_item,
 			"BV": bvid_item,
@@ -953,13 +931,7 @@ func fetch_user_videos_medialist(mid: String, username: String, callback: Callab
 			"duration": _format_duration(item.get("duration", 0)),
 			"description": decode_html_entities(item.get("intro", ""))
 		})
-	
-	if videos.is_empty():
-		print("[medialist] 未获取到视频")
-		callback.call(null)
-	else:
-		callback.call(videos)
-
+	callback.call(videos)
 # 秒数转 mm:ss 格式
 func _format_duration(seconds) -> String:
 	if seconds is String:

@@ -17,6 +17,7 @@ script/source = "extends Control
 @export var loading: Control
 @export var error: TextureRect
 @export var obstacle: Panel
+
 var current_execution_number := 0
 var current_count := 0
 var current_page := 1
@@ -57,7 +58,6 @@ func clear_page() -> void:
 	await get_tree().create_timer(0.12).timeout
 	for i in rsults_list.get_child_count():
 		rsults_list.get_child(i).queue_free()
-		
 	label.text = tr(\"搜索\")
 	sub_label.text = tr(\"请搜索\")
 	fade_out(loading, 0.1)
@@ -65,40 +65,29 @@ func clear_page() -> void:
 func update_page(keyword: String) -> void:
 	current_execution_number = randi()
 	_kill_active_tweens()
-	
 	fade_out(error, 0.1)
 	fade_in(obstacle, 0.15)
-	
 	for child in rsults_list.get_children():
 		child.modulate.a = 0.0
 		child.hide()
-		
 	current_keyword = keyword
 	if keyword == \"\":
 		clear_page()
 		return
-		
 	label.text = \"搜索\\\"\" + keyword + \"\\\"\"
 	sub_label.text = tr(\"搜索中\")
 	fade_in(loading, 0.2)
+
 	if keyword.begins_with(\"UID:\"):
-		var mid = keyword.substr(4)  # 提取UID
+		var mid = keyword.substr(4)
 		BilibiliApi.fetch_user_videos(mid, update_callback.bind(current_execution_number), page_number, 30, SortModeButton.selected)
 	elif keyword.begins_with(\"UP主:\"):
-		# 格式：UP主:mid:username
-		var after = keyword.substr(5)  # 去掉 \"UP主:\"
+		var after = keyword.substr(4)
 		var colon_idx = after.find(\":\")
 		if colon_idx != -1:
 			var mid = after.substr(0, colon_idx)
 			var username = after.substr(colon_idx + 1)
-			# 调用备用 medialist 接口（多一个 username 参数）
-			BilibiliApi.fetch_user_videos_medialist(
-				mid,
-				username,
-				update_callback.bind(current_execution_number),
-				page_number,
-				30
-			)
+			BilibiliApi.fetch_user_videos_medialist(mid, username, update_callback.bind(current_execution_number), page_number, 20)
 		else:
 			BilibiliApi.fetch_user_videos(after, update_callback.bind(current_execution_number), page_number, 30, SortModeButton.selected)
 	else:
@@ -114,12 +103,9 @@ func update_callback(videos, execution_number := 0) -> void:
 	else:
 		push_error(\"update_callback: 未知数据结构 \", videos)
 		video_list = []
-	
 	current_count = video_list.size()
-	
 	fade_out(loading, 0.2)
 	fade_out(obstacle, 0.2)
-	
 	if current_count == 0:
 		fade_in(error, 0.3)
 		error.texture = preload(\"res://UI/Icon/nodat.png\")
@@ -130,15 +116,10 @@ func update_callback(videos, execution_number := 0) -> void:
 		error.texture = preload(\"res://UI/Icon/neterror.png\")
 		sub_label.text = tr(\"网络错误\")
 		return
-		
 	sub_label.text = tr(\"已找到\") + str(current_count) + tr(\"首歌曲\")
-	
 	var total_needed = current_count
-	
 	for i in current_count:
-		if execution_number != current_execution_number:
-			return
-		
+		if execution_number != current_execution_number: return
 		var video_transverse_card: BaseVideoCard
 		if rsults_list.get_child_count() <= i:
 			video_transverse_card = preload(\"res://Scene/VideoTransverseCard.tscn\").instantiate()
@@ -152,12 +133,9 @@ func update_callback(videos, execution_number := 0) -> void:
 		video_transverse_card.keywords = current_keyword
 		video_transverse_card.play = int(video.get(\"play\", 0))
 		video_transverse_card.description = video.get(\"description\", \"\")
-		# 链接兼容
 		video_transverse_card.link = video.get(\"bvid\", video.get(\"link\", video.get(\"BV\", \"\")))
 		video_transverse_card.reset()
-		
-		if video.has(\"duration\"):
-			video_transverse_card.duration = video.duration
+		if video.has(\"duration\"): video_transverse_card.duration = video.duration
 		if video.get(\"is_network\", true):
 			BilibiliApi.fetch_cover(video_transverse_card.link, set_cover.bind(video_transverse_card), 70, 70)
 		elif FileAccess.file_exists(video_transverse_card.link.get_basename() + \".jpg\"):
@@ -165,18 +143,15 @@ func update_callback(videos, execution_number := 0) -> void:
 			_set_cover(ImageTexture.create_from_image(image), video_transverse_card)
 		else:
 			GdScriptFunc.generate_label_texture(Color.WHITE, video.get(\"title\", tr(\"本地文件\")), _set_cover.bind(video_transverse_card), null, 10, Color.BLACK, Vector2i(70, 70))
-		
 		video_transverse_card.modulate.a = 0.0
 		video_transverse_card.scale = Vector2(0.9, 0.9)
 		video_transverse_card.show()
-		
 		var tw = create_tween()
 		active_tweens.append(tw)
 		tw.tween_interval(i * 0.04)
 		tw.set_parallel(true)
 		tw.tween_property(video_transverse_card, \"modulate:a\", 1.0, 0.25)
 		tw.tween_property(video_transverse_card, \"scale\", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-		
 	GdScriptFunc.apply_theme_and_styles_to_node(rsults_list)
 	while rsults_list.get_child_count() > total_needed:
 		var extra_card = rsults_list.get_child(-1)
@@ -190,28 +165,16 @@ func _set_cover(texture: Texture2D, video_card: Control) -> void:
 	set_cover(\"\", texture, video_card)
 
 func set_cover(_bvid: String, texture: Texture2D, video_card: Control) -> void:
-	if is_instance_valid(video_card):
-		video_card.cover = texture
+	if is_instance_valid(video_card): video_card.cover = texture
 
-func _on_sort_mode_item_selected(_index: int) -> void:
-	update_page(current_keyword)
-
-func _on_last_pressed() -> void:
-	if page_number > 1:
-		page_number -= 1
-
-func _on_next_pressed() -> void:
-	page_number += 1
-
+func _on_sort_mode_item_selected(_index: int) -> void: update_page(current_keyword)
+func _on_last_pressed() -> void: if page_number > 1: page_number -= 1
+func _on_next_pressed() -> void: page_number += 1
 func _on_page_text_submitted(new_text: String) -> void:
 	var num = new_text.to_int()
-	if num > 0:
-		page_number = num
-	else:
-		page_edit.text = str(page_number)
-
-func _on_tids_item_selected(_index: int) -> void:
-	update_page(current_keyword)
+	if num > 0: page_number = num
+	else: page_edit.text = str(page_number)
+func _on_tids_item_selected(_index: int) -> void: update_page(current_keyword)
 "
 
 [node name="Page3" type="Control" unique_id=585043204 node_paths=PackedStringArray("rsults_list", "page_edit", "label", "sub_label", "SortModeButton", "TidsButton", "loading", "error", "obstacle")]
