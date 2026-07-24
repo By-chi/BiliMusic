@@ -3,7 +3,9 @@
 [ext_resource type="Texture2D" uid="uid://c627o3sd15geu" path="res://UI/Icon/Download.svg" id="1_gptc6"]
 
 [sub_resource type="GDScript" id="GDScript_00ea4"]
-script/source = "extends Window
+script/source = "## TODO: 实现完全此功能 26/7/24
+
+extends Window
 @export var cover_texture_rect: TextureRect
 @export var title_line_edit: LineEdit
 @export var author_line_edit: LineEdit
@@ -313,8 +315,9 @@ func _on_close_requested() -> void:
 oversampling_override = 1.0
 title = "管理音乐元数据"
 initial_position = 2
-size = Vector2i(700, 410)
+size = Vector2i(700, 650)
 min_size = Vector2i(578, 410)
+theme_override_font_sizes/title_font_size = 35
 script = SubResource("GDScript_00ea4")
 cover_texture_rect = NodePath("ScrollContainer/VBoxContainer/Cover/TextureRect")
 title_line_edit = NodePath("ScrollContainer/VBoxContainer/Title/Title")
@@ -394,7 +397,7 @@ offset_right = -68.0
 offset_bottom = 1.0
 grow_horizontal = 0
 grow_vertical = 2
-theme_override_font_sizes/font_size = 24
+theme_override_font_sizes/font_size = 30
 
 [node name="TitleDownload" type="Button" parent="ScrollContainer/VBoxContainer/Title" unique_id=477457240]
 layout_mode = 1
@@ -429,7 +432,7 @@ offset_right = -68.0
 offset_bottom = 2.0
 grow_horizontal = 0
 grow_vertical = 2
-theme_override_font_sizes/font_size = 24
+theme_override_font_sizes/font_size = 30
 
 [node name="AuthorDownload" type="Button" parent="ScrollContainer/VBoxContainer/Author" unique_id=737071497]
 layout_mode = 1
@@ -464,7 +467,7 @@ offset_right = -68.0
 offset_bottom = 1.0
 grow_horizontal = 0
 grow_vertical = 2
-theme_override_font_sizes/font_size = 24
+theme_override_font_sizes/font_size = 30
 
 [node name="LinkDownload" type="Button" parent="ScrollContainer/VBoxContainer/Link" unique_id=309291845]
 layout_mode = 1
@@ -509,12 +512,14 @@ custom_minimum_size = Vector2(0, 200)
 layout_mode = 2
 theme_override_font_sizes/font_size = 35
 text = "音乐描述"
+horizontal_alignment = 1
 
 [node name="Description" type="TextEdit" parent="ScrollContainer/VBoxContainer/Description" unique_id=627023929]
 layout_mode = 1
 offset_top = 49.0
-offset_right = 464.0
-offset_bottom = 200.0
+offset_right = 615.0
+offset_bottom = 281.0
+theme_override_font_sizes/font_size = 30
 
 [node name="DescriptionDownload" type="Button" parent="ScrollContainer/VBoxContainer/Description" unique_id=501125755]
 layout_mode = 1
@@ -523,10 +528,10 @@ anchor_left = 1.0
 anchor_top = 0.5
 anchor_right = 1.0
 anchor_bottom = 0.5
-offset_left = -57.0
-offset_top = -67.0
-offset_right = -8.0
-offset_bottom = -18.0
+offset_left = -50.0
+offset_top = 40.0
+offset_right = -1.0
+offset_bottom = 89.0
 grow_horizontal = 0
 grow_vertical = 2
 icon = ExtResource("1_gptc6")
@@ -541,6 +546,7 @@ offset_top = -77.0
 offset_right = 253.0
 offset_bottom = -15.0
 grow_vertical = 0
+theme_override_font_sizes/font_size = 35
 text = "确定"
 
 [node name="Cancel" type="Button" parent="." unique_id=1772564917]
@@ -555,6 +561,7 @@ offset_right = -186.0
 offset_bottom = -15.0
 grow_horizontal = 0
 grow_vertical = 0
+theme_override_font_sizes/font_size = 35
 text = "取消"
 
 [connection signal="close_requested" from="." to="." method="_on_close_requested"]

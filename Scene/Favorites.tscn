@@ -29,6 +29,8 @@ script/source = "extends Control
 @export var view_mode_button: Button
 @export var list_view: Texture2D
 @export var thumbnails_view: Texture2D
+@export var rename_dialog: ConfirmationDialog
+@export var rename_dialog_edit: LineEdit
 
 const VideoCardScene = preload(\"res://Scene/VideoCard.tscn\")
 const VideoTransverseCardScene = preload(\"res://Scene/VideoTransverseCard.tscn\")
@@ -224,7 +226,6 @@ func _lazy_update_video_cards() -> void:
 			if old_is_network != new_is_network:
 				card.reset()
 				if new_is_network:
-					print(\"7\")
 					BilibiliApi.fetch_cover(card.link, set_cover.bind(card), 70 if list_view_mode else 583, 70 if list_view_mode else 364)
 				elif FileAccess.file_exists(card.link.get_basename() + \".jpg\"):
 					var image = Image.load_from_file(card.link.get_basename() + \".jpg\")
@@ -331,6 +332,11 @@ func _handle_node_click(node: Node) -> void:
 		_last_clicked_node = node
 		_last_click_time = now
 
+func _on_rename_pressed(node: Node) -> void:
+	rename_dialog.visible = true
+	rename_dialog.set_meta(\"node\", node.get_node(\"Title\").text)
+	rename_dialog.set_meta(\"node_parent\", _current_fav_dir)
+
 func _select_node(node: Node, ctrl_pressed: bool) -> void:
 	if ctrl_pressed:
 		var idx = selected_items.find(node)
@@ -396,6 +402,7 @@ func _show_context_menu_for_node(node: Node) -> void:
 	menu_data.append({\"label\": tr(\"复制\"), \"action\": func(d): _on_copy_pressed(), \"enabled\": has_selection})
 	menu_data.append({\"label\": tr(\"粘贴\"), \"action\": func(d): _on_paste_pressed(), \"enabled\": clipboard_valid})
 	menu_data.append({\"type\": \"separator\"})
+	menu_data.append({\"label\": tr(\"重命名\"), \"action\": func(d): _on_rename_pressed(node), \"enabled\": has_selection})
 	menu_data.append({\"label\": tr(\"删除\"), \"action\": func(d): _delete_selected_items(), \"enabled\": has_selection})
 
 	if not _is_showing_favorites:
@@ -887,6 +894,35 @@ func _on_view_mode_pressed() -> void:
 func _on_visibility_changed() -> void:
 	if visible:
 		_rebuild_current_view()
+
+
+func _on_rename_dialog_confirmed() -> void:
+	var node_parent: String = rename_dialog.get_meta(\"node_parent\")
+	var original_title: String = rename_dialog.get_meta(\"node\")
+	var new_title = rename_dialog_edit.text.strip_edges()
+
+	if new_title.is_empty():
+		return
+
+	var video_array = GdScriptFunc.get_data(\"Favorites\", node_parent, [])
+	var found = false
+	for vid_dict in video_array:
+		var old_title = vid_dict.get(\"title\", \"\")
+		if old_title.find(original_title) != -1:
+			vid_dict[\"title\"] = new_title
+			found = true
+			break
+
+	if found:
+		GdScriptFunc.set_data(\"Favorites\", node_parent, video_array)
+		update()
+
+	rename_dialog.hide()
+
+
+
+func _on_rename_dialog_canceled() -> void:
+	rename_dialog.hide()
 "
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_1siev"]
@@ -907,7 +943,7 @@ corner_radius_bottom_right = 9
 corner_radius_bottom_left = 9
 corner_detail = 4
 
-[node name="Page" type="Control" unique_id=585043204 node_paths=PackedStringArray("thumbnails_scroll_container", "grid_container", "list_scroll_container", "list_container", "back_button", "ok_button", "remove_button", "download_button", "cut_button", "copy_button", "paste_button", "add_button", "view_mode_button")]
+[node name="Page" type="Control" unique_id=585043204 node_paths=PackedStringArray("thumbnails_scroll_container", "grid_container", "list_scroll_container", "list_container", "back_button", "ok_button", "remove_button", "download_button", "cut_button", "copy_button", "paste_button", "add_button", "view_mode_button", "rename_dialog", "rename_dialog_edit")]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -933,6 +969,8 @@ add_button = NodePath("Bar/Add")
 view_mode_button = NodePath("ViewMode")
 list_view = ExtResource("1_451qt")
 thumbnails_view = ExtResource("8_l7kha")
+rename_dialog = NodePath("RenameDialog")
+rename_dialog_edit = NodePath("RenameDialog/LineEdit")
 
 [node name="Panel" type="Panel" parent="." unique_id=1960210643]
 z_index = -1
@@ -1111,6 +1149,23 @@ grow_vertical = 0
 icon = ExtResource("8_l7kha")
 expand_icon = true
 
+[node name="RenameDialog" type="ConfirmationDialog" parent="." unique_id=1275158085]
+oversampling_override = 1.0
+position = Vector2i(600, 470)
+size = Vector2i(400, 109)
+ok_button_text = "确认"
+cancel_button_text = "取消"
+metadata/node_parent = ""
+metadata/node = ""
+
+[node name="LineEdit" type="LineEdit" parent="RenameDialog" unique_id=983635467]
+offset_left = 8.0
+offset_top = 8.0
+offset_right = 392.0
+offset_bottom = 60.0
+theme_override_font_sizes/font_size = 30
+placeholder_text = "请输入文字"
+
 [connection signal="resized" from="." to="." method="_on_thumbnails_scroll_resized"]
 [connection signal="visibility_changed" from="." to="." method="_on_visibility_changed"]
 [connection signal="pressed" from="Bar/Add" to="." method="_on_add_pressed"]
@@ -1123,3 +1178,5 @@ expand_icon = true
 [connection signal="pressed" from="Back" to="." method="_on_back_pressed"]
 [connection signal="pressed" from="OK" to="." method="_on_ok_pressed"]
 [connection signal="pressed" from="ViewMode" to="." method="_on_view_mode_pressed"]
+[connection signal="canceled" from="RenameDialog" to="." method="_on_rename_dialog_canceled"]
+[connection signal="confirmed" from="RenameDialog" to="." method="_on_rename_dialog_confirmed"]
