@@ -111,9 +111,12 @@ theme_override_styles/focus = SubResource("StyleBoxFlat_oy5bj")
 text = "Music"
 placeholder_text = "Title"
 alignment = 1
+editable = false
 context_menu_enabled = false
 emoji_menu_enabled = false
 shortcut_keys_enabled = false
+middle_mouse_paste_enabled = false
+deselect_on_focus_loss_enabled = false
 
 [node name="Downloaded" type="TextureRect" parent="." unique_id=1063023129]
 visible = false

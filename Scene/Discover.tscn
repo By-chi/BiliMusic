@@ -100,7 +100,7 @@ func _instantiate_and_setup_card(video: Dictionary, list_node: BoxContainer) -> 
 	# 连接右键事件
 	video_card.gui_input.connect(_on_video_card_gui_input.bind(video_card, video))
 
-# -------------------- 右键收藏（参考 BaseVideoCard）--------------------
+# -------------------- 右键收藏--------------------
 func _on_video_card_gui_input(event: InputEvent, video_card: Control, video_data: Dictionary) -> void:
 	if not (event is InputEventMouseButton):
 		return
@@ -123,7 +123,6 @@ func _on_video_card_gui_input(event: InputEvent, video_card: Control, video_data
 			\"action\": func(_d): _on_cancel_collect(link),
 			\"enabled\": true
 		})
-	# 可以继续添加更多菜单项 ...
 	
 	GdScriptFunc.open_right_click_menu_window(DisplayServer.mouse_get_position(), menu)
 
@@ -299,6 +298,8 @@ text = "从众多UP主中推荐"
 wait_time = 0.5
 one_shot = true
 autostart = true
+
+[node name="PopupMenu" type="PopupMenu" parent="." unique_id=1050700338]
 
 [connection signal="gui_input" from="ScrollContainer" to="." method="_on_scroll_container_gui_input"]
 [connection signal="mouse_entered" from="ScrollContainer" to="." method="_on_scroll_container_mouse_entered"]

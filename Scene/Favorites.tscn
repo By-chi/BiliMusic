@@ -1071,7 +1071,6 @@ icon = ExtResource("3_gvq1e")
 expand_icon = true
 
 [node name="OK" type="Button" parent="." unique_id=576419686]
-visible = false
 custom_minimum_size = Vector2(70, 70)
 layout_mode = 1
 anchors_preset = 7
@@ -1084,7 +1083,8 @@ offset_right = 40.0
 offset_bottom = 70.0
 grow_horizontal = 2
 grow_vertical = 0
-theme_override_colors/font_disabled_color = Color(0.16078432, 0.16078432, 0.16078432, 1)
+theme_override_colors/font_color = Color(0, 0, 0, 1)
+theme_override_colors/font_disabled_color = Color(0.15686275, 0.15686275, 0.15686275, 1)
 theme_override_styles/normal = SubResource("StyleBoxFlat_gvq1e")
 theme_override_styles/pressed = SubResource("StyleBoxFlat_gvq1e")
 theme_override_styles/hover = SubResource("StyleBoxFlat_gvq1e")

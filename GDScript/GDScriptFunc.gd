@@ -258,9 +258,10 @@ func flush():
 	_do_save()
 
 
-# 入口函数：在指定坐标显示右键菜单,右键菜单应用不了皮肤(即使我已经写了适配代码,还是不行)
+# 入口函数：在指定坐标显示右键菜单,右键菜单应用不了皮肤
 func open_right_click_menu_window(pos: Vector2, data: Array[Dictionary]) -> void:
 	var menu := PopupMenu.new()
+	menu.add_theme_font_size_override("font_size", 30)
 	menu.name = "ContextMenu"
 	add_child(menu)  # 将菜单添加到当前节点下，以便显示
 	# 递归构建菜单内容
