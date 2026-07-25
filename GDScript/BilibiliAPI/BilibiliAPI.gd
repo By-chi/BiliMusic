@@ -67,7 +67,9 @@ func _get_headers_with_mid(mid: int = 0) -> PackedStringArray:
 		"ogv_device_support_hdr=0",
 		"browser_resolution=" + str(DisplayServer.screen_get_size().x) + "-" + str(DisplayServer.screen_get_size().y),
 		"home_feed_column=4",
-		"b_lsid=" + _get_or_generate_cookie_field("b_lsid", Callable(self, "_generate_b_lsid"))
+		"b_lsid=" + _get_or_generate_cookie_field("b_lsid", Callable(self, "_generate_b_lsid")),
+		"CURRENT_FNVAL=4048",
+		"CURRENT_QUALITY=0",
 	]
 
 	var sess = GdScriptFunc.get_data("AccountData", "SESSDATA", "")
@@ -90,14 +92,17 @@ func _get_headers_with_mid(mid: int = 0) -> PackedStringArray:
 		referer += str(mid) + "/upload/video"
 
 	return [
-		"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+		"User-Agent: " + get_dynamic_user_agent(),
 		"Referer: " + referer,
 		"Origin: https://space.bilibili.com",
-		"Accept: application/json, text/plain, */*",
-		"Accept-Language: zh-CN,zh;q=0.9,en;q=0.8",
+		"Accept: */*",
+		"Accept-Language: zh-CN,zh-Hans;q=0.9",
+		"Accept-Encoding: gzip, deflate, br",
+		"Cache-Control: no-cache",
+		"Pragma: no-cache",
 		'Sec-Ch-Ua: "Not;A=Brand";v="8", "Chromium";v="120", "Microsoft Edge";v="120"',
 		"Sec-Ch-Ua-Mobile: ?0",
-		'Sec-Ch-Ua-Platform: "Windows"',
+		'Sec-Ch-Ua-Platform: "macOS"',
 		"Sec-Fetch-Dest: empty",
 		"Sec-Fetch-Mode: cors",
 		"Sec-Fetch-Site: same-site",
@@ -111,7 +116,17 @@ func _get_image_headers() -> PackedStringArray:
 		"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 		"Referer: https://www.bilibili.com"
 	]
-
+static func get_dynamic_user_agent() -> String:
+	var os_name = OS.get_name()
+	match os_name:
+		"macOS":
+			return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15"
+		"Windows":
+			return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+		"Linux":
+			return "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+		_:
+			return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 func _request(url: String, callback: Callable, extra: Variant = null, method: int = HTTPClient.METHOD_GET, custom_headers: PackedStringArray = _get_headers(), mid: int = 0) -> void:
 	var http = HTTPRequest.new()
 	add_child(http)
@@ -199,7 +214,6 @@ func _get_wbi_key() -> Dictionary:
 	return _wbi_key_cache
 
 func fetch_user_info_by_mid(mid: String, callback: Callable, max_retries: int = 3) -> void:
-	print("[fetch_user_info_by_mid] 开始获取 mid=%s" % mid)
 	_fetch_with_retry(mid, callback, max_retries)
 
 func _fetch_with_retry(mid: String, callback: Callable, retries_left: int) -> void:
@@ -212,7 +226,8 @@ func _fetch_with_retry(mid: String, callback: Callable, retries_left: int) -> vo
 			headers[i] = "Referer: https://search.bilibili.com"
 		elif headers[i].begins_with("Origin: "):
 			headers[i] = "Origin: https://search.bilibili.com"
-	
+	var delay = 1.0 + randf() * 2.0
+	await get_tree().create_timer(delay).timeout
 	var http = HTTPRequest.new()
 	add_child(http)
 	http.request(url, headers, HTTPClient.METHOD_GET)

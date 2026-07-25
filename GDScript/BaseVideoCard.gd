@@ -15,6 +15,7 @@ var _hover_tween: Tween
 var list_name := "":
 	set(value):
 		list_name = value
+		print("list_name: ", list_name)
 		if title_label is LineEdit:
 			title_label.editable = list_name != ""
 var author := "":
