@@ -483,6 +483,7 @@ text = "开机自启动"
 
 [node name="Enable_HigherProcessPriority" type="CheckButton" parent="TabContainer/常规/VBoxContainer" unique_id=82088222]
 layout_mode = 2
+tooltip_text = "启用此功能后，BiliMusic将让操作系统给这个程序更多CPU资源，防止CPU忙碌时音频卡顿破音\\n [!] 此功能暂时仅在Windows上实现"
 button_pressed = true
 text = "启用更高的进程优先级"
 
