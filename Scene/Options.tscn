@@ -241,7 +241,8 @@ func _setup_big_window_theme(option_button: OptionButton) -> void:
 
 	var theme_dict: Dictionary = {}
 	for theme_name in BuiltinThemes:
-		theme_dict[theme_name] = BUILTIN_DIR.path_join(theme_name + \".tscn\")
+		var builtin_path = BUILTIN_DIR.path_join(theme_name).path_join(\"main.tscn\")
+		theme_dict[theme_name] = builtin_path
 
 	var user_dir = \"user://BigWindowTheme/\"
 	if DirAccess.dir_exists_absolute(user_dir):
@@ -250,13 +251,14 @@ func _setup_big_window_theme(option_button: OptionButton) -> void:
 			dir.list_dir_begin()
 			var file = dir.get_next()
 			while file != \"\":
-				if not dir.current_is_dir() and file.ends_with(\".tscn\"):
-					var theme_name = file.trim_suffix(\".tscn\")
-					var theme_path = user_dir.path_join(file)
-					theme_dict[theme_name] = theme_path   # 外部覆盖
+				if dir.current_is_dir() and file != \".\" and file != \"..\":
+					var main_path = user_dir.path_join(file).path_join(\"main.tscn\")
+					if FileAccess.file_exists(main_path):
+						theme_dict[file] = main_path   # 外部覆盖内置
 				file = dir.get_next()
 			dir.list_dir_end()
 
+	# 生成有序列表
 	var theme_names: Array = []
 	var theme_paths: Array = []
 	for theme_name in theme_dict:
@@ -284,16 +286,14 @@ func _setup_big_window_theme(option_button: OptionButton) -> void:
 		idx = 0
 	option_button.selected = idx
 
-	#选择新主题时同时更新已打开的大窗口
+	# 选择新主题时同时更新已打开的大窗口
 	option_button.item_selected.connect(func(index: int):
 		var selected_path = sorted_paths[index]
 		GdScriptFunc.set_data(\"Options\", \"Custom_Big_Window_Theme\", selected_path, true)
-		#动态刷新已经打开的大窗口主题
 		var main = get_node(\"/root/Main\")
-		if main and main.bottom_menu and main.bottom_menu.play_window and main.bottom_menu.play_window_mode==\"BigWindow\":
+		if main and main.bottom_menu and main.bottom_menu.play_window and main.bottom_menu.play_window_mode == \"BigWindow\":
 			main.bottom_menu.play_window.update_performance_node(selected_path)
 	)
-
 func _setup_generic(option: Control, control: Node) -> void:
 	var key = option.name
 	match control.get_class():

@@ -36,7 +36,7 @@ func update_performance_node(new_theme_path: String) -> void:
 	if new_theme_path != \"\":
 		performance_node = load(new_theme_path).instantiate()
 	else:
-		performance_node = preload(\"res://BigWindowTheme/RecordEdgeLines.tscn\").instantiate()
+		performance_node = preload(\"res://BigWindowTheme/RecordEdgeLines/main.tscn\").instantiate()
 	GdScriptFunc.apply_theme_and_styles_to_node(performance_node)
 	# 初始化必要属性
 	performance_node.bottomMenu = bottom_menu
@@ -53,7 +53,7 @@ func _ready() -> void:
 	if path!=\"\":
 		performance_node=load(path).instantiate()
 	else:
-		performance_node=preload(\"res://BigWindowTheme/RecordEdgeLines.tscn\").instantiate()
+		performance_node=preload(\"res://BigWindowTheme/RecordEdgeLines/main.tscn\").instantiate()
 	GdScriptFunc.apply_theme_and_styles_to_node(performance_node)
 	performance_node.bottomMenu=bottom_menu
 	add_child(performance_node)
