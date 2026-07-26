@@ -451,7 +451,7 @@ theme_override_constants/separation = 10
 [node name="Discover" type="Button" parent="LeftMenu/ScrollContainer/VBoxContainer" unique_id=380134334 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 custom_minimum_size = Vector2(0, 60)
 layout_mode = 2
-tooltip_text = "从众多up主中推荐"
+tooltip_text = "从众多UP主中推荐"
 text = "发现音乐"
 icon = ExtResource("3_h175a")
 expand_icon = true
