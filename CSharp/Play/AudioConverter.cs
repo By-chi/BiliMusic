@@ -199,7 +199,7 @@ public partial class AudioConverter
         try
         {
             string error = await process.StandardError.ReadToEndAsync();
-            if (!string.IsNullOrEmpty(error))
+            if (process.ExitCode != 0)
                 GD.PrintErr($"FFmpeg 错误: {error}");
         }
         catch (OperationCanceledException) { }
