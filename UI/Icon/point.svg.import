@@ -15,4 +15,6 @@ dest_files=["res://.godot/imported/point.svg-292eb7825c1f3cd092c8c134bb4453fa.dp
 base_scale=1.0
 saturation=1.0
 color_map={}
+fix_alpha_border=false
+premult_alpha=false
 compress=true

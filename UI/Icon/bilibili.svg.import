@@ -15,4 +15,6 @@ dest_files=["res://.godot/imported/bilibili.svg-22d930f5ca0b82f114894419f8cc4f27
 base_scale=1.0
 saturation=1.0
 color_map={}
+fix_alpha_border=false
+premult_alpha=false
 compress=true

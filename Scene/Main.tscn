@@ -70,10 +70,46 @@ func _ready() -> void:
 func change_page(page_name:String)->void:
 	if page_name==current_page_name:
 		return
+	
+	# 获取当前页编号
+	var last_page_number := -1
+	match current_page_name:
+		\"Discover\": last_page_number   = 0
+		\"Results\": last_page_number    = 1
+		\"Favorites\": last_page_number = 2
+		\"Import\": last_page_number     = 3
+		\"Options\": last_page_number    = 4
+	
+	# 获取切换到页编号
+	var current_page_number:= -1
+	var current_page_node = get_node(page_name)
+	match page_name:
+		\"Discover\": current_page_number   = 0
+		\"Results\": current_page_number    = 1
+		\"Favorites\": current_page_number = 2
+		\"Import\": current_page_number     = 3
+		\"Options\": current_page_number    = 4
+	
+	var long_position := current_page.size.y + 300
+	
+	if last_page_number < current_page_number: long_position = -long_position
+
+	# 上一页滑动退出
+	var last_page_tween = get_tree().create_tween()
+	last_page_tween.tween_property(current_page, \"global_position\", Vector2(310, long_position), 0.25).set_trans(Tween.TRANS_CUBIC)
+	await last_page_tween.finished
 	current_page.hide()
+	
+	# 打开下一页
 	current_page=get_node(page_name)
 	current_page.show()
+	current_page.set_global_position(Vector2(310, -long_position))
 	current_page_name=page_name
+	
+	# 下一页滑动进入
+	var current_page_tween = get_tree().create_tween()
+	current_page_tween.tween_property(current_page, \"global_position\", Vector2(310, 0), 0.25).set_trans(Tween.TRANS_CUBIC)
+	await last_page_tween.finished
 
 
 func _on_search_text_submitted(new_text: String) -> void:
@@ -192,7 +228,7 @@ func _update_mode_ui():
 			play_mode_button.icon = shuffle_icon
 
 func _on_play_mode_pressed():
-	var next:=Player.current_mode + 1
+	var next = Player.current_mode + 1
 	var new_mode = next % Player.PlayMode.COUNT
 	Player.set_play_mode(new_mode)
 
@@ -296,6 +332,9 @@ func _on_details_pressed() -> void:
 		GdScriptFunc.apply_theme_and_styles_to_node(play_window)
 		play_window_mode=\"BigWindow\"
 	play_window.show()
+	var self_tween = get_tree().create_tween()
+	self_tween.tween_property(self, \"global_position\", Vector2(283, self.global_position.y + 300), 0.25).set_trans(Tween.TRANS_CUBIC)
+	await self_tween.finished
 	hide()
 	play_window.update(list_name,cover,Player.get_current_video_info())
 
@@ -311,6 +350,9 @@ func _on_PiP_pressed() -> void:
 		GdScriptFunc.apply_theme_and_styles_to_node(play_window)
 		play_window_mode=\"PiP\"
 	play_window.show()
+	var self_tween = get_tree().create_tween()
+	self_tween.tween_property(self, \"global_position\", Vector2(283, self.global_position.y + 300), 0.25).set_trans(Tween.TRANS_CUBIC)
+	await self_tween.finished
 	hide()
 	play_window.update(list_name,cover,Player.get_current_video_info())
 "
@@ -523,7 +565,6 @@ visible = false
 layout_mode = 1
 
 [node name="BottomMenu" type="Panel" parent="." unique_id=1456727291 node_paths=PackedStringArray("cover_node", "title_label", "author_label", "play_button", "volume_button", "progress_bar", "volume_progress_bar", "volume_background", "volume_exit_timer", "play_mode_button") groups=["style_panel"]]
-visible = false
 layout_mode = 1
 anchors_preset = 12
 anchor_top = 1.0
