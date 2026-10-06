@@ -10,13 +10,13 @@ script/source = "extends Control
 
 @export var rsults_list: VBoxContainer
 @export var page_edit: LineEdit
-@export var label: Label
 @export var sub_label: Label
 @export var SortModeButton: OptionButton
 @export var TidsButton: OptionButton
 @export var loading: Control
 @export var error: TextureRect
 @export var obstacle: Panel
+@export var search_bar: LineEdit
 
 var current_execution_number := 0
 var current_count := 0
@@ -58,10 +58,15 @@ func clear_page() -> void:
 	await get_tree().create_timer(0.12).timeout
 	for i in rsults_list.get_child_count():
 		rsults_list.get_child(i).queue_free()
-	label.text = tr(\"搜索\")
+	#label.text = tr(\"搜索\")
 	sub_label.text = tr(\"请搜索\")
 	fade_out(loading, 0.1)
-
+func show_search_bar()->void:
+	var tween:=search_bar.create_tween()
+	tween.tween_property(search_bar,\"offset_transform_scale:x\",1.0,0.3).set_trans(Tween.TRANS_SPRING)
+func hide_search_bar()->void:
+	var tween:=search_bar.create_tween()
+	tween.tween_property(search_bar,\"offset_transform_scale:x\",0,0.3).set_trans(Tween.TRANS_CUBIC)
 func update_page(keyword: String) -> void:
 	current_execution_number = randi()
 	_kill_active_tweens()
@@ -74,7 +79,7 @@ func update_page(keyword: String) -> void:
 	if keyword == \"\":
 		clear_page()
 		return
-	label.text = \"搜索\\\"\" + keyword + \"\\\"\"
+	#label.text = \"搜索\\\"\" + keyword + \"\\\"\"
 	sub_label.text = tr(\"搜索中\")
 	fade_in(loading, 0.2)
 
@@ -175,9 +180,30 @@ func _on_page_text_submitted(new_text: String) -> void:
 	if num > 0: page_number = num
 	else: page_edit.text = str(page_number)
 func _on_tids_item_selected(_index: int) -> void: update_page(current_keyword)
+
+
+func _on_search_text_submitted(new_text: String) -> void:
+	update_page(new_text)
+
+
+func _on_visibility_changed() -> void:
+	if visible:
+		_on_scroll_container_item_rect_changed()
+	else:
+		hide_search_bar()
+		State.main.show_search_bar()
+
+func _on_scroll_container_item_rect_changed() -> void:
+	if position.y<100:
+		State.main.hide_search_bar()
+		await get_tree().create_timer(0.3).timeout
+		show_search_bar()
+	else:
+		hide_search_bar()
+		State.main.show_search_bar()
 "
 
-[node name="Page3" type="Control" unique_id=585043204 node_paths=PackedStringArray("rsults_list", "page_edit", "label", "sub_label", "SortModeButton", "TidsButton", "loading", "error", "obstacle")]
+[node name="Page3" type="Control" unique_id=585043204 node_paths=PackedStringArray("rsults_list", "page_edit", "sub_label", "SortModeButton", "TidsButton", "loading", "error", "obstacle", "search_bar")]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -191,29 +217,39 @@ mouse_filter = 1
 script = SubResource("GDScript_q7gkv")
 rsults_list = NodePath("ScrollContainer/VBoxContainer")
 page_edit = NodePath("BottomBar/Page")
-label = NodePath("Label")
-sub_label = NodePath("Label/SubLabel")
+sub_label = NodePath("SubLabel")
 SortModeButton = NodePath("SortMode")
 TidsButton = NodePath("Tids")
 loading = NodePath("Loading")
 error = NodePath("Error")
 obstacle = NodePath("Obstacle")
+search_bar = NodePath("Search")
 
-[node name="Label" type="Label" parent="." unique_id=921580403]
+[node name="SubLabel" type="Label" parent="." unique_id=345127570 groups=["color_font_color"]]
 layout_mode = 1
-offset_right = 997.0
-offset_bottom = 73.0
-theme_override_font_sizes/font_size = 50
-text = "搜索"
-text_overrun_behavior = 5
-
-[node name="SubLabel" type="Label" parent="Label" unique_id=345127570 groups=["color_font_color"]]
-layout_mode = 1
-offset_top = 78.0
-offset_right = 201.0
-offset_bottom = 113.0
+offset_left = 20.0
+offset_top = 97.0
+offset_right = 221.0
+offset_bottom = 132.0
 theme_override_font_sizes/font_size = 24
 text = "请搜索"
+
+[node name="Search" type="LineEdit" parent="." unique_id=1860902725]
+layout_mode = 1
+anchors_preset = -1
+anchor_top = -0.012
+anchor_right = 0.97900003
+offset_top = 36.812
+offset_right = -466.34302
+offset_bottom = 66.936005
+grow_horizontal = 2
+offset_transform_enabled = true
+offset_transform_scale = Vector2(0, 1)
+offset_transform_pivot_ratio = Vector2(0, 0.5)
+tooltip_text = "在B站上找音乐"
+placeholder_text = "搜索音乐"
+context_menu_enabled = false
+emoji_menu_enabled = false
 
 [node name="SortMode" type="OptionButton" parent="." unique_id=751136305]
 layout_mode = 1
@@ -221,9 +257,9 @@ anchors_preset = 1
 anchor_left = 1.0
 anchor_right = 1.0
 offset_left = -246.0
-offset_top = 18.0
+offset_top = 33.0
 offset_right = -62.0
-offset_bottom = 67.0
+offset_bottom = 82.0
 grow_horizontal = 0
 alignment = 1
 text_overrun_behavior = 5
@@ -256,9 +292,9 @@ anchors_preset = 1
 anchor_left = 1.0
 anchor_right = 1.0
 offset_left = -463.0
-offset_top = 18.0
+offset_top = 33.0
 offset_right = -278.0
-offset_bottom = 67.0
+offset_bottom = 82.0
 grow_horizontal = 0
 alignment = 1
 text_overrun_behavior = 5
@@ -417,9 +453,12 @@ grow_horizontal = 2
 grow_vertical = 2
 texture = ExtResource("3_loqq7")
 
+[connection signal="visibility_changed" from="." to="." method="_on_visibility_changed" flags=3]
+[connection signal="text_submitted" from="Search" to="." method="_on_search_text_submitted"]
 [connection signal="item_selected" from="SortMode" to="." method="_on_sort_mode_item_selected"]
 [connection signal="item_selected" from="Tids" to="." method="_on_tids_item_selected"]
 [connection signal="gui_input" from="ScrollContainer" to="." method="_on_scroll_container_gui_input"]
+[connection signal="item_rect_changed" from="ScrollContainer" to="." method="_on_scroll_container_item_rect_changed"]
 [connection signal="pressed" from="BottomBar/Last" to="." method="_on_last_pressed"]
 [connection signal="text_submitted" from="BottomBar/Page" to="." method="_on_page_text_submitted"]
 [connection signal="pressed" from="BottomBar/Next" to="." method="_on_next_pressed"]

@@ -5,6 +5,7 @@ var play_ui_mode := 0:
 			play_ui_mode = value
 			GdScriptFunc.flush()
 var default_current_playlist: Array = []
+var main:Panel
 func _ready() -> void:
 	get_window().size=GdScriptFunc.get_data("Window","Size",Vector2i(1600,1000))
 	if GdScriptFunc.get_data("Options","RememberWindow",true):

@@ -155,7 +155,7 @@ func get_info_call_back(video_info: Dictionary, task: Dictionary) -> void:
 	# ----- 下载封面并保存为 BV号.jpg -----
 	var cover_url = video_info.get(\"pic\", \"\")
 	if not cover_url.is_empty():
-		BilibiliApi.fetch_cover(task.link, func(tex: Texture2D):
+		BilibiliApi.fetch_cover(task.link, func(bvid: String, tex: Texture2D):
 			if tex:
 				var img = tex.get_image()
 				if img:

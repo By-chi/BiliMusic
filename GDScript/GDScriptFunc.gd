@@ -673,17 +673,13 @@ func create_frosted_texture_async(
 	return result_tex
 
 
-var progress_bar_window: Window
 
 
 func set_progress_bar_value(progress_value: int, title_str := "", text_str := "") -> void:
-	if progress_bar_window == null:
-		progress_bar_window = preload("res://Scene/ProgressBarWindow.tscn").instantiate()
-		add_child(progress_bar_window)
-		apply_theme_and_styles_to_node(progress_bar_window)
-	progress_bar_window.update(progress_value, title_str, text_str)
-
-
+	if progress_value==100:
+		State.main.progress_bar.offset_transform_scale.x=0
+	else:
+		State.main.progress_bar.offset_transform_scale.x=progress_value/100.0
 var current_skin_name: String = ""
 
 
@@ -759,9 +755,7 @@ func apply_theme_and_styles_to_node(node: Node, mark := true) -> void:
 	if current_skin_name.is_empty():
 		return
 	var dir := "res://Skin/" + current_skin_name + "/"
-
-	# 只有 Control 节点才需要 theme，且主题会自动向下继承
-	if node is Control:
+	if node is Control||node is Window:
 		var main_theme_path = dir + "main.theme"
 		if ResourceLoader.exists(main_theme_path):
 			var main_theme = ResourceLoader.load(main_theme_path, "Theme", ResourceLoader.CACHE_MODE_REUSE)

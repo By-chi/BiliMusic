@@ -67,7 +67,7 @@ func reset() -> void:
 
 
 func play_card() -> void:
-	get_node("/root/Main").play(self)
+	State.main.play(self)
 
 
 func _on_pressed() -> void:

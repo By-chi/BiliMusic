@@ -402,6 +402,8 @@ func _load_cloud_deck_covers(deck: Node, on_done: Callable) -> void:
 			var real_count: int = int(deck.get_meta(\"cloud_count\", videos.size()))
 			if list_view_mode and deck.get(\"CountLabel\"):
 				deck.CountLabel.text = \"☁\" + str(real_count)
+				deck.text_node.editable=false
+				deck.text_node.selecting_enabled=false
 		on_done.call()
 	, 1, 3)
 
@@ -1523,6 +1525,7 @@ func _create_cloud_deck_node(folder: Dictionary) -> Node:
 
 	if \"text_node\" in deck and deck.text_node:
 		deck.text_node.editable = false
+		deck.text_node.selecting_enabled = false
 
 	if list_view_mode and deck.get(\"CountLabel\"):
 		deck.CountLabel.text = \"☁\" + str(count)
@@ -1564,19 +1567,6 @@ content_margin_left = 20.0
 content_margin_top = 130.0
 draw_center = false
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_gvq1e"]
-bg_color = Color(0.87021685, 0.8702169, 0.8702167, 1)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 1
-border_color = Color(0.5839104, 0.58391047, 0.5839102, 1)
-corner_radius_top_left = 9
-corner_radius_top_right = 9
-corner_radius_bottom_right = 9
-corner_radius_bottom_left = 9
-corner_detail = 4
-
 [node name="Page" type="Control" unique_id=585043204 node_paths=PackedStringArray("thumbnails_scroll_container", "grid_container", "list_scroll_container", "list_container", "back_button", "ok_button", "remove_button", "download_button", "cloud_button", "cut_button", "copy_button", "paste_button", "add_button", "view_mode_button", "rename_dialog", "rename_dialog_edit")]
 layout_mode = 3
 anchors_preset = 15
@@ -1607,7 +1597,7 @@ thumbnails_view = ExtResource("8_l7kha")
 rename_dialog = NodePath("RenameDialog")
 rename_dialog_edit = NodePath("RenameDialog/LineEdit")
 
-[node name="Panel" type="Panel" parent="." unique_id=1960210643]
+[node name="Panel" type="Panel" parent="." unique_id=1960210643 groups=["style_panel"]]
 z_index = -1
 layout_mode = 1
 anchors_preset = -1
@@ -1741,7 +1731,7 @@ size_flags_horizontal = 3
 size_flags_vertical = 3
 theme_override_constants/separation = 10
 
-[node name="Back" type="Button" parent="." unique_id=1348982218]
+[node name="Back" type="Button" parent="." unique_id=1348982218 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 visible = false
 custom_minimum_size = Vector2(70, 70)
 layout_mode = 0
@@ -1751,7 +1741,7 @@ offset_bottom = 177.0
 icon = ExtResource("3_gvq1e")
 expand_icon = true
 
-[node name="OK" type="Button" parent="." unique_id=576419686]
+[node name="OK" type="Button" parent="." unique_id=576419686 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 custom_minimum_size = Vector2(70, 70)
 layout_mode = 1
 anchors_preset = 7
@@ -1766,17 +1756,10 @@ grow_horizontal = 2
 grow_vertical = 0
 theme_override_colors/font_color = Color(0, 0, 0, 1)
 theme_override_colors/font_disabled_color = Color(0.15686275, 0.15686275, 0.15686275, 1)
-theme_override_styles/normal = SubResource("StyleBoxFlat_gvq1e")
-theme_override_styles/pressed = SubResource("StyleBoxFlat_gvq1e")
-theme_override_styles/hover = SubResource("StyleBoxFlat_gvq1e")
-theme_override_styles/hover_pressed = SubResource("StyleBoxFlat_gvq1e")
-theme_override_styles/hover_pressed_mirrored = SubResource("StyleBoxFlat_gvq1e")
-theme_override_styles/disabled = SubResource("StyleBoxFlat_gvq1e")
-theme_override_styles/focus = SubResource("StyleBoxFlat_gvq1e")
 text = "确定"
 expand_icon = true
 
-[node name="ViewMode" type="Button" parent="." unique_id=594336396]
+[node name="ViewMode" type="Button" parent="." unique_id=594336396 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
 layout_mode = 1
 anchors_preset = 3
 anchor_left = 1.0

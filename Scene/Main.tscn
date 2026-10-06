@@ -30,6 +30,8 @@ script/source = "extends Panel
 @export var bottom_menu:Panel
 @export var ui_sound:AudioStreamPlayer
 @export var icon:TextureRect
+@export var progress_bar:Panel
+@export var search_bar:LineEdit
 func play(card:BaseVideoCard)->void:
 	Player.play_by_video_info(card.video_info)
 	var i:=0
@@ -51,6 +53,8 @@ func play(card:BaseVideoCard)->void:
 			bottom_menu.hide()
 			bottom_menu.play_window.show()
 			bottom_menu.play_window.update(card.list_name,card.cover,card.video_info)
+func _init() -> void:
+	State.main=self
 func _ready() -> void:
 	get_window().size_changed.connect(func():
 		GdScriptFunc.set_data(\"Window\",\"Size\",get_window().size)
@@ -66,51 +70,50 @@ func _ready() -> void:
 	get_window().min_size=Vector2i(1285,262)
 	for button in page_buttons:
 		button.connect(\"pressed\",change_page.bind(button.name))
-	
-func change_page(page_name:String)->void:
-	if page_name==current_page_name:
+func show_search_bar()->void:
+	var tween:=search_bar.create_tween()
+	tween.tween_property(search_bar,\"offset_transform_scale:x\",1.0,0.3).set_trans(Tween.TRANS_SPRING)
+func hide_search_bar()->void:
+	var tween:=search_bar.create_tween()
+	tween.tween_property(search_bar,\"offset_transform_scale:x\",0,0.3).set_trans(Tween.TRANS_CUBIC)
+var is_switching := false
+
+func change_page(page_name: String) -> void:
+	if page_name == current_page_name:
 		return
+	if is_switching:  # 防止动画中重复切换
+		return
+	is_switching = true
 	
-	# 获取当前页编号
-	var last_page_number := -1
-	match current_page_name:
-		\"Discover\": last_page_number   = 0
-		\"Results\": last_page_number    = 1
-		\"Favorites\": last_page_number = 2
-		\"Import\": last_page_number     = 3
-		\"Options\": last_page_number    = 4
-	
-	# 获取切换到页编号
-	var current_page_number:= -1
-	var current_page_node = get_node(page_name)
-	match page_name:
-		\"Discover\": current_page_number   = 0
-		\"Results\": current_page_number    = 1
-		\"Favorites\": current_page_number = 2
-		\"Import\": current_page_number     = 3
-		\"Options\": current_page_number    = 4
-	
+	# 页码映射（用字典代替两段 match）
+	var page_numbers := {
+		\"Discover\": 0,
+		\"Results\": 1,
+		\"Favorites\": 2,
+		\"Import\": 3,
+		\"Options\": 4,
+	}
+	var last_page_number: int = page_numbers.get(current_page_name, -1)
+	var current_page_number: int = page_numbers.get(page_name, -1)
 	var long_position := current_page.size.y + 300
-	
-	if last_page_number < current_page_number: long_position = -long_position
-
-	# 上一页滑动退出
+	if last_page_number < current_page_number:
+		long_position = -long_position
 	var last_page_tween = get_tree().create_tween()
-	last_page_tween.tween_property(current_page, \"global_position\", Vector2(310, long_position), 0.25).set_trans(Tween.TRANS_CUBIC)
-	await last_page_tween.finished
-	current_page.hide()
-	
-	# 打开下一页
-	current_page=get_node(page_name)
+	last_page_tween.tween_property(
+		current_page, \"offset_transform_position:y\",
+		long_position, 0.25
+	).set_trans(Tween.TRANS_CUBIC)
+	last_page_tween.finished.connect(current_page.hide, CONNECT_ONE_SHOT)
+	current_page = get_node(page_name)
+	current_page_name = page_name
 	current_page.show()
-	current_page.set_global_position(Vector2(310, -long_position))
-	current_page_name=page_name
-	
-	# 下一页滑动进入
+	current_page.offset_transform_position = Vector2(0, -long_position)  # ✅ 关键：从反方向起始
 	var current_page_tween = get_tree().create_tween()
-	current_page_tween.tween_property(current_page, \"global_position\", Vector2(310, 0), 0.25).set_trans(Tween.TRANS_CUBIC)
-	await last_page_tween.finished
-
+	current_page_tween.tween_property(
+		current_page, \"offset_transform_position:y\",
+		0.0, 0.25
+	).set_trans(Tween.TRANS_CUBIC)
+	current_page_tween.finished.connect(func(): is_switching = false)
 
 func _on_search_text_submitted(new_text: String) -> void:
 	get_node(\"Results\").update_page(new_text)
@@ -410,7 +413,9 @@ corner_detail = 3
 expand_margin_left = 3.0
 expand_margin_right = 3.0
 
-[node name="Main" type="Panel" unique_id=1291672957 node_paths=PackedStringArray("page_buttons", "current_page", "bottom_menu", "ui_sound", "icon")]
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_iab34"]
+
+[node name="Main" type="Panel" unique_id=1291672957 node_paths=PackedStringArray("page_buttons", "current_page", "bottom_menu", "ui_sound", "icon", "progress_bar", "search_bar")]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
@@ -423,7 +428,9 @@ current_page = NodePath("Discover")
 current_page_name = "Discover"
 bottom_menu = NodePath("BottomMenu")
 ui_sound = NodePath("AudioStreamPlayer")
-icon = NodePath("LeftMenu/Search/Panel/Icon")
+icon = NodePath("LeftMenu/Portrait/Icon")
+progress_bar = NodePath("ProgressBar")
+search_bar = NodePath("LeftMenu/Search")
 
 [node name="LeftMenu" type="Panel" parent="." unique_id=1758456242 groups=["style_panel"]]
 clip_contents = true
@@ -435,6 +442,29 @@ grow_vertical = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_bf81u")
 metadata/_edit_use_anchors_ = true
 
+[node name="Portrait" type="Panel" parent="LeftMenu" unique_id=651722900]
+clip_children = 1
+layout_mode = 1
+anchors_preset = 4
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = 4.0
+offset_top = -475.5
+offset_right = 64.0
+offset_bottom = -415.5
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_uq86q")
+
+[node name="Icon" type="TextureRect" parent="LeftMenu/Portrait" unique_id=2069813124]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+texture = ExtResource("1_uq86q")
+expand_mode = 1
+
 [node name="Search" type="LineEdit" parent="LeftMenu" unique_id=499293569]
 layout_mode = 1
 anchors_preset = 5
@@ -445,33 +475,12 @@ offset_top = 26.0
 offset_right = 111.5
 offset_bottom = 85.0
 grow_horizontal = 2
+offset_transform_enabled = true
+offset_transform_pivot_ratio = Vector2(1, 0.5)
 tooltip_text = "在B站上找音乐"
 placeholder_text = "搜索音乐"
 context_menu_enabled = false
 emoji_menu_enabled = false
-
-[node name="Panel" type="Panel" parent="LeftMenu/Search" unique_id=651722900]
-clip_children = 1
-layout_mode = 1
-anchors_preset = 4
-anchor_top = 0.5
-anchor_bottom = 0.5
-offset_left = -64.0
-offset_top = -31.0
-offset_right = -4.0
-offset_bottom = 29.0
-grow_vertical = 2
-theme_override_styles/panel = SubResource("StyleBoxFlat_uq86q")
-
-[node name="Icon" type="TextureRect" parent="LeftMenu/Search/Panel" unique_id=2069813124]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-texture = ExtResource("1_uq86q")
-expand_mode = 1
 
 [node name="ScrollContainer" type="ScrollContainer" parent="LeftMenu" unique_id=74204146]
 layout_mode = 1
@@ -549,22 +558,27 @@ autoplay = &"start"
 
 [node name="Discover" parent="." unique_id=585043204 instance=ExtResource("6_aan6j")]
 layout_mode = 1
+offset_transform_enabled = true
 
 [node name="Results" parent="." unique_id=386418663 instance=ExtResource("7_h3nmf")]
 visible = false
 layout_mode = 1
+offset_transform_enabled = true
 
 [node name="Favorites" parent="." unique_id=1004751732 instance=ExtResource("8_yg4ot")]
 visible = false
 layout_mode = 1
+offset_transform_enabled = true
 
 [node name="Import" parent="." unique_id=187692086 instance=ExtResource("9_hmjy8")]
 visible = false
 layout_mode = 1
+offset_transform_enabled = true
 
 [node name="Options" parent="." unique_id=708186307 instance=ExtResource("9_vm4ek")]
 visible = false
 layout_mode = 1
+offset_transform_enabled = true
 
 [node name="BottomMenu" type="Panel" parent="." unique_id=1456727291 node_paths=PackedStringArray("cover_node", "title_label", "author_label", "play_button", "volume_button", "progress_bar", "volume_progress_bar", "volume_background", "volume_exit_timer", "play_mode_button") groups=["style_panel"]]
 visible = false
@@ -841,6 +855,22 @@ wait_time = 0.35
 one_shot = true
 
 [node name="AudioStreamPlayer" type="AudioStreamPlayer" parent="." unique_id=690380417]
+
+[node name="ProgressBar" type="Panel" parent="." unique_id=1430990919 groups=["style_panel"]]
+self_modulate = Color(1.2604681, 1.2604681, 1.2604681, 1)
+z_index = 1
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -9.0
+grow_horizontal = 2
+grow_vertical = 0
+offset_transform_enabled = true
+offset_transform_scale = Vector2(0, 1)
+offset_transform_pivot_ratio = Vector2(0, 0.5)
+theme_override_styles/panel = SubResource("StyleBoxFlat_iab34")
 
 [connection signal="text_submitted" from="LeftMenu/Search" to="." method="_on_search_text_submitted"]
 [connection signal="toggled" from="BottomMenu/Play" to="BottomMenu" method="_on_play_toggled"]
