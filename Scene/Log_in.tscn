@@ -1,0 +1,46 @@
+[gd_scene format=3 uid="uid://dehyrt7cfp7uv"]
+
+[ext_resource type="Texture2D" uid="uid://0n3b8lrdu8ju" path="res://UI/Icon/bilibili_icon.svg" id="1_khmi1"]
+
+[node name="Window" type="Window" unique_id=866870577]
+oversampling_override = 1.0
+title = "请使用B站App扫码登录"
+initial_position = 2
+size = Vector2i(560, 560)
+transient = true
+exclusive = true
+unresizable = true
+minimize_disabled = true
+maximize_disabled = true
+min_size = Vector2i(560, 560)
+max_size = Vector2i(560, 560)
+
+[node name="QRImage" type="TextureRect" parent="." unique_id=507906580]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -125.0
+offset_top = -125.0
+offset_right = 125.0
+offset_bottom = 125.0
+grow_horizontal = 2
+grow_vertical = 2
+texture = ExtResource("1_khmi1")
+expand_mode = 1
+
+[node name="Bilibili" type="Label" parent="." unique_id=1766051819]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -58.0
+offset_top = 140.0
+offset_right = 58.0
+offset_bottom = 199.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_font_sizes/font_size = 40
+text = "用 Bilibili 扫码登陆"

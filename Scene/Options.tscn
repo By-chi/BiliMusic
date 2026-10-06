@@ -1,0 +1,622 @@
+[gd_scene format=3 uid="uid://g3lqi52kbx7q"]
+
+[sub_resource type="GDScript" id="GDScript_nmc4f"]
+script/source = "extends Control
+@export var OptionsTabContainer: TabContainer
+@export var ClearCoversCache: Button
+@export var ClearLyricsCache: Button
+@export var BuiltinThemes: Array[String]
+@export var BuiltinPiPThemes: Array[String]
+var _setting_controls: Dictionary = {}
+
+func _ready() -> void:
+	for scroll in OptionsTabContainer.get_children():
+		if not scroll is ScrollContainer:
+			continue
+		var vbox = scroll.get_child(0)
+		if not vbox:
+			continue
+		for option in vbox.get_children():
+			var control: Node = null
+			if option is CheckButton:
+				control = option
+			elif option.get_child_count() > 0:
+				control = option.get_child(0)
+			else:
+				printerr(\"设置项 %s 没有可用的子控件\" % option.name)
+				continue
+
+			if option.name == \"Account\":
+				_setup_account(option, control)
+			elif option.name == \"Skin\":
+				_setup_skin(control as OptionButton)
+			elif option.name == \"Custom_Big_Window_Theme\":
+				_setup_big_window_theme(control as OptionButton)
+			elif option.name == \"Custom_PiP_Theme\":  # 新增：PiP主题选项
+				_setup_pip_theme(control as OptionButton)
+			elif option.name == \"Language\":
+				_setup_language(option, control as OptionButton)
+			else:
+				_setup_generic(option, control)
+
+			_setting_controls[option.name] = control
+	GdScriptFunc.traverse_iterative_no_text_ui(get_tree().root)
+	_update_cache_size()
+	
+func _setup_language(option: Control, option_button: OptionButton) -> void:
+	# 使用有序数组，确保名称和代码一一对应
+	var lang_names = [\"中文\", \"English\", \"日本語\"]
+	var lang_codes = [\"zh\", \"en\", \"ja\"]
+
+	option_button.clear()
+	var option_popup = option_button.get_popup()
+	option_popup.add_theme_font_size_override(\"font_size\", 35)
+	for lang_name in lang_names:
+		option_button.add_item(lang_name)
+
+	# 读取保存的语言代码，若没有则使用系统语言
+	var saved_code = GdScriptFunc.get_data(\"Options\", \"Language\", \"\")
+	var current_locale = TranslationServer.get_locale()
+	var final_code = saved_code
+
+	# 确定最终语言代码（确保在列表中）
+	if final_code == \"\" or not (final_code in lang_codes):
+		var matched = false
+		for code in lang_codes:
+			if code == current_locale:
+				final_code = code
+				matched = true
+				break
+		if not matched:
+			final_code = lang_codes[0]  # 默认第一个（中文）
+
+	# 计算选中索引
+	var idx = lang_codes.find(final_code)
+	if idx == -1:
+		idx = 0
+		final_code = lang_codes[idx]
+
+	option_button.selected = idx
+	TranslationServer.set_locale(final_code)
+
+	# 连接切换信号（保存并立即生效）
+	option_button.item_selected.connect(func(index: int):
+		var selected_code = lang_codes[index]
+		GdScriptFunc.set_data(\"Options\", \"Language\", selected_code, true)
+		TranslationServer.set_locale(selected_code)
+		GdScriptFunc.traverse_iterative_no_text_ui(get_tree().root)
+		_update_cache_size()
+	)
+func _setup_account(option: Control, button: Button) -> void:
+	var sessdata = GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\")
+	if sessdata == null:
+		button.text = tr(\"点击登陆\")
+		get_node(\"/root/Main\").icon.texture = preload(\"res://UI/DefaultprofilePicture.png\")
+	else:
+		button.text = tr(\"退出登陆\")
+		BilibiliApi.fetch_user_avatar(func(tex: ImageTexture):
+			if tex != null:
+				get_node(\"/root/Main\").icon.texture = tex
+		)
+	button.pressed.connect(_log_in_out.bind(option))
+
+func _setup_skin(option_button: OptionButton) -> void:
+	# 设置OptionButton字体大小
+	var option_popup = option_button.get_popup()
+	option_popup.add_theme_font_size_override(\"font_size\", 35)
+	
+	
+	var skin_dict: Dictionary = {}
+
+	var res_path = \"res://Skin/\"
+	var res_dirs: Array = []
+	if DirAccess.dir_exists_absolute(res_path):
+		var dir = DirAccess.open(res_path)
+		if dir:
+			dir.list_dir_begin()
+			var item = dir.get_next()
+			while item != \"\":
+				if dir.current_is_dir() and item != \".\" and item != \"..\":
+					res_dirs.append(item)
+				item = dir.get_next()
+			dir.list_dir_end()
+	res_dirs.sort()
+	for d in res_dirs:
+		skin_dict[d] = res_path.path_join(d) + \"/\"
+
+	var user_path = \"user://Skin/\"
+	if DirAccess.dir_exists_absolute(user_path):
+		var dir = DirAccess.open(user_path)
+		if dir:
+			dir.list_dir_begin()
+			var item = dir.get_next()
+			while item != \"\":
+				if dir.current_is_dir() and item != \".\" and item != \"..\":
+					# 外部同名文件夹覆盖内部
+					skin_dict[item] = user_path.path_join(item) + \"/\"
+				item = dir.get_next()
+			dir.list_dir_end()
+
+	# 转换为并行数组
+	var skin_names: Array = []
+	var skin_paths: Array = []
+	for skin_name in skin_dict:
+		skin_names.append(skin_name)
+		skin_paths.append(skin_dict[skin_name])
+
+	skin_names.sort()
+	var sorted_paths: Array = []
+	for skin_name in skin_names:
+		sorted_paths.append(skin_dict[skin_name])
+
+	for d in skin_names:
+		option_button.add_item(d)
+
+	# 恢复上次选中的皮肤
+	var saved_path = GdScriptFunc.get_data(\"Options\", \"Skin\", \"\")
+	if saved_path == \"\" and skin_names.size() > 0:
+		saved_path = sorted_paths[0]
+	var idx = sorted_paths.find(saved_path)
+	if idx == -1:
+		idx = 0
+	option_button.selected = idx
+	var selected_name = skin_names[idx] if idx < skin_names.size() else \"\"
+	var selected_path = sorted_paths[idx] if idx < skin_paths.size() else \"\"
+	if selected_path != \"\":
+		GdScriptFunc.update_skin_theme(selected_name)  # 如果你需要传递路径，需修改该函数
+
+	option_button.item_selected.connect(func(index: int):
+		var chosen_path = sorted_paths[index]
+		GdScriptFunc.set_data(\"Options\", \"Skin\", chosen_path, true)
+		var chosen_name = skin_names[index]
+		GdScriptFunc.update_skin_theme(chosen_name)  # 同样可能需要路径
+		GdScriptFunc.update_marks_theme_and_styles()
+	)
+func _setup_pip_theme(option_button: OptionButton) -> void:
+	# 设置OptionButton字体大小
+	var option_popup = option_button.get_popup()
+	option_popup.add_theme_font_size_override(\"font_size\", 35)
+	
+	const BUILTIN_DIR = \"res://PiPTheme/\"
+
+	var theme_dict: Dictionary = {}
+	for theme_name in BuiltinPiPThemes:  # 使用新导出的数组
+		theme_dict[theme_name] = BUILTIN_DIR.path_join(theme_name + \".tscn\")
+
+	var user_dir = \"user://PiPTheme/\"
+	if DirAccess.dir_exists_absolute(user_dir):
+		var dir = DirAccess.open(user_dir)
+		if dir:
+			dir.list_dir_begin()
+			var file = dir.get_next()
+			while file != \"\":
+				if not dir.current_is_dir() and file.ends_with(\".tscn\"):
+					var theme_name = file.trim_suffix(\".tscn\")
+					var theme_path = user_dir.path_join(file)
+					theme_dict[theme_name] = theme_path   # 外部覆盖
+				file = dir.get_next()
+			dir.list_dir_end()
+
+	var theme_names: Array = []
+	var theme_paths: Array = []
+	for theme_name in theme_dict:
+		theme_names.append(theme_name)
+		theme_paths.append(theme_dict[theme_name])
+
+	if theme_names.is_empty():
+		option_button.add_item(\"暂无可用主题\")
+		option_button.disabled = true
+		return
+
+	var sorted = theme_names.duplicate()
+	sorted.sort()
+	option_button.clear()
+	for theme_name in sorted:
+		option_button.add_item(theme_name)
+
+	var sorted_paths: Array = []
+	for theme_name in sorted:
+		sorted_paths.append(theme_dict[theme_name])
+
+	var saved_path = GdScriptFunc.get_data(\"Options\", \"Custom_PiP_Theme\", \"\")
+	var idx = sorted_paths.find(saved_path)
+	if idx == -1:
+		idx = 0
+	option_button.selected = idx
+
+	# 选择新主题时同步更新已打开的 PiP 窗口
+	option_button.item_selected.connect(func(index: int):
+		var selected_path = sorted_paths[index]
+		GdScriptFunc.set_data(\"Options\", \"Custom_PiP_Theme\", selected_path, true)
+		var main = get_node(\"/root/Main\")
+		if main and main.bottom_menu and main.bottom_menu.play_window and main.bottom_menu.play_window_mode==\"PiP\":
+			main.bottom_menu.play_window.update_pip_theme(selected_path)
+	)
+func _setup_big_window_theme(option_button: OptionButton) -> void:
+	# 设置OptionButton字体大小
+	var option_popup = option_button.get_popup()
+	option_popup.add_theme_font_size_override(\"font_size\", 35)
+	
+	const BUILTIN_DIR = \"res://BigWindowTheme/\"
+
+	var theme_dict: Dictionary = {}
+	for theme_name in BuiltinThemes:
+		var builtin_path = BUILTIN_DIR.path_join(theme_name).path_join(\"main.tscn\")
+		theme_dict[theme_name] = builtin_path
+
+	var user_dir = \"user://BigWindowTheme/\"
+	if DirAccess.dir_exists_absolute(user_dir):
+		var dir = DirAccess.open(user_dir)
+		if dir:
+			dir.list_dir_begin()
+			var file = dir.get_next()
+			while file != \"\":
+				if dir.current_is_dir() and file != \".\" and file != \"..\":
+					var main_path = user_dir.path_join(file).path_join(\"main.tscn\")
+					if FileAccess.file_exists(main_path):
+						theme_dict[file] = main_path   # 外部覆盖内置
+				file = dir.get_next()
+			dir.list_dir_end()
+
+	# 生成有序列表
+	var theme_names: Array = []
+	var theme_paths: Array = []
+	for theme_name in theme_dict:
+		theme_names.append(theme_name)
+		theme_paths.append(theme_dict[theme_name])
+
+	if theme_names.is_empty():
+		option_button.add_item(\"暂无可用主题\")
+		option_button.disabled = true
+		return
+
+	var sorted = theme_names.duplicate()
+	sorted.sort()
+	option_button.clear()
+	for theme_name in sorted:
+		option_button.add_item(theme_name)
+
+	var sorted_paths: Array = []
+	for theme_name in sorted:
+		sorted_paths.append(theme_dict[theme_name])
+
+	var saved_path = GdScriptFunc.get_data(\"Options\", \"Custom_Big_Window_Theme\", \"\")
+	var idx = sorted_paths.find(saved_path)
+	if idx == -1:
+		idx = 0
+	option_button.selected = idx
+
+	# 选择新主题时同时更新已打开的大窗口
+	option_button.item_selected.connect(func(index: int):
+		var selected_path = sorted_paths[index]
+		GdScriptFunc.set_data(\"Options\", \"Custom_Big_Window_Theme\", selected_path, true)
+		var main = get_node(\"/root/Main\")
+		if main and main.bottom_menu and main.bottom_menu.play_window and main.bottom_menu.play_window_mode == \"BigWindow\":
+			main.bottom_menu.play_window.update_performance_node(selected_path)
+	)
+func _setup_generic(option: Control, control: Node) -> void:
+	var key = option.name
+	match control.get_class():
+		\"CheckButton\":
+			var check = control as CheckButton
+			check.button_pressed = GdScriptFunc.get_data(\"Options\", key, check.button_pressed)
+			check.toggled.connect(_on_option_change.bind(option, check))
+		\"LineEdit\":
+			var line_edit = control as LineEdit
+			line_edit.text = GdScriptFunc.get_data(\"Options\", key, line_edit.text)
+			line_edit.focus_exited.connect(_on_option_change.bind(option, line_edit))
+			line_edit.text_submitted.connect(_on_option_change.bind(option, line_edit))
+		\"HSlider\":
+			var h_slider = control as HSlider
+			h_slider.value = GdScriptFunc.get_data(\"Options\", key, h_slider.value)
+			h_slider.drag_ended.connect(
+				func(value_changed: bool):
+					if value_changed:
+						_on_option_change(h_slider.value,option, h_slider)
+			)
+		_:
+			printerr(\"未知控件类型 %s 用于设置项 %s\" % [control.get_class(), key])
+
+func _on_option_change(new_value: Variant, option: Control, control: Node) -> void:
+	var key = option.name
+	GdScriptFunc.set_data(\"Options\", key, new_value, true)
+
+func _log_in_out(option: Control) -> void:
+	var button = option.get_child(0)
+	if GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\") != null:
+		GdScriptFunc.set_data(\"AccountData\", \"SESSDATA\", null, true)
+		GdScriptFunc.set_data(\"AccountData\", \"bili_jct\", null, true)
+		GdScriptFunc.set_data(\"AccountData\", \"DedeUserID\", null, true)
+		GdScriptFunc.set_data(\"AccountData\", \"DedeUserID__ckMd5\", null, true)
+		GdScriptFunc.set_data(\"AccountData\", \"sid\", null, true)
+		button.text = tr(\"点击登陆\")
+		get_node(\"/root/Main\").icon.texture = preload(\"res://UI/DefaultprofilePicture.png\")
+	else:
+		BilibiliApi.start_qr_login(
+			func(success: bool):
+				if success:
+					button.text = tr(\"退出登陆\")
+					BilibiliApi.fetch_user_avatar(func(tex: ImageTexture):
+						if tex != null:
+							get_node(\"/root/Main\").icon.texture = tex
+					)
+		)
+
+func _on_clear_covers_cache_pressed() -> void:
+	delete_directory_contents(\"user://bilibili_cover_cache/\")
+	_update_cache_size()
+
+func _on_clear_lyrics_cache_pressed() -> void:
+	delete_directory_contents(\"user://lyrics/\")
+	_update_cache_size()
+
+func delete_directory_contents(path: String) -> bool:
+	var dir = DirAccess.open(path)
+	if dir == null:
+		printerr(\"无法打开目录: \", path)
+		return false
+	dir.list_dir_begin()
+	var file_name = dir.get_next()
+	while file_name != \"\":
+		var child_path = path.path_join(file_name)
+		if dir.current_is_dir():
+			if file_name != \".\" and file_name != \"..\":
+				if delete_directory_contents(child_path):
+					DirAccess.remove_absolute(child_path)
+		else:
+			DirAccess.remove_absolute(child_path)
+		file_name = dir.get_next()
+	dir.list_dir_end()
+	return true
+
+func _update_cache_size() -> void:
+	if DirAccess.dir_exists_absolute(\"user://bilibili_cover_cache/\"):
+		var cache_size = CSharpFunc.GetDirectorySize(ProjectSettings.globalize_path(\"user://bilibili_cover_cache/\"))
+		ClearCoversCache.text = tr(\"清理封面缓存(%.2fMB)\") % cache_size
+	if DirAccess.dir_exists_absolute(\"user://lyrics/\"):
+		var cache_size = CSharpFunc.GetDirectorySize(ProjectSettings.globalize_path(\"user://lyrics/\"))
+		ClearLyricsCache.text = tr(\"清理歌词缓存(%.2fMB)\") % cache_size
+
+func _on_visibility_changed() -> void:
+	_update_cache_size()
+"
+
+[node name="Page" type="Control" unique_id=585043204 node_paths=PackedStringArray("OptionsTabContainer", "ClearCoversCache", "ClearLyricsCache")]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 310.0
+offset_bottom = -99.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 1
+script = SubResource("GDScript_nmc4f")
+OptionsTabContainer = NodePath("TabContainer")
+ClearCoversCache = NodePath("TabContainer/储存/VBoxContainer/ClearCoversCache")
+ClearLyricsCache = NodePath("TabContainer/储存/VBoxContainer/ClearLyricsCache")
+BuiltinThemes = Array[String](["RecordEdgeLines", "WaveCrease"])
+BuiltinPiPThemes = Array[String](["WaveCrease"])
+
+[node name="Label" type="Label" parent="." unique_id=1198818235]
+layout_mode = 0
+offset_right = 1290.0
+offset_bottom = 73.0
+mouse_filter = 0
+theme_override_font_sizes/font_size = 50
+text = "设置"
+
+[node name="SubLabel" type="Label" parent="Label" unique_id=2118856395 groups=["color_font_color"]]
+layout_mode = 1
+offset_top = 78.0
+offset_right = 201.0
+offset_bottom = 112.0
+theme_override_font_sizes/font_size = 24
+text = "自定义你的播放器"
+
+[node name="TabContainer" type="TabContainer" parent="." unique_id=204611800]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = 143.0
+offset_right = -26.0
+offset_bottom = -34.0
+grow_horizontal = 2
+grow_vertical = 2
+current_tab = 1
+
+[node name="账号" type="ScrollContainer" parent="TabContainer" unique_id=1036775212]
+visible = false
+layout_mode = 2
+metadata/_tab_index = 0
+
+[node name="VBoxContainer" type="VBoxContainer" parent="TabContainer/账号" unique_id=1391304493]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="Account" type="Label" parent="TabContainer/账号/VBoxContainer" unique_id=611858259]
+layout_mode = 2
+theme_override_font_sizes/font_size = 35
+text = " B站账号"
+
+[node name="IN_OUT" type="Button" parent="TabContainer/账号/VBoxContainer/Account" unique_id=641899972]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -104.0
+offset_top = -17.5
+offset_right = -26.0
+offset_bottom = 17.5
+grow_horizontal = 0
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.95, 0, 0.06333327, 1)
+theme_override_font_sizes/font_size = 24
+text = "点击登录"
+
+[node name="常规" type="ScrollContainer" parent="TabContainer" unique_id=264393034]
+layout_mode = 2
+metadata/_tab_index = 1
+
+[node name="VBoxContainer" type="VBoxContainer" parent="TabContainer/常规" unique_id=454597577]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="Automatically_obtain_subtitles" type="CheckButton" parent="TabContainer/常规/VBoxContainer" unique_id=701302890]
+layout_mode = 2
+tooltip_text = "启用此功能后，BiliMusic 将尝试获取对应视频的字幕\\n [!] 此功能在获取的字幕在某些时候不太准确"
+text = "自动获取字幕"
+
+[node name="SubtitleTextCorrection" type="CheckButton" parent="TabContainer/常规/VBoxContainer" unique_id=1121978215]
+layout_mode = 2
+tooltip_text = "启用此功能后，BiliMusic将会尝试对自动获取到的字幕进行文本修正\\n [!] 在某些情况下，此功能作用影响较小"
+text = "字幕文本修正"
+
+[node name="Self_triggered" type="CheckButton" parent="TabContainer/常规/VBoxContainer" unique_id=222246544]
+layout_mode = 2
+text = "开机自启动"
+
+[node name="Enable_HigherProcessPriority" type="CheckButton" parent="TabContainer/常规/VBoxContainer" unique_id=82088222]
+layout_mode = 2
+tooltip_text = "启用此功能后，BiliMusic将让操作系统给这个程序更多CPU资源，防止CPU忙碌时音频卡顿破音\\n [!] 此功能暂时仅在Windows上实现"
+button_pressed = true
+text = "启用更高的进程优先级"
+
+[node name="RememberWindow" type="CheckButton" parent="TabContainer/常规/VBoxContainer" unique_id=741804647]
+layout_mode = 2
+button_pressed = true
+text = "记住窗口状态"
+
+[node name="DiscoverPageLazyUpdate" type="CheckButton" parent="TabContainer/常规/VBoxContainer" unique_id=1397116632]
+layout_mode = 2
+tooltip_text = "当此功能未开启时，首页（发现页面）中所视频封面与标题预加载数会根据窗口大小而变\\n当此功能开启时，首页（发现页面）中无论窗口大小如何，都会预加载所有视频封面与标题"
+button_pressed = true
+text = "发现界面懒更新"
+
+[node name="Language" type="Label" parent="TabContainer/常规/VBoxContainer" unique_id=1691698795]
+layout_mode = 2
+theme_override_font_sizes/font_size = 35
+text = "语言"
+
+[node name="Language" type="OptionButton" parent="TabContainer/常规/VBoxContainer/Language" unique_id=1879425096]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -54.0
+offset_top = -24.0
+offset_bottom = 24.0
+grow_horizontal = 0
+grow_vertical = 2
+theme_override_font_sizes/font_size = 35
+
+[node name="外观" type="ScrollContainer" parent="TabContainer" unique_id=1953152351]
+visible = false
+layout_mode = 2
+metadata/_tab_index = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="TabContainer/外观" unique_id=1168130419]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="Skin" type="Label" parent="TabContainer/外观/VBoxContainer" unique_id=446818005]
+layout_mode = 2
+theme_override_font_sizes/font_size = 35
+text = "播放器皮肤"
+
+[node name="Skin" type="OptionButton" parent="TabContainer/外观/VBoxContainer/Skin" unique_id=1656933202]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -54.0
+offset_top = -24.0
+offset_bottom = 24.0
+grow_horizontal = 0
+grow_vertical = 2
+
+[node name="Custom_Big_Window_Theme" type="Label" parent="TabContainer/外观/VBoxContainer" unique_id=2115885586]
+layout_mode = 2
+theme_override_font_sizes/font_size = 35
+text = "自定义大窗口播放主题"
+
+[node name="Custom_Big_Window_Theme" type="OptionButton" parent="TabContainer/外观/VBoxContainer/Custom_Big_Window_Theme" unique_id=256971678]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -32.0
+offset_top = -10.0
+offset_bottom = 10.0
+grow_horizontal = 0
+grow_vertical = 2
+
+[node name="Custom_PiP_Theme" type="Label" parent="TabContainer/外观/VBoxContainer" unique_id=715150277]
+layout_mode = 2
+theme_override_font_sizes/font_size = 35
+text = "自定义小窗播放主题"
+
+[node name="Custom_PiP_Theme" type="OptionButton" parent="TabContainer/外观/VBoxContainer/Custom_PiP_Theme" unique_id=608200164]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -32.0
+offset_top = -10.0
+offset_bottom = 10.0
+grow_horizontal = 0
+grow_vertical = 2
+
+[node name="PiP_Smooth_Motion_Interpolation" type="Label" parent="TabContainer/外观/VBoxContainer" unique_id=1933447214]
+layout_mode = 2
+theme_override_font_sizes/font_size = 35
+text = "小窗播放移动平滑插值"
+
+[node name="PiP_Smooth_Motion_Interpolation" type="HSlider" parent="TabContainer/外观/VBoxContainer/PiP_Smooth_Motion_Interpolation" unique_id=663213674]
+layout_mode = 1
+anchors_preset = 11
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -324.0
+offset_right = -24.0
+grow_horizontal = 0
+grow_vertical = 2
+min_value = 1.0
+value = 13.0
+
+[node name="储存" type="ScrollContainer" parent="TabContainer" unique_id=1345396364]
+visible = false
+layout_mode = 2
+metadata/_tab_index = 3
+
+[node name="VBoxContainer" type="VBoxContainer" parent="TabContainer/储存" unique_id=381784264]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="ClearCoversCache" type="Button" parent="TabContainer/储存/VBoxContainer" unique_id=1029973453]
+layout_mode = 2
+text = "清理封面缓存"
+
+[node name="ClearLyricsCache" type="Button" parent="TabContainer/储存/VBoxContainer" unique_id=1373312603]
+layout_mode = 2
+text = "清理歌词缓存"
+
+[connection signal="visibility_changed" from="." to="." method="_on_visibility_changed"]
+[connection signal="pressed" from="TabContainer/储存/VBoxContainer/ClearCoversCache" to="." method="_on_clear_covers_cache_pressed"]
+[connection signal="pressed" from="TabContainer/储存/VBoxContainer/ClearLyricsCache" to="." method="_on_clear_lyrics_cache_pressed"]

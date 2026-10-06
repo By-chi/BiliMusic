@@ -1,0 +1,162 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[animation]
+
+compatibility/default_parent_skeleton_in_mesh_instance_3d=true
+
+[application]
+
+config/name="BiliMusic"
+config/tags=PackedStringArray("播放器", "网络", "软件", "音乐")
+run/main_scene="uid://d3y0m53pwfo5a"
+config/features=PackedStringArray("4.7", "C#", "GL Compatibility")
+run/max_fps=60
+run/low_processor_mode=true
+run/low_processor_mode_sleep_usec=16667
+run/delta_smoothing=false
+config/icon="uid://0n3b8lrdu8ju"
+
+[audio]
+
+buses/default_bus_layout="uid://dy4u4ldyxiuyy"
+driver/output_latency=100
+
+[autoload]
+
+CSharpFunc="*uid://dc6q0tvcj8frm"
+GdScriptFunc="*uid://dfn12u64v7awl"
+State="*uid://dbpv6nl857ykq"
+DownloadAudio="*uid://codnd15cufmwj"
+M4SAudioPlayer="*uid://ch2cbuqa2ewot"
+SubtitleCorrection="*uid://cmgf8hb5jlwe5"
+Player="*uid://ng3rdbd38uuj"
+AudioSpectrumCalculator="*uid://drtt3prb4e418"
+BilibiliApi="*uid://dujalxj743anw"
+
+[debug]
+
+gdscript/warnings/unused_parameter=0
+
+[display]
+
+window/size/viewport_width=1600
+window/size/viewport_height=1000
+window/size/transparent=true
+window/energy_saving/keep_screen_on=false
+window/subwindows/embed_subwindows=false
+window/per_pixel_transparency/allowed=true
+window/vsync/vsync_mode=0
+mouse_cursor/tooltip_position_offset=Vector2(20, 20)
+
+[dotnet]
+
+project/assembly_name="BiliMusic"
+
+[global_group]
+
+color_font_color=""
+color_default_color=""
+style_panel="给皮肤系统提供特异性改变"
+color_icon_normal_color=""
+color_icon_pressed_color=""
+color_icon_hover_color=""
+color_icon_hover_pressed_color=""
+
+[gui]
+
+common/snap_controls_to_pixels=false
+
+[input]
+
+ui_accept={
+"deadzone": 0.5,
+"events": []
+}
+ui_select={
+"deadzone": 0.5,
+"events": [Object(InputEventJoypadButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"button_index":3,"pressure":0.0,"pressed":false,"script":null)
+]
+}
+Pause_Play={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":32,"key_label":0,"unicode":32,"location":0,"echo":false,"script":null)
+]
+}
+ShowHideBottomMenu={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194326,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+Forward={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194321,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+Rewind={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194319,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+Turn_Up={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194320,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+Turn_Down={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194322,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+Again={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194336,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+Wheel_Turn_Up={
+"deadzone": 0.2,
+"events": [Object(InputEventMouseButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"button_mask":8,"position":Vector2(76, 25),"global_position":Vector2(92, 95),"factor":1.0,"button_index":4,"canceled":false,"pressed":true,"double_click":false,"script":null)
+]
+}
+Wheel_Turn_Down={
+"deadzone": 0.2,
+"events": [Object(InputEventMouseButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"button_mask":16,"position":Vector2(186, 43),"global_position":Vector2(202, 113),"factor":1.0,"button_index":5,"canceled":false,"pressed":true,"double_click":false,"script":null)
+]
+}
+
+[input_devices]
+
+pointing/emulate_touch_from_mouse=true
+
+[internationalization]
+
+locale/translations=PackedStringArray("res://Translate/translations_template.en.translation", "res://Translate/translations_template.ja.translation", "res://Translate/translations_template.zh.translation")
+locale/translations_pot_files=PackedStringArray("res://Scene/Deck.tscn", "res://Scene/Discover.tscn", "res://Scene/Favorites.tscn", "res://Scene/Import.tscn", "res://Scene/Log_in.tscn", "res://Scene/Main.tscn", "res://Scene/MetadataManager.tscn", "res://Scene/Options.tscn", "res://Scene/Player.tscn", "res://Scene/ProgressBarWindow.tscn", "res://Scene/Results.tscn", "res://Scene/UpPpreview.tscn", "res://Scene/VideoCard.tscn", "res://Scene/VideoTransverseCard.tscn", "res://Scene/WindowPlayback.tscn", "res://Translate/translations_template.csv")
+locale/translation_add_builtin_strings_to_pot=true
+locale/fallback="zh"
+
+[physics]
+
+common/physics_ticks_per_second=1
+common/max_physics_steps_per_frame=1
+3d/physics_engine="Jolt Physics"
+common/enable_object_picking=false
+
+[rendering]
+
+rendering_device/driver.windows="d3d12"
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true
+2d/batching/uniform_set_cache_size=16384
+shading/overrides/force_vertex_shading=true
+anti_aliasing/screen_space_roughness_limiter/enabled=false
+environment/defaults/default_clear_color=Color(0.96862745, 0.9764706, 1, 1)
+viewport/transparent_background=true

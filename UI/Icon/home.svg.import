@@ -1,0 +1,22 @@
+[remap]
+
+importer="svg"
+type="DPITexture"
+uid="uid://chlq0upip2dth"
+path="res://.godot/imported/home.svg-8b9aea4eb7dba225fea97bba7a9e7e7d.dpitex"
+
+[deps]
+
+source_file="res://UI/Icon/home.svg"
+dest_files=["res://.godot/imported/home.svg-8b9aea4eb7dba225fea97bba7a9e7e7d.dpitex"]
+
+[params]
+
+base_scale=1.0
+saturation=1.0
+color_map={
+Color(0, 0, 0, 1): Color(1, 1, 1, 1)
+}
+fix_alpha_border=false
+premult_alpha=false
+compress=true

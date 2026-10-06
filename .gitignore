@@ -1,0 +1,11 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+*.tmp
+BiliMusic.csproj.*
+!BiliMusic.csproj
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+lyrics_fetcher_stats.*
