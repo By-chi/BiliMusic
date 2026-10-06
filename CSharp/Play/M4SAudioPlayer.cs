@@ -34,7 +34,7 @@ public partial class M4SAudioPlayer : Node
 
     #region 预缓冲控制
     private bool _bufferReady;
-    private int _requiredBufferBlocks = MinBufferBlocks; // 动态缓冲需求
+    private int _requiredBufferBlocks = MinBufferBlocks;
     private byte[] _currentChunk;
     private int _currentChunkOffset;
     private Vector2[] _buffer = new Vector2[FramesPerBlock];
@@ -65,9 +65,11 @@ public partial class M4SAudioPlayer : Node
         var generator = new AudioStreamGenerator { MixRate = 44100, BufferLength = 2f };
         _audioPlayer.Stream = generator;
     }
+
     public override void _Ready()
-	{
-        if ((bool)GetNode("/root/GdScriptFunc").Call("get_data", "Options", "Enable_HigherProcessPriority", true)){
+    {
+        if ((bool)GetNode("/root/GdScriptFunc").Call("get_data", "Options", "Enable_HigherProcessPriority", true))
+        {
             if (OperatingSystem.IsWindows())
             {
                 try
@@ -85,7 +87,8 @@ public partial class M4SAudioPlayer : Node
                 GD.Print($"[CSharpFunc] 当前平台: {(OperatingSystem.IsMacOS() ? "macOS" : OperatingSystem.IsLinux() ? "Linux" : "Unknown")}，进程优先级设置功能不支持");
             }
         }
-	}
+    }
+
     public override void _Process(double delta)
     {
         if (_audioPlayer == null || _playback == null || _isStopped)
@@ -194,7 +197,6 @@ public partial class M4SAudioPlayer : Node
         await _playLock.WaitAsync();
         try
         {
-            // 取消并等待旧任务
             var oldTask = _currentPlayTask;
             _currentPlayTask = null;
             if (oldTask != null && !oldTask.IsCompleted)
@@ -590,13 +592,38 @@ public partial class M4SAudioPlayer : Node
 
             if (identifier.StartsWith("BV", StringComparison.OrdinalIgnoreCase))
             {
-                // 1. 拿基础信息（title / cover / cid）
-                var basic = await DownloadAudio.Instance.GetVideoBasicInfoAsync(identifier);
-                title = basic.title;
-                coverUrl = basic.coverUrl;
-                referer = DownloadAudio.BuildVideoPageUrl(identifier);
-                // 2. 音频 URL 走 GDScript 的 WBI 签名路径
-                audioUrl = await GetAudioUrlViaGDScript(identifier, basic.cid);
+                // 判断登录状态
+                string sessdata = "";
+                var gdFunc = GetNodeOrNull("/root/GDScriptFunc");
+                if (gdFunc != null)
+                {
+                    var v = gdFunc.Call("get_data", "AccountData", "SESSDATA", "");
+                    if (v.VariantType == Variant.Type.String)
+                        sessdata = v.AsString();
+                }
+                bool loggedIn = !string.IsNullOrEmpty(sessdata);
+
+                if (!loggedIn)
+                {
+                    // 未登录：走 C# 同步方法（.NET HttpClient），
+                    // 避免 Godot HTTPRequest 的 TLS 指纹被 B 站风控返回 412
+                    var info = await Task.Run(() => DownloadAudio.GetAudioInfoByBvSync(identifier));
+                    if (info == null || info.Count == 0)
+                        throw new Exception("未获取到音频信息");
+                    audioUrl = info["audioUrl"].AsString();
+                    title = info["title"].AsString();
+                    coverUrl = info["coverUrl"].AsString();
+                    referer = info["referer"].AsString();
+                }
+                else
+                {
+                    // 已登录：保持原逻辑，走 GDScript WBI 签名路径
+                    var basic = await DownloadAudio.Instance.GetVideoBasicInfoAsync(identifier);
+                    title = basic.title;
+                    coverUrl = basic.coverUrl;
+                    referer = DownloadAudio.BuildVideoPageUrl(identifier);
+                    audioUrl = await GetAudioUrlViaGDScript(identifier, basic.cid);
+                }
             }
             else if (identifier.StartsWith("au", StringComparison.OrdinalIgnoreCase))
             {

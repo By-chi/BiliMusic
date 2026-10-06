@@ -16,6 +16,7 @@ var subtitle_manager: BilibiliSubtitleManager
 
 
 func _ready() -> void:
+	# ① 同步初始化所有子模块（不依赖网络，立刻可用）
 	_http = BilibiliHttpClient.new(self)
 	_auth = BilibiliAuth.new(_http)
 	_user = BilibiliUserApi.new(_http)
@@ -36,6 +37,9 @@ func _ready() -> void:
 
 	set_process(true)
 
+	# ② 后台异步拉取官方 buvid3（不阻塞 _ready 返回，子模块此刻已经可用）
+	_bootstrap_official_buvid()
+
 
 func _process(delta: float) -> void:
 	if cover_cache:
@@ -45,6 +49,73 @@ func _process(delta: float) -> void:
 func _exit_tree() -> void:
 	if cover_cache:
 		cover_cache.shutdown()
+
+
+# ==================== 官方指纹后台拉取 ====================
+# 关键：这个函数必须是实例函数（非 static），
+# 因为 static 函数里的 await 不能可靠挂起，会导致 HTTPRequest 未 ready 就 request → ERR_UNCONFIGURED(3)
+
+func _bootstrap_official_buvid() -> void:
+	print("[BilibiliAPI] 正在通过 HTTPRequest 获取官方 buvid3...")
+
+	var http := HTTPRequest.new()
+	add_child(http)
+
+	# 关键：等两帧，确保 HTTPRequest 进入树并 ready
+	await get_tree().process_frame
+	await get_tree().process_frame
+
+	http.timeout = 10.0
+
+	var headers := PackedStringArray([
+		"User-Agent: " + BilibiliCookieStore.get_dynamic_user_agent(),
+		"Referer: https://www.bilibili.com",
+		"Origin: https://www.bilibili.com",
+		"Accept: application/json, text/plain, */*"
+	])
+
+	var max_attempts := 3
+	for attempt in range(1, max_attempts + 1):
+		var err := http.request(
+			"https://api.bilibili.com/x/frontend/finger/spi",
+			headers,
+			HTTPClient.METHOD_GET
+		)
+		if err != OK:
+			print("[BilibiliAPI] ❌ request() 返回错误码: ", err, "  (3=ERR_UNCONFIGURED)")
+			await get_tree().process_frame
+			continue
+
+		var result: Array = await http.request_completed
+		var code: int = result[1]
+		var body: PackedByteArray = result[3]
+
+		if code != 200 or body.size() == 0:
+			print("[BilibiliAPI] ❌ 指纹接口响应无效, code: ", code)
+			continue
+
+		var json := JSON.new()
+		if json.parse(body.get_string_from_utf8()) != OK:
+			continue
+
+		var data = json.get_data()
+		if typeof(data) != TYPE_DICTIONARY or data.get("code", -1) != 0:
+			continue
+
+		var payload: Dictionary = data.get("data", {})
+		var b_3: String = payload.get("b_3", "")
+		var b_4: String = payload.get("b_4", "")
+
+		if b_3.is_empty():
+			continue
+
+		BilibiliCookieStore.set_official_buvid(b_3, b_4)
+		print("[BilibiliAPI] ✅ 官方 buvid3 = ", b_3)
+		http.queue_free()
+		return
+
+	print("[BilibiliAPI] ❌ 多次尝试后仍未获得官方指纹，将使用本地兜底")
+	http.queue_free()
 
 
 # ==================== 公开 API（转发） ====================
@@ -94,7 +165,6 @@ func get_csrf() -> String:
 
 
 # ==================== 静态工具转发 ====================
-# 允许 BilibiliAPI.get_dynamic_user_agent() 这样的旧调用方式继续工作。
 
 static func get_dynamic_user_agent() -> String:
 	return BilibiliCookieStore.get_dynamic_user_agent()
@@ -116,8 +186,6 @@ func bv_to_aid(bvid: String) -> int:
 
 
 # ==================== 兼容旧模块的 Callable 接口 ====================
-# 若项目里有旧模块直接引用 BilibiliAPI._request / _request_with_sign / _get_image_headers，
-# 这两个转发保证它们继续工作。
 
 func _request(url: String, callback: Callable, extra = null, method: int = HTTPClient.METHOD_GET, custom_headers: PackedStringArray = PackedStringArray(), mid: int = 0) -> void:
 	_http.request(url, callback, extra, method, custom_headers, mid)
@@ -135,6 +203,8 @@ func _get_image_headers() -> PackedStringArray:
 
 func _on_subtitle_processed(lrc_path: String, request_id: String) -> void:
 	subtitle_manager.handle_correction_result(request_id, lrc_path)
+
+
 ## 获取当前登录用户的云端收藏夹列表
 func fetch_fav_folders(callback: Callable) -> void:
 	_user.fetch_fav_folders(callback)
@@ -146,5 +216,6 @@ func fetch_fav_items(media_id: int, callback: Callable, pn: int = 1, ps: int = 2
 ## 获取指定云端收藏夹的全部内容（自动翻页）
 func fetch_all_fav_items(media_id: int, callback: Callable) -> void:
 	_user.fetch_all_fav_items(media_id, callback)
+
 func fetch_audio_url(bvid: String, cid: int, callback: Callable) -> void:
 	_video.fetch_audio_url(bvid, cid, callback)

@@ -21,9 +21,16 @@ func get_headers() -> PackedStringArray:
 	return get_headers_with_mid(0)
 
 func get_headers_with_mid(mid: int = 0) -> PackedStringArray:
+	# buvid4 优先用官方指纹，缺失时才本地生成
+	var buvid4 := BilibiliCookieStore.get_cached_buvid4()
+	if buvid4.is_empty():
+		buvid4 = BilibiliCookieStore.get_or_generate_cookie_field(
+			"buvid4", Callable(BilibiliCookieStore, "generate_buvid4")
+		)
+
 	var cookies = [
 		"buvid3=" + BilibiliCookieStore.get_or_generate_buvid(),
-		"buvid4=" + BilibiliCookieStore.get_or_generate_cookie_field("buvid4", Callable(BilibiliCookieStore, "generate_buvid4")),
+		"buvid4=" + buvid4,
 		"b_nut=" + BilibiliCookieStore.generate_fake_b_nut(),
 		"rpdid=" + BilibiliCookieStore.get_or_generate_cookie_field("rpdid", Callable(BilibiliCookieStore, "generate_rpdid")),
 		"_uuid=" + BilibiliCookieStore.get_or_generate_cookie_field("_uuid", Callable(BilibiliCookieStore, "generate_uuid")),
