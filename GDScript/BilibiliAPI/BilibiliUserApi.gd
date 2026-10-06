@@ -12,12 +12,12 @@ func fetch_by_mid(mid: String, callback: Callable, max_retries: int = 3) -> void
 	_fetch_with_retry(mid, callback, max_retries)
 
 func _fetch_with_retry(mid: String, callback: Callable, retries_left: int) -> void:
+	
 	var keyword = "uid:" + mid
 	var url = "https://api.bilibili.com/x/web-interface/search/type?search_type=bili_user&keyword=%s&page=1&page_size=1&from_source=web_search&platform=pc" % keyword
 
 	var headers = _http.with_origin(_http.get_headers(), "https://search.bilibili.com", "https://search.bilibili.com")
-	var delay = 1.0 + randf() * 2.0
-	await _http.host.get_tree().create_timer(delay).timeout
+	await RateLimiter.wait_turn()
 
 	var http = HTTPRequest.new()
 	_http.host.add_child(http)
@@ -75,9 +75,7 @@ func _fetch_with_retry(mid: String, callback: Callable, retries_left: int) -> vo
 	callback.call(info)
 
 func _wait_and_retry(mid: String, callback: Callable, retries_left: int) -> void:
-	var wait_time = 2 * (4 - retries_left)
-	print("[fetch] 等待 %d 秒后重试 (剩余 %d 次)" % [wait_time, retries_left])
-	await _http.host.get_tree().create_timer(wait_time).timeout
+	await RateLimiter.wait_turn()
 	_fetch_with_retry(mid, callback, retries_left)
 
 # ---------------- 用户视频列表（主接口） ----------------

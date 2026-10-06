@@ -9,6 +9,16 @@ script/source = "extends Button
 @export var Cover: TextureRect
 @export var text_node: LineEdit
 @export var CountLabel: Label
+@export var placeholder_color: Color = Color(0.72, 0.72, 0.72, 1.0)
+const PLACEHOLDER_W: int = 224
+const PLACEHOLDER_H: int = 90
+var _pending_cover_count: int = 0
+var _received_cover_map: Dictionary = {}
+var _cover_session_id: int = 0
+var _background_dirty: bool = false
+
+var _hover_tween: Tween
+var _cover_images: Array[Image] = []
 
 var directory_name: String = \"\":
 	set(value):
@@ -21,8 +31,11 @@ var videos: Array = []:
 		videos = value
 		_update_appearance()
 
-var _hover_tween: Tween
-var _cover_images: Array[Image] = []
+func _make_placeholder_texture() -> ImageTexture:
+	var img := Image.create(PLACEHOLDER_W, PLACEHOLDER_H, false, Image.FORMAT_RGBA8)
+	img.fill(placeholder_color)
+	return ImageTexture.create_from_image(img)
+
 
 func _ready() -> void:
 	if Background:
@@ -34,7 +47,16 @@ func _ready() -> void:
 		Cover.stretch_mode = TextureRect.STRETCH_SCALE
 		Cover.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
+func _deferred_load_videos(data: Array) -> void:
+	if not is_instance_valid(self):
+		return
+	if videos != data:
+		videos = data
+
 func _update_appearance() -> void:
+	if Cover:
+		Cover.texture = _make_placeholder_texture()
+
 	if videos.is_empty():
 		_clear_display()
 		return
@@ -43,19 +65,32 @@ func _update_appearance() -> void:
 	_update_cover_and_background()
 	_update_count()
 
+
 func _clear_display() -> void:
-	if Cover: Cover.texture = null
+	if Cover: Cover.texture = _make_placeholder_texture()
 	if Background: Background.texture = null
 	if CountLabel: CountLabel.text = \"♪0\"
 	_cover_images.clear()
+	_pending_cover_count = 0
+	_received_cover_map.clear()
+	_cover_session_id += 1
+
 
 func _build_cover_images() -> void:
+	_cover_session_id += 1
 	_cover_images.clear()
-	for i in min(3, videos.size()):
-		var img = _get_cover_image(videos[i], i)
-		_cover_images.append(img)
+	_received_cover_map.clear()
+	_pending_cover_count = 0
 
-func _get_cover_image(video_data: Dictionary, index: int) -> Image:
+	var count := mini(3, videos.size())
+	for i in count:
+		_cover_images.append(null)
+		_pending_cover_count += 1
+		_get_cover_image(videos[i], i, _cover_session_id)
+
+	if _pending_cover_count == 0:
+		_update_cover_and_background()
+func _get_cover_image(video_data: Dictionary, index: int, session_id: int) -> void:
 	var link = video_data.get(\"link\", \"\")
 	var is_network = video_data.get(\"is_network\", true)
 
@@ -65,46 +100,57 @@ func _get_cover_image(video_data: Dictionary, index: int) -> Image:
 			var img = Image.load_from_file(cover_path)
 			if img and not img.is_empty():
 				img.convert(Image.FORMAT_RGBA8)
-				return img
-		return _create_placeholder(video_data.get(\"title\", \"\"))
+				_commit_cover(index, img, session_id)
+				return
+		_commit_cover(index, _create_placeholder(video_data.get(\"title\", \"\")), session_id)
 	else:
 		var bvid = video_data.get(\"BV\", link)
 		BilibiliApi.fetch_cover(bvid, func(_bid, tex):
-			if is_instance_valid(self) and tex:
-				_on_network_cover_ready(index, tex)
-		, 200, 200)
-		return _create_placeholder(video_data.get(\"title\", \"\"))
+			if not is_instance_valid(self):
+				return
+			if tex == null:
+				_commit_cover(index, _create_placeholder(video_data.get(\"title\", \"\")), session_id)
+				return
+			var img = tex.get_image()
+			if img == null or img.is_empty():
+				_commit_cover(index, _create_placeholder(video_data.get(\"title\", \"\")), session_id)
+				return
+			img.convert(Image.FORMAT_RGBA8)
+			_commit_cover(index, img, session_id)
+		, 100, 100)
 
-func _create_placeholder(title: String) -> Image:
+
+func _commit_cover(index: int, img: Image, session_id: int) -> void:
+	if session_id != _cover_session_id:
+		return
+	if _received_cover_map.has(index):
+		return
+	_received_cover_map[index] = img
+	_cover_images[index] = img
+	_pending_cover_count -= 1
+
+	if _pending_cover_count <= 0:
+		_update_cover_and_background()
+
+func _create_placeholder(_title: String) -> Image:
 	var img = Image.create(200, 200, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0.2, 0.2, 0.2))
+	img.fill(placeholder_color)
 	return img
 
-func _on_network_cover_ready(index: int, texture: Texture2D) -> void:
-	if not is_inside_tree() or index < 0 or index >= videos.size():
-		return
-	if not texture:
-		return
-	var downloaded_img = texture.get_image()
-	if downloaded_img == null or downloaded_img.is_empty():
-		return
-	downloaded_img.convert(Image.FORMAT_RGBA8)
-	if _cover_images.size() <= index:
-		_cover_images.resize(max(3, index + 1))
-	_cover_images[index] = downloaded_img
-	_update_cover_and_background()
 
 func _update_cover_and_background() -> void:
 	if not Cover or _cover_images.is_empty():
 		return
 
-	Cover.texture = _create_combined_cover(_cover_images)
+	# ⚡[OPT-6-A] 后台合成
+	_create_combined_cover_async(_cover_images, _cover_session_id)
 
 	if Background:
-		_update_background_from_images(_cover_images)
+		# ⚡[OPT-2-A] 不在这里算背景色，只打标记
+		_background_dirty = true
 		Background.modulate.a = 0.0
 
-func _create_combined_cover(images: Array[Image]) -> ImageTexture:
+func _create_combined_cover_impl(images: Array) -> Image:
 	if images.is_empty():
 		return null
 
@@ -113,11 +159,10 @@ func _create_combined_cover(images: Array[Image]) -> ImageTexture:
 
 	var cell_count = images.size()
 	var cell_w: int = TARGET_W / cell_count
-	var cell_h: int = TARGET_H
 
 	var final_img = Image.create(TARGET_W, TARGET_H, false, Image.FORMAT_RGBA8)
 
-	#缩放每张子图至 cell_w × cell_h (KEEP_ASPECT_COVERED)
+	# 缩放每张子图至 cell_w × TARGET_H（KEEP_ASPECT_COVERED）
 	var scaled_images: Array[Image] = []
 	for i in cell_count:
 		var src = images[i]
@@ -125,18 +170,18 @@ func _create_combined_cover(images: Array[Image]) -> ImageTexture:
 			scaled_images.append(null)
 			continue
 		src.convert(Image.FORMAT_RGBA8)
-		var scaled = _scale_to_cover(src, cell_w, cell_h)
+		var scaled = _scale_to_cover(src, cell_w, TARGET_H)
 		scaled_images.append(scaled)
 
-	#将缩放后的子图绘制到 final_img 对应位置
+	# 将缩放后的子图绘制到 final_img 对应位置
 	for i in cell_count:
 		var img = scaled_images[i]
 		if img == null:
 			continue
 		var dest_x = i * cell_w
-		final_img.blit_rect(img, Rect2i(0, 0, cell_w, cell_h), Vector2i(dest_x, 0))
+		final_img.blit_rect(img, Rect2i(0, 0, cell_w, TARGET_H), Vector2i(dest_x, 0))
 
-	#添加单向向左阴影（交界处）
+	# 接缝阴影
 	var blend_width = 10
 	for i in range(1, cell_count):
 		var seam_x = i * cell_w
@@ -153,7 +198,26 @@ func _create_combined_cover(images: Array[Image]) -> ImageTexture:
 				blended.a = 1.0
 				final_img.set_pixel(x, y, blended)
 
-	return ImageTexture.create_from_image(final_img)
+	return final_img
+func _create_combined_cover_async(images: Array, session_id: int) -> void:
+	var images_copy: Array = []
+	for img in images:
+		if img is Image and not img.is_empty():
+			images_copy.append(img.duplicate())
+		else:
+			images_copy.append(null)
+
+	WorkerThreadPool.add_task(func():
+		var result_img := _create_combined_cover_impl(images_copy)
+		call_deferred(\"_apply_combined_cover\", result_img, session_id)
+	)
+
+
+func _apply_combined_cover(result_img: Image, session_id: int) -> void:
+	if not is_instance_valid(self) or session_id != _cover_session_id:
+		return
+	if Cover and result_img:
+		Cover.texture = ImageTexture.create_from_image(result_img)
 func _scale_to_cover(src: Image, target_w: int, target_h: int) -> Image:
 	src.convert(Image.FORMAT_RGBA8)
 	var src_w = src.get_width()
@@ -165,11 +229,9 @@ func _scale_to_cover(src: Image, target_w: int, target_h: int) -> Image:
 	var new_w = int(src_w * img_scale)
 	var new_h = int(src_h * img_scale)
 
-	# 1. 复制原图并缩放至覆盖尺寸
-	var scaled = src.duplicate()          # 创建副本，不破坏原图
+	var scaled = src.duplicate()
 	scaled.resize(new_w, new_h, Image.INTERPOLATE_LANCZOS)
 
-	# 2. 从缩放后的图中居中裁切 target_w × target_h
 	var result = Image.create(target_w, target_h, false, Image.FORMAT_RGBA8)
 	var src_rect = Rect2i(
 		(new_w - target_w) / 2,
@@ -179,54 +241,92 @@ func _scale_to_cover(src: Image, target_w: int, target_h: int) -> Image:
 	)
 	result.blit_rect(scaled, src_rect, Vector2i.ZERO)
 	return result
-
 func _update_background_from_images(images: Array[Image]) -> void:
 	if not Background or images.is_empty():
 		return
 
+	# ---------- cache 前缀 ----------
+	var key_parts: PackedStringArray = [\"listdeck\"]
+	key_parts.append(directory_name if directory_name != \"\" else \"_unnamed_\")
+	for v in videos:
+		var id := str(v.get(\"BV\", v.get(\"link\", \"\")))
+		key_parts.append(id)
+	var cache_prefix := \"_\".join(key_parts)
 	var colors: Array[Color] = []
-	for img in images:
+	for i in images.size():
+		var img = images[i]
 		if img and not img.is_empty():
-			var color = CSharpFunc.ExtractThemeColors(img, 1, true, 0.15)
-			if color.size() > 0:
-				colors.append(color[0])
+			var cache_key := cache_prefix + \"_\" + str(i)
+			var extracted = CSharpFunc.ExtractThemeColors(img, 1, true, 0.15, cache_key)
+			if extracted.size() > 0:
+				colors.append(extracted[0])
 
 	if colors.is_empty():
 		colors = [Color(0.2, 0.2, 0.2)]
-
-	var avg_h = 0.0
-	var avg_s = 0.0
-	var avg_v = 0.0
+	var sum_x := 0.0
+	var sum_y := 0.0
+	var avg_s := 0.0
+	var avg_v := 0.0
 	for c in colors:
-		avg_h += c.h
+		sum_x += cos(c.h * TAU)
+		sum_y += sin(c.h * TAU)
 		avg_s += c.s
 		avg_v += c.v
-	avg_h /= colors.size()
+	var avg_h := atan2(sum_y, sum_x) / TAU
+	if avg_h < 0.0:
+		avg_h += 1.0
 	avg_s /= colors.size()
 	avg_v /= colors.size()
+	# 把每个颜色按亮度排一下，让渐变方向不会\"忽明忽暗\"跳变
+	var sorted_colors := colors.duplicate()
+	sorted_colors.sort_custom(func(a, b): return a.v < b.v)
 
-	var gradient = Gradient.new()
-	var base = Color.from_hsv(avg_h, min(avg_s, 0.6), min(avg_v, 0.7))
-	gradient.add_point(0.0, base.lightened(0.4))
-	gradient.add_point(0.5, base.lightened(0.1))
-	gradient.add_point(1.0, base.darkened(0.3))
+	var gradient := Gradient.new()
+	var n := sorted_colors.size()
 
-	var tex = GradientTexture2D.new()
+	if n == 1:
+		# 只有一色，仍给个亮→暗的三点过渡
+		var c0: Color = sorted_colors[0]
+		gradient.offsets = PackedFloat32Array([0.0, 0.5, 1.0])
+		gradient.colors = PackedColorArray([
+			c0.lightened(0.35),
+			c0,
+			c0.darkened(0.35),
+		])
+	else:
+		# 多色：每色一个点，横向均匀分布
+		var offsets := PackedFloat32Array()
+		var cols := PackedColorArray()
+		for i in n:
+			offsets.append(float(i) / float(n - 1))
+			cols.append(sorted_colors[i])
+		gradient.offsets = offsets
+		gradient.colors = cols
+
+	var tex := GradientTexture2D.new()
 	tex.gradient = gradient
 	tex.width = 256
 	tex.height = 256
+	tex.fill = GradientTexture2D.FILL_LINEAR
+	tex.fill_from = Vector2(0.0, 0.5)
+	tex.fill_to = Vector2(1.0, 0.5)
 	Background.texture = tex
-
 func _update_count() -> void:
 	if CountLabel:
-		CountLabel.text = \"♪\"+str(videos.size())
+		CountLabel.text = \"♪\" + str(videos.size())
 
 func _on_mouse_entered() -> void:
+	# ⚡[OPT-2-B] 首次悬停时才算背景色
+	if _background_dirty:
+		_update_background_from_images(_cover_images)
+		_background_dirty = false
+
 	if _hover_tween and _hover_tween.is_running():
 		_hover_tween.kill()
 	_hover_tween = create_tween()
 	_hover_tween.tween_property(Background, \"modulate:a\", 0.7, 0.2)
 	modulate = Color(0.9, 0.9, 1.0)
+
 
 func _on_mouse_exited() -> void:
 	if _hover_tween and _hover_tween.is_running():
@@ -234,18 +334,16 @@ func _on_mouse_exited() -> void:
 	_hover_tween = create_tween()
 	_hover_tween.tween_property(Background, \"modulate:a\", 0.0, 0.25).set_trans(Tween.TRANS_CUBIC)
 	modulate = Color.WHITE
-
-
 func _on_title_text_submitted(new_text: String) -> void:
-	new_text=new_text.strip_edges()
-	var err:=GdScriptFunc.set_key(\"Favorites\", directory_name, new_text)
-	if err==OK:
+	new_text = new_text.strip_edges()
+	var err: Error = GdScriptFunc.set_key(\"Favorites\", directory_name, new_text)
+	if err == OK:
 		directory_name = new_text
 		text_node.release_focus()
-	elif err==ERR_ALREADY_EXISTS:
+	elif err == ERR_ALREADY_EXISTS:
 		text_node.text = directory_name
-	elif err==ERR_DOES_NOT_EXIST:
-		GdScriptFunc.set_data(\"Favorites\", new_text,[])
+	elif err == ERR_DOES_NOT_EXIST:
+		GdScriptFunc.set_data(\"Favorites\", new_text, [])
 		directory_name = new_text
 		text_node.release_focus()
 "

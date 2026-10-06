@@ -16,7 +16,8 @@ var _save_semaphore := Semaphore.new()
 var _stop_save_thread := false
 var _deferred_updates := []
 var _deferred_mutex := Mutex.new()
-
+var _by_link: Dictionary = {}   # link -> Array[exact_key]
+var _lru: Array = []            # FIFO 顺序
 func _init(api_request_func: Callable, download_request_func: Callable) -> void:
 	_api_request_func = api_request_func
 	_download_request_func = download_request_func
@@ -41,33 +42,36 @@ func update(_delta: float) -> bool:
 		has_work = true
 	else:
 		_deferred_mutex.unlock()
+	var processed_this_frame := 0
+	while not _load_queue.is_empty():
+		var head = _load_queue[0]
+		var is_cache_hit: bool = head.get("cached_path", "") != ""
+		if is_cache_hit:
+			# 缓存命中：每帧最多批量处理 N 条
+			if processed_this_frame >= BilibiliConstants.CACHE_HIT_BURST_PER_FRAME:
+				break
+			_process_one_task()
+			processed_this_frame += 1
+			has_work = true
+		else:
+			# 网络任务：维持原节流
+			var now = Time.get_ticks_msec()
+			if now - _last_process_time >= BilibiliConstants.CACHE_LOAD_COOLDOWN_MS:
+				_last_process_time = now
+				_process_one_task()
+				has_work = true
+			break
 
-	var now = Time.get_ticks_msec()
-	if not _load_queue.is_empty() and now - _last_process_time >= BilibiliConstants.CACHE_LOAD_COOLDOWN_MS:
-		_last_process_time = now
-		_process_one_task()
-		has_work = true
 	if not _load_queue.is_empty():
 		has_work = true
 	return has_work
-
 func fetch_cover(link: String, callback: Callable, width: int = 160, height: int = 160) -> void:
 	var cached_path := _get_cached_file(link, width, height)
 	if not cached_path.is_empty():
 		_load_queue.push_back({"link": link, "width": width, "height": height, "callback": callback, "cached_path": cached_path})
 		if _load_queue.size() >= BilibiliConstants.CACHE_QUEUE_MAX_SIZE:
 			flush()
-		else:
-			_processing_active = true
-			_last_process_time = Time.get_ticks_msec()
 		return
-	_get_cover_url(link, width, height, func(url):
-		if url.is_empty():
-			GdScriptFunc.safe_callback(link, null, callback)
-			return
-		_download_cover(url, link, width, height, callback)
-	)
-
 func flush() -> void:
 	while not _load_queue.is_empty():
 		_process_one_task()
@@ -147,79 +151,93 @@ func _on_cover_downloaded(result: int, response_code: int, _headers: PackedStrin
 func _get_cached_file(link: String, width: int, height: int) -> String:
 	_load_index()
 	var exact_key = _cache_key(link, width, height)
-	#精确命中
 	if _index.has(exact_key):
 		var entry: Dictionary = _index[exact_key]
 		var path = BilibiliConstants.CACHE_DIR.path_join(entry.file)
 		if FileAccess.file_exists(path):
 			return path
-		else:
-			_index.erase(exact_key)
-			_save_index()
+		_remove_key(exact_key)
 
-	#找 link 相同且宽高均 >= 请求尺寸的最小图片
-	var best_entry = null
-	var best_area = INF
-	for key in _index:
-		var entry = _index[key]
-		if entry.get("link", "") != link:
+	var candidates: Array = _by_link.get(link, [])
+	var best_key := ""
+	var best_area := INF
+	for k in candidates:
+		if not _index.has(k):
 			continue
-		if entry.width >= width and entry.height >= height:
-			var area = entry.width * entry.height
+		var e = _index[k]
+		if e.width >= width and e.height >= height:
+			var area = e.width * e.height
 			if area < best_area:
 				best_area = area
-				best_entry = entry
-
-	if best_entry != null:
-		var path = BilibiliConstants.CACHE_DIR.path_join(best_entry.file)
+				best_key = k
+	if best_key != "":
+		var path = BilibiliConstants.CACHE_DIR.path_join(_index[best_key].file)
 		if FileAccess.file_exists(path):
 			return path
-		else:
-			# 文件丢失，清理该索引
-			var missing_key = _cache_key(link, best_entry.width, best_entry.height)
-			_index.erase(missing_key)
-			_save_index()
+		_remove_key(best_key)
 	return ""
+func _remove_key(key: String) -> void:
+	if not _index.has(key):
+		return
+	var link: String = _index[key].link
+	if _by_link.has(link):
+		_by_link[link].erase(key)
+		if _by_link[link].is_empty():
+			_by_link.erase(link)
+	_index.erase(key)
 
+func _evict_fifo() -> void:
+	var to_remove := _index.size() - BilibiliConstants.MAX_CACHE_SIZE
+	var i := 0
+	while to_remove > 0 and i < _lru.size():
+		var key: String = _lru[i]
+		i += 1
+		if _index.has(key):
+			var old_file = _index[key].file
+			var old_path = BilibiliConstants.CACHE_DIR.path_join(old_file)
+			if FileAccess.file_exists(old_path):
+				DirAccess.remove_absolute(old_path)
+			_remove_key(key)
+			to_remove -= 1
+	_lru = _lru.slice(i)
 func _add_to_index(link: String, width: int, height: int, filename: String) -> void:
 	_load_index()
 	var key = _cache_key(link, width, height)
 	var now = Time.get_unix_time_from_system()
 	_index[key] = {
-		"file": filename,
-		"time": now,
-		"link": link,
-		"width": width,
-		"height": height
+		"file": filename, "time": now, "link": link, "width": width, "height": height
 	}
-	if _index.size() > BilibiliConstants.MAX_CACHE_SIZE:
-		_evict()
-	_save_index()
+	if not _by_link.has(link):
+		_by_link[link] = []
+	_by_link[link].append(key)
+	_lru.append(key)
 
+	if _index.size() > BilibiliConstants.MAX_CACHE_SIZE:
+		_evict_fifo()
+	_save_index()
 func _load_index() -> void:
 	if _index_loaded:
 		return
 	var keys = GdScriptFunc.get_keys("CoverCache")
+	var times := []
 	for key in keys:
 		var entry = GdScriptFunc.get_data("CoverCache", key)
 		if typeof(entry) == TYPE_DICTIONARY:
 			var file = entry.get("file", "")
 			if file.is_empty():
 				continue
-			# 兼容旧数据，缺失字段给默认值（宽高为0，导致大带小失效但不报错）
-			var time = entry.get("time", 0)
 			var link = entry.get("link", "")
-			var width = entry.get("width", 0)
-			var height = entry.get("height", 0)
-			_index[key] = {
-				"file": file,
-				"time": time,
-				"link": link,
-				"width": width,
-				"height": height
-			}
+			var w = entry.get("width", 0)
+			var h = entry.get("height", 0)
+			var t = entry.get("time", 0)
+			_index[key] = {"file": file, "time": t, "link": link, "width": w, "height": h}
+			if not _by_link.has(link):
+				_by_link[link] = []
+			_by_link[link].append(key)
+			times.append({"k": key, "t": t})
+	times.sort_custom(func(a, b): return a.t < b.t)
+	_lru = times.map(func(x): return x.k)
 	_index_loaded = true
-
 func _save_index() -> void:
 	var old = GdScriptFunc.get_keys("CoverCache")
 	for k in old:

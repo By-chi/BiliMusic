@@ -203,20 +203,22 @@ func get_keys(section: String) -> Array:
 		return _config_file.get_section_keys(section)
 	return []
 
-
 func set_data(section: String, key: String, value, immediately := false) -> void:
 	_config_file.set_value(section, key, value)
 	_dirty = true
+	if section == "Favorites":
+		FavoritesIndex.invalidate()
 	if immediately:
 		flush()
 	else:
 		_schedule_save()
 
-
 func remove_key(section: String, key: String) -> void:
 	if _config_file.has_section_key(section, key):
 		_config_file.erase_section_key(section, key)
 		_dirty = true
+		if section == "Favorites":
+			FavoritesIndex.invalidate()
 		_schedule_save()
 
 
@@ -745,29 +747,24 @@ func apply_special_style_to_node(node: Node, mark := true) -> void:
 
 var theme_and_styles_marks: Array[Node]
 
-
-## 对指定子树应用主题 特殊样式(缩小版 update)
 func apply_theme_and_styles_to_node(node: Node, mark := true) -> void:
 	if current_skin_name.is_empty():
 		return
 	var dir := "res://Skin/" + current_skin_name + "/"
 
-	# 应用主题
-	var main_theme_path = dir + "main.theme"
-	if ResourceLoader.exists(main_theme_path):
-		var main_theme = ResourceLoader.load(
-			main_theme_path, "Theme", ResourceLoader.CACHE_MODE_REUSE
-		)
-		if main_theme:
-			_apply_theme_to_tree(node, main_theme)
-			if theme_and_styles_marks.find(node) == -1:
-				theme_and_styles_marks.append(node)
-		else:
-			push_warning("[ThemeManager] 加载 main.theme 失败: ", main_theme_path)
-	# 应用特殊样式
+	# 只有 Control 节点才需要 theme，且主题会自动向下继承
+	if node is Control:
+		var main_theme_path = dir + "main.theme"
+		if ResourceLoader.exists(main_theme_path):
+			var main_theme = ResourceLoader.load(main_theme_path, "Theme", ResourceLoader.CACHE_MODE_REUSE)
+			if main_theme:
+				node.theme = main_theme
+				if mark and theme_and_styles_marks.find(node) == -1:
+					theme_and_styles_marks.append(node)
+
+	# 特殊样式仍需递归（因为要检查每个节点的 group）
 	var config = _load_special_styles_config(dir)
 	_apply_special_styles_recursive(node, config)
-
 
 ## 递归应用主题(遇到 Control 设置 theme 并返回)
 func _apply_theme_to_tree(node: Node, theme: Theme) -> void:

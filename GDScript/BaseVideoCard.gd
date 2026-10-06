@@ -34,7 +34,7 @@ var cover: Texture2D:
 			return
 		cover_node.texture = value
 
-		var colors: Array[Color] = CSharpFunc.ExtractThemeColors(value.get_image(), 1, true, 0.15)
+		var colors: Array[Color] = CSharpFunc.ExtractThemeColors(value.get_image(), 1, true, 0.15,link)
 		if colors.size() > 0:
 			color_rect.color = colors[0].blend(Color(1, 1, 1, 0.5))
 

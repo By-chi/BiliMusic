@@ -40,6 +40,9 @@ SubtitleCorrection="*uid://cmgf8hb5jlwe5"
 Player="*uid://ng3rdbd38uuj"
 AudioSpectrumCalculator="*uid://drtt3prb4e418"
 BilibiliApi="*uid://dujalxj743anw"
+ThemeKit="*uid://bjoy2lfui5chn"
+FavoritesIndex="*uid://c7yupifdqheok"
+RateLimiter="*uid://dfmrt0h4d1u1"
 
 [debug]
 

@@ -41,7 +41,7 @@ func update() -> void:
 	if is_ECO_mode or not Player.sonance:
 		return
 
-	var video_info := Player.get_current_video_info()
+	var video_info :Dictionary= Player.get_current_video_info()
 	if video_info.is_empty():
 		return
 
@@ -78,7 +78,7 @@ func _apply_theme_colors() -> void:
 	else:
 		var img := texture_rect.texture.get_image()
 		if img:
-			var colors: Array[Color] = CSharpFunc.ExtractThemeColors(img, 2, true, 0.15)
+			var colors: Array[Color] = CSharpFunc.ExtractThemeColors(img, 2, true, 0.15,null)
 			if colors.size() >= 2:
 				polygon_2d.color = colors[0]
 				polygon_2d2.color = colors[1]

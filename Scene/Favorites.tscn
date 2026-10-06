@@ -167,16 +167,17 @@ func _lazy_update_decks() -> void:
 		if (child is Button or child.has_method(\"refresh_covers\")) and \"directory_name\" in child:
 			existing[child.directory_name] = child
 
-	for dir_name in new_decks:
-		if existing.has(dir_name):
-			var deck = existing[dir_name]
-			deck.videos = GdScriptFunc.get_data(\"Favorites\", dir_name)
-			if deck.has_method(\"refresh_covers\"):
-				deck.refresh_covers()
-		else:
-			var deck = _create_deck_node(dir_name)
-			container.add_child(deck)
-			GdScriptFunc.apply_theme_and_styles_to_node(deck)
+			for dir_name in new_decks:
+				if existing.has(dir_name):
+					var deck_existing = existing[dir_name]
+					var new_videos = GdScriptFunc.get_data(\"Favorites\", dir_name, [])
+					if deck_existing.videos != new_videos:
+						deck_existing.videos = new_videos
+				else:
+					var deck_new = _create_deck_node(dir_name)
+					container.add_child(deck_new)
+					GdScriptFunc.apply_theme_and_styles_to_node(deck_new)
+					deck_new.call_deferred(\"_deferred_load_videos\", GdScriptFunc.get_data(\"Favorites\", dir_name, []))
 
 	for dir_name in existing.keys():
 		if not new_decks.has(dir_name):

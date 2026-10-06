@@ -184,7 +184,7 @@ func update() -> void:
 		musicNameLabel.text = CSharpFunc.ExtractSongName(video_info.get(\"title\", tr(\"未知\")))
 		return
 
-	var color: Color = CSharpFunc.ExtractThemeColors(coverTextureRect.texture.get_image(), 1, true, 0.15)[0]
+	var color: Color = CSharpFunc.ExtractThemeColors(coverTextureRect.texture.get_image(), 1, true, 0.15,video_info.get(\"link\"))[0]
 	if color.get_luminance() < 0.75:
 		musicNameLabel.modulate = color.blend(Color(1, 1, 1, 0.9))
 	else:

@@ -8,12 +8,44 @@ using System.IO;
 public partial class CSharpFunc : Node
 {
 	#region Image
-
+	private static readonly Dictionary<string, Godot.Collections.Array<Color>> _colorCache = new();
+	private static readonly object _colorCacheLock = new();
+	private const int ColorCacheMaxSize = 200;
 	public static Godot.Collections.Array<Color> ExtractThemeColors(
 		Image image,
 		int colorCount = 6,
 		bool applySaliency = true,
-		float minColorDistance = 0.15f)
+		float minColorDistance = 0.15f,
+		string cacheKey = null)
+	{
+		if (!string.IsNullOrEmpty(cacheKey))
+		{
+			lock (_colorCacheLock)
+			{
+				if (_colorCache.TryGetValue(cacheKey, out var cached))
+					return cached;
+			}
+		}
+
+		var result = ExtractThemeColorsInternal(image, colorCount, applySaliency, minColorDistance);
+
+		if (!string.IsNullOrEmpty(cacheKey))
+		{
+			lock (_colorCacheLock)
+			{
+				if (_colorCache.Count >= ColorCacheMaxSize)
+				{
+					// 简单淘汰：清一半
+					var keysToRemove = _colorCache.Keys.Take(_colorCache.Count / 2).ToList();
+					foreach (var k in keysToRemove) _colorCache.Remove(k);
+				}
+				_colorCache[cacheKey] = result;
+			}
+		}
+		return result;
+	}
+	private static Godot.Collections.Array<Color> ExtractThemeColorsInternal(
+		Image image, int colorCount, bool applySaliency, float minColorDistance)
 	{
 		var pixels = SamplePixels(image, maxSamples: 2000);
 		if (pixels.Count == 0)
@@ -61,19 +93,20 @@ public partial class CSharpFunc : Node
 
 	private static List<Color> SamplePixels(Image image, int maxSamples)
 	{
-		var pixels = new List<Color>(maxSamples);
-		image.GetData();
+		image.Convert(Image.Format.Rgba8);
+		byte[] data = image.GetData();
 		int width = image.GetWidth();
 		int height = image.GetHeight();
+		var pixels = new List<Color>(maxSamples);
 
 		if (width * height <= maxSamples)
 		{
-			for (int x = 0; x < width; x++)
-				for (int y = 0; y < height; y++)
-				{
-					Color c = image.GetPixel(x, y);
-					if (c.A > 0.1f) pixels.Add(c);
-				}
+			for (int i = 0; i < width * height; i++)
+			{
+				int o = i * 4;
+				if (data[o + 3] > 25)   // alpha > 0.1
+					pixels.Add(new Color(data[o] / 255f, data[o+1] / 255f, data[o+2] / 255f, data[o+3] / 255f));
+			}
 		}
 		else
 		{
@@ -81,12 +114,11 @@ public partial class CSharpFunc : Node
 			for (float fx = 0; fx < width; fx += step)
 				for (float fy = 0; fy < height; fy += step)
 				{
-					int x = (int)fx;
-					if (x >= width) x = width - 1;
-					int y = (int)fy;
-					if (y >= height) y = height - 1;
-					Color c = image.GetPixel(x, y);
-					if (c.A > 0.1f) pixels.Add(c);
+					int x = Mathf.Min((int)fx, width - 1);
+					int y = Mathf.Min((int)fy, height - 1);
+					int o = (y * width + x) * 4;
+					if (data[o + 3] > 25)
+						pixels.Add(new Color(data[o] / 255f, data[o+1] / 255f, data[o+2] / 255f, data[o+3] / 255f));
 				}
 		}
 		return pixels;

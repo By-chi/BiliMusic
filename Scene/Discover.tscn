@@ -14,60 +14,86 @@ var up_preview_visible_id := 0
 
 func _ready() -> void:
 	for mid in ups:
-		var node := preload(\"res://Scene/UpPpreview.tscn\").instantiate()
-		node.name = mid
-		up_nodes.append(node)
-		list_box.add_child(node)
-		GdScriptFunc.apply_theme_and_styles_to_node(node)
-
-		var link_node: Button = node.get_node(\"Link\")
-		link_node.pressed.connect(func():
-			if GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\") != null:
-				get_node(\"/root/Main\")._on_search_text_submitted(\"UID:\" + node.name)
-			else:
-				get_node(\"/root/Main\")._on_search_text_submitted(\"UP主:\" + node.name + \":\" + node.text)
-		)
-		link_node.mouse_entered.connect(func():
-			node.get_node(\"Link/Panel\").hide()
-		)
-		link_node.mouse_exited.connect(func():
-			node.get_node(\"Link/Panel\").show()
-		)
-
-		if mid != \"bilibili音乐周榜\":
-			var icon: TextureRect = node.get_node(\"Link/Panel/Icon\")
-			BilibiliApi.fetch_user_info_by_mid(mid, func(info):
-				if info:
-					var font: Font = get_theme_font(\"font\", \"Label\")
-					node.tooltip_text = GdScriptFunc.format_for_tooltip(info.sign, 1000, font, 30, 30, 8)
-					node.text = info.name
-					node.set_meta(\"name_ready\", true)
-					_try_load_up_videos(node)
-
-					if info.face != \"\":
-						var img_request = HTTPRequest.new()
-						add_child(img_request)
-						img_request.request_completed.connect(func(_r, _c, _h, img_body):
-							img_request.queue_free()
-							var img = Image.new()
-							if img.load_jpg_from_buffer(img_body) == OK or img.load_png_from_buffer(img_body) == OK:
-								var tex = ImageTexture.create_from_image(img)
-								icon.texture = tex
-							else:
-								print(\"头像下载失败\")
-						)
-						img_request.request(info.face, BilibiliApi._get_image_headers(), HTTPClient.METHOD_GET)
-				else:
-					print(\"获取用户信息失败:\", mid)
-			)
-		else:
-			node.text = node.name
-			node.set_meta(\"name_ready\", true)
+		_setup_up_node(mid)
 
 	list_box.transform_changed.connect(on_list_rolling)
 	on_list_rolling()
 	full_refresh()
 
+
+## 建立一个 UP 主预览节点。
+## 关键点：BilibiliApi.fetch_user_info_by_mid 不 await 直接调用，
+## 8 个请求会同时进入 RateLimiter 队列，约 2 秒内全部发出。
+func _setup_up_node(mid: String) -> void:
+	var node := preload(\"res://Scene/UpPpreview.tscn\").instantiate()
+	node.name = mid
+	up_nodes.append(node)
+	list_box.add_child(node)
+	GdScriptFunc.apply_theme_and_styles_to_node(node)
+
+	# --- 通用按钮信号 ---
+	var link_node: Button = node.get_node(\"Link\")
+	link_node.pressed.connect(func():
+		if GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\") != null:
+			get_node(\"/root/Main\")._on_search_text_submitted(\"UID:\" + node.name)
+		else:
+			get_node(\"/root/Main\")._on_search_text_submitted(\"UP主:\" + node.name + \":\" + node.text)
+	)
+	link_node.mouse_entered.connect(func():
+		node.get_node(\"Link/Panel\").hide()
+	)
+	link_node.mouse_exited.connect(func():
+		node.get_node(\"Link/Panel\").show()
+	)
+
+	# --- 音乐周榜：无需拉取用户信息 ---
+	if mid == \"bilibili音乐周榜\":
+		node.text = node.name
+		node.set_meta(\"name_ready\", true)
+		return
+
+	# --- 普通 UP 主：发起请求（不 await，立刻返回，8 个并发） ---
+	var icon: TextureRect = node.get_node(\"Link/Panel/Icon\")
+	BilibiliApi.fetch_user_info_by_mid(mid, _on_user_info_received.bind(node, icon))
+
+
+## 用户信息回调
+func _on_user_info_received(info, node: Control, icon: TextureRect) -> void:
+	if not is_instance_valid(node):
+		return
+	if not info:
+		print(\"获取用户信息失败:\", node.name)
+		return
+
+	var font: Font = get_theme_font(\"font\", \"Label\")
+	node.tooltip_text = GdScriptFunc.format_for_tooltip(info.sign, 1000, font, 30, 30, 8)
+	node.text = info.name
+	node.set_meta(\"name_ready\", true)
+	_try_load_up_videos(node)
+
+	# 头像并发拉取，不阻塞用户信息回调
+	if info.face != \"\":
+		_load_avatar(info.face, icon)
+
+
+## 拉取头像
+func _load_avatar(face_url: String, icon: TextureRect) -> void:
+	var img_request := HTTPRequest.new()
+	add_child(img_request)
+	img_request.request_completed.connect(func(_r, _c, _h, img_body):
+		img_request.queue_free()
+		if not is_instance_valid(icon):
+			return
+		var img := Image.new()
+		if img.load_jpg_from_buffer(img_body) == OK or img.load_png_from_buffer(img_body) == OK:
+			icon.texture = ImageTexture.create_from_image(img)
+		else:
+			print(\"头像下载失败\")
+	)
+	img_request.request(face_url, BilibiliApi._get_image_headers(), HTTPClient.METHOD_GET)
+
+
+# ---------------- 以下为原有逻辑，保持不变 ----------------
 
 func full_refresh() -> void:
 	if GdScriptFunc.get_data(\"Options\", \"DiscoverPageLazyUpdate\", true):
@@ -171,14 +197,9 @@ func _on_video_card_gui_input(event: InputEvent, video_card: Control, video_data
 	GdScriptFunc.open_right_click_menu_window(DisplayServer.mouse_get_position(), menu)
 
 
+# ⭐ 改成走 FavoritesIndex 索引（前提是你已经建好该 autoload）
 func _is_video_collected(link: String) -> bool:
-	var favs = GdScriptFunc.get_keys(\"Favorites\")
-	if favs == null: return false
-	for dir in favs:
-		var list = GdScriptFunc.get_data(\"Favorites\", dir, [])
-		for item in list:
-			if item.get(\"link\") == link: return true
-	return false
+	return FavoritesIndex.is_collected(link)
 
 
 func _on_collect(video_data: Dictionary) -> void:

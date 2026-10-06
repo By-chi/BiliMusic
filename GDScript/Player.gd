@@ -244,7 +244,8 @@ func seek_sec(sec: float) -> void:
 			seek(sec)
 		"M4S":
 			M4SAudioPlayer.Seek(sec)
-	seeked.emit(get_duration() / sec)
+	var duration := get_duration()
+	seeked.emit(sec / duration if duration > 0 else 0.0)
 	sonance = true
 
 
