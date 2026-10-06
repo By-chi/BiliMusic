@@ -237,3 +237,147 @@ func _search_one_video_bvid(username: String) -> String:
 	if result_list.is_empty():
 		return ""
 	return result_list[0].get("bvid", "")
+
+## 获取当前登录用户创建的所有收藏夹
+## callback 参数: Array[Dictionary]，每项含 id/fid/title/media_count/attr
+func fetch_fav_folders(callback: Callable) -> void:
+	await RateLimiter.wait_turn()
+	var mid: String = str(GdScriptFunc.get_data("AccountData", "DedeUserID", ""))
+	if mid.is_empty():
+		push_error("[BilibiliUserApi] 未登录，无法获取收藏夹")
+		callback.call([])
+		return
+
+	var url = "https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid=" + mid
+	var headers = _http.with_origin(
+		_http.get_headers(),
+		"https://space.bilibili.com/%s/favlist" % mid,
+        "https://space.bilibili.com"
+	)
+	_http.request_with_sign(url, _on_fav_folders_received, [callback], HTTPClient.METHOD_GET, headers)
+
+
+func _on_fav_folders_received(_result: int, code: int, _headers: PackedStringArray, body: PackedByteArray, extra: Variant) -> void:
+	var callback: Callable = extra[0]
+	if code != 200:
+		push_error("[BilibiliUserApi] 获取收藏夹列表失败，HTTP %d" % code)
+		callback.call([])
+		return
+
+	var json = JSON.new()
+	var body_str = body.get_string_from_utf8()
+	if json.parse(body_str) != OK:
+		push_error("[BilibiliUserApi] 收藏夹列表 JSON 解析失败")
+		callback.call([])
+		return
+
+	var data = json.get_data()
+	if data.get("code", -1) != 0:
+		push_error("[BilibiliUserApi] 收藏夹列表 API 错误: %s" % data.get("message", ""))
+		callback.call([])
+		return
+
+	var list: Array = data.get("data", {}).get("list", [])
+	var result: Array[Dictionary] = []
+	for item in list:
+		result.append({
+			"id": int(item.get("id", 0)),
+			"fid": int(item.get("fid", 0)),
+			"title": BilibiliHTMLDecoder.decode(item.get("title", "")),
+			"media_count": int(item.get("media_count", 0)),
+			"attr": int(item.get("attr", 0)),
+		})
+
+	print("[BilibiliUserApi] 获取到 %d 个收藏夹" % result.size())
+	callback.call(result)
+
+
+## 获取指定收藏夹的内容（单页）
+## media_id: 收藏夹 mlid
+## pn: 页码（从 1 开始）
+## ps: 每页数量（1–20）
+## callback 参数: Dictionary { medias: Array, has_more: bool, total: int }
+func fetch_fav_items(media_id: int, pn: int = 1, ps: int = 20, callback: Callable = Callable()) -> void:
+	await RateLimiter.wait_turn()
+	if ps < 1 or ps > 20:
+		ps = 20
+	if pn < 1:
+		pn = 1
+
+	var url = ("https://api.bilibili.com/x/v3/fav/resource/list"
+			 + "?media_id=%d&pn=%d&ps=%d&platform=web&order=mtime" % [media_id, pn, ps])
+	var headers = _http.with_origin(
+		_http.get_headers(),
+		"https://www.bilibili.com",
+        "https://www.bilibili.com"
+	)
+	_http.request_with_sign(url, _on_fav_items_received, [callback], HTTPClient.METHOD_GET, headers)
+
+
+func _on_fav_items_received(_result: int, code: int, _headers: PackedStringArray, body: PackedByteArray, extra: Variant) -> void:
+	var callback: Callable = extra[0]
+	if code != 200:
+		push_error("[BilibiliUserApi] 获取收藏夹内容失败，HTTP %d" % code)
+		callback.call({"medias": [], "has_more": false, "total": 0})
+		return
+
+	var json = JSON.new()
+	var body_str = body.get_string_from_utf8()
+	if json.parse(body_str) != OK:
+		push_error("[BilibiliUserApi] 收藏夹内容 JSON 解析失败")
+		callback.call({"medias": [], "has_more": false, "total": 0})
+		return
+
+	var data = json.get_data()
+	if data.get("code", -1) != 0:
+		push_error("[BilibiliUserApi] 收藏夹内容 API 错误: %s" % data.get("message", ""))
+		callback.call({"medias": [], "has_more": false, "total": 0})
+		return
+
+	var data_obj = data.get("data", {})
+	var medias: Array = data_obj.get("medias", [])
+	var has_more: bool = data_obj.get("has_more", false)
+	var total: int = data_obj.get("info", {}).get("media_count", 0)
+
+	var result: Array[Dictionary] = []
+	for m in medias:
+		if m == null:
+			continue
+		var upper: Dictionary = m.get("upper", {})
+		var cnt: Dictionary = m.get("cnt_info", {})
+		result.append({
+			"link": m.get("bvid", ""),
+			"BV": m.get("bvid", ""),
+			"title": BilibiliHTMLDecoder.decode(m.get("title", "")),
+			"author": BilibiliHTMLDecoder.decode(upper.get("name", "")),
+			"description": BilibiliHTMLDecoder.decode(m.get("intro", "")),
+			"cover": m.get("cover", ""),
+			"duration": int(m.get("duration", 0)),
+			"play": int(cnt.get("play", 0)),
+			"is_network": true,
+		})
+
+	callback.call({
+		"medias": result,
+		"has_more": has_more,
+		"total": total,
+	})
+## 递归获取一个收藏夹的全部内容（自动翻页）
+## callback 参数: Array[Dictionary]，所有视频条目
+func fetch_all_fav_items(media_id: int, callback: Callable) -> void:
+	var all_items: Array[Dictionary] = []
+	_fetch_fav_page_recursive(media_id, 1, all_items, callback)
+
+
+func _fetch_fav_page_recursive(media_id: int, pn: int, accumulated: Array[Dictionary], callback: Callable) -> void:
+	fetch_fav_items(media_id, pn, 20, func(page_data: Dictionary):
+		var medias: Array = page_data.get("medias", [])
+		for item in medias:
+			accumulated.append(item)
+
+		if page_data.get("has_more", false) and not medias.is_empty():
+			_fetch_fav_page_recursive(media_id, pn + 1, accumulated, callback)
+		else:
+			print("[BilibiliUserApi] 收藏夹 %d 全部获取完成，共 %d 条" % [media_id, accumulated.size()])
+			callback.call(accumulated)
+	)

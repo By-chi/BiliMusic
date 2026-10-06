@@ -135,3 +135,16 @@ func _get_image_headers() -> PackedStringArray:
 
 func _on_subtitle_processed(lrc_path: String, request_id: String) -> void:
 	subtitle_manager.handle_correction_result(request_id, lrc_path)
+## 获取当前登录用户的云端收藏夹列表
+func fetch_fav_folders(callback: Callable) -> void:
+	_user.fetch_fav_folders(callback)
+
+## 获取指定云端收藏夹的内容（单页）
+func fetch_fav_items(media_id: int, callback: Callable, pn: int = 1, ps: int = 20) -> void:
+	_user.fetch_fav_items(media_id, pn, ps, callback)
+
+## 获取指定云端收藏夹的全部内容（自动翻页）
+func fetch_all_fav_items(media_id: int, callback: Callable) -> void:
+	_user.fetch_all_fav_items(media_id, callback)
+func fetch_audio_url(bvid: String, cid: int, callback: Callable) -> void:
+	_video.fetch_audio_url(bvid, cid, callback)

@@ -110,13 +110,31 @@ public partial class DownloadAudio : Node
     {
         if (string.IsNullOrWhiteSpace(bvid))
             throw new ArgumentException("BV 号不能为空。", nameof(bvid));
+        string buvid3 = "";
+        var gdFunc = GetNodeOrNull("/root/GDScriptFunc");
+        if (gdFunc != null)
+        {
+            var v = gdFunc.Call("get_data", "Network", "buvid3", "");
+            if (v.VariantType == Variant.Type.String)
+                buvid3 = v.AsString();
+        }
+        string referer = BuildVideoPageUrl(bvid);
+        string[] commonHeaders =
+        [
+            $"User-Agent: {GetUserAgent()}",
+            $"Referer: {referer}",
+            "Origin: https://www.bilibili.com",
+            "Accept: application/json, text/plain, */*",
+            "Accept-Language: zh-CN,zh;q=0.9,en;q=0.8",
+            $"Cookie: buvid3={buvid3}; b_nut={DateTimeOffset.UtcNow.ToUnixTimeSeconds()};",
+        ];
 
         string viewUrl = $"https://api.bilibili.com/x/web-interface/view?bvid={bvid}";
         using var viewHttp = new HttpRequest();
         AddChild(viewHttp);
         try
         {
-            Error err = viewHttp.Request(viewUrl);
+            Error err = viewHttp.Request(viewUrl, commonHeaders);
             if (err != Error.Ok)
                 throw new Exception($"视频详情请求失败: {err}");
 
@@ -140,7 +158,7 @@ public partial class DownloadAudio : Node
             AddChild(playHttp);
             try
             {
-                err = playHttp.Request(playUrl);
+                err = playHttp.Request(playUrl, commonHeaders);
                 if (err != Error.Ok)
                     throw new Exception($"播放地址请求失败: {err}");
 
@@ -158,7 +176,6 @@ public partial class DownloadAudio : Node
                 JsonElement firstAudio = audioArray[0];
                 string audioBaseUrl = firstAudio.GetProperty("baseUrl").GetString();
 
-                string referer = BuildVideoPageUrl(bvid);
                 return (audioBaseUrl, referer, title, coverUrl);
             }
             finally
@@ -423,6 +440,62 @@ public partial class DownloadAudio : Node
                     throw new Exception($"HTTP 错误: {(int)response.StatusCode} {response.StatusCode}");
                 return response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
             }
+        }
+    }
+    /// <summary>
+    /// 只获取视频基础信息（title、cover、cid），不请求 playurl（避免 WBI 签名问题）
+    /// </summary>
+    public async Task<(string title, string coverUrl, long cid)> GetVideoBasicInfoAsync(string bvid)
+    {
+        if (string.IsNullOrWhiteSpace(bvid))
+            throw new ArgumentException("BV 号不能为空。", nameof(bvid));
+
+        string buvid3 = "";
+        var gdFunc = GetNodeOrNull("/root/GDScriptFunc");
+        if (gdFunc != null)
+        {
+            var v = gdFunc.Call("get_data", "Network", "buvid3", "");
+            if (v.VariantType == Variant.Type.String)
+                buvid3 = v.AsString();
+        }
+
+        string referer = BuildVideoPageUrl(bvid);
+        string[] headers = new string[]
+        {
+            $"User-Agent: {GetUserAgent()}",
+            $"Referer: {referer}",
+            "Origin: https://www.bilibili.com",
+            "Accept: application/json, text/plain, */*",
+            $"Cookie: buvid3={buvid3};",
+        };
+
+        string viewUrl = $"https://api.bilibili.com/x/web-interface/view?bvid={bvid}";
+        using var http = new HttpRequest();
+        AddChild(http);
+        try
+        {
+            Error err = http.Request(viewUrl, headers);
+            if (err != Error.Ok)
+                throw new Exception($"请求发送失败: {err}");
+
+            var result = await ToSignal(http, HttpRequest.SignalName.RequestCompleted);
+            long code = (long)result[1];
+            byte[] body = (byte[])result[3];
+            if (code != 200)
+                throw new Exception($"HTTP 错误: {code}");
+
+            string json = Encoding.UTF8.GetString(body);
+            using var doc = JsonDocument.Parse(json);
+            var data = doc.RootElement.GetProperty("data");
+            string title = data.GetProperty("title").GetString();
+            string coverUrl = data.GetProperty("pic").GetString();
+            long cid = data.GetProperty("pages")[0].GetProperty("cid").GetInt64();
+            return (title, coverUrl, cid);
+        }
+        finally
+        {
+            RemoveChild(http);
+            http.QueueFree();
         }
     }
 }

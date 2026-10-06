@@ -621,7 +621,15 @@ func detect_type(link: String) -> String:
 	elif link.ends_with(".m4s"):
 		return "M4S"
 	return "NetworkAudio"  # 默认类型
-
+func cloud_item_to_local(item: Dictionary) -> Dictionary:
+	return {
+		"link": item.get("link", item.get("BV", "")),
+		"BV": item.get("BV", ""),
+		"title": item.get("title", ""),
+		"author": item.get("author", ""),
+		"description": item.get("description", ""),
+		"is_network": true,
+	}
 
 func extract_key_from_url(url: String) -> String:
 	if url.is_empty():

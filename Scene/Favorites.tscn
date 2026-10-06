@@ -9,6 +9,7 @@
 [ext_resource type="Texture2D" uid="uid://cwsqs86au2fvw" path="res://UI/Icon/back.svg" id="3_gvq1e"]
 [ext_resource type="Texture2D" uid="uid://ds32xxqem2p28" path="res://UI/Icon/Paste.svg" id="4_o8iwe"]
 [ext_resource type="Texture2D" uid="uid://b3puv5vqf362y" path="res://UI/Icon/ThumbnailsView.svg" id="8_l7kha"]
+[ext_resource type="Texture2D" uid="uid://d32vlg7cdkajr" path="res://UI/Icon/Cloud.svg" id="9_g0631"]
 
 [sub_resource type="GDScript" id="GDScript_1siev"]
 script/source = "extends Control
@@ -22,6 +23,7 @@ script/source = "extends Control
 @export var ok_button: Button
 @export var remove_button: Button
 @export var download_button: Button
+@export var cloud_button: Button
 @export var cut_button: Button
 @export var copy_button: Button
 @export var paste_button: Button
@@ -36,6 +38,14 @@ const VideoCardScene = preload(\"res://Scene/VideoCard.tscn\")
 const VideoTransverseCardScene = preload(\"res://Scene/VideoTransverseCard.tscn\")
 const DeckScene = preload(\"res://Scene/Deck.tscn\")
 const ListDeckScene = preload(\"res://Scene/ListDeck.tscn\")
+
+const CLOUD_ICON_NORMAL = preload(\"res://UI/Icon/Cloud.svg\")
+const CLOUD_ICON_ENABLED = preload(\"res://UI/Icon/EnabledCloud.svg\")
+
+## 可视区上下各缓冲的行数
+const CLOUD_BUFFER_ROWS: int = 3
+## Deck 缩略图懒加载预加载余量
+const CLOUD_PRELOAD_MARGIN: float = 400.0
 
 var _is_showing_favorites: bool = true
 var _current_fav_dir: String = \"\"
@@ -55,6 +65,28 @@ var _clipboard_data: Array = []
 
 var is_select_mode: bool = false
 
+# ===== 云收藏状态 =====
+var enable_cloud: bool = false
+var _cloud_folders: Array = []
+var _current_cloud_folder: Dictionary = {}
+var _is_in_cloud_folder: bool = false
+
+# ---- 云端文件夹内部：虚拟滚动 ----
+var _cloud_items: Array = []                    # 全部数据（不创建节点）
+var _cloud_virtual_root: Control = null         # 唯一撑高度的根节点
+var _cloud_active: Dictionary = {}              # {index: Node} 当前可视区内的卡片
+var _cloud_cols: int = 1                        # 网格列数
+var _cloud_item_w: float = 582.4                # 单张卡片宽
+var _cloud_item_h: float = 364.0                # 单张卡片高
+var _cloud_row_h: float = 374.0                 # 单行高 = item_h + gap
+var _cloud_gap: float = 10.0
+# ---------------------------------
+
+# ===== 封面加载队列（串行，防 412） =====
+var _cover_queue: Array = []            # [{node, type}] type: \"deck\" | \"card\"
+var _cover_queue_running: bool = false
+# ========================================
+
 signal favorites_selected(selected_favs: Array[String])
 
 var list_view_mode: bool = true:
@@ -65,17 +97,32 @@ var list_view_mode: bool = true:
 				view_mode_button.icon = thumbnails_view
 			else:
 				view_mode_button.icon = list_view
-			GdScriptFunc.set_data(\"FavoritesPage\",\"IsListViewMode\",list_view_mode,true)
-			update_view()
+			GdScriptFunc.set_data(\"FavoritesPage\", \"IsListViewMode\", list_view_mode, true)
+			_connect_scroll_signals()
+			if enable_cloud:
+				if _is_in_cloud_folder:
+					# 模式切换 → 重建云端文件夹布局
+					if not _cloud_items.is_empty():
+						_populate_cloud_folder_items(_cloud_items, _current_cloud_folder.get(\"title\", \"云端收藏夹\"))
+				else:
+					_load_cloud_decks()
+			else:
+				update_view()
+
 
 func _ready() -> void:
 	if ok_button and ok_button.text.is_empty():
 		ok_button.text = tr(\"确定\")
+	if cloud_button and not cloud_button.pressed.is_connected(_on_cloud_pressed):
+		cloud_button.pressed.connect(_on_cloud_pressed)
 	_apply_container_visibility()
 	call_deferred(\"_on_thumbnails_scroll_resized\")
+	call_deferred(\"_connect_scroll_signals\")
 	update()
 	_update_buttons_state()
-	list_view_mode=GdScriptFunc.get_data(\"FavoritesPage\",\"IsListViewMode\",true)
+	list_view_mode = GdScriptFunc.get_data(\"FavoritesPage\", \"IsListViewMode\", true)
+
+
 func _apply_container_visibility() -> void:
 	if list_view_mode:
 		thumbnails_scroll_container.hide()
@@ -85,13 +132,320 @@ func _apply_container_visibility() -> void:
 		thumbnails_scroll_container.show()
 		list_scroll_container.hide()
 
+
+# ==================== 滚动信号 ====================
+
+func _connect_scroll_signals() -> void:
+	for scroll in [list_scroll_container, thumbnails_scroll_container]:
+		if not is_instance_valid(scroll):
+			continue
+		var vbar = scroll.get_v_scroll_bar()
+		if vbar == null:
+			continue
+		if not vbar.value_changed.is_connected(_on_cloud_scroll_changed):
+			vbar.value_changed.connect(_on_cloud_scroll_changed)
+
+
+func _on_cloud_scroll_changed(_value: float) -> void:
+	if not enable_cloud:
+		return
+	if _is_in_cloud_folder:
+		_update_cloud_virtual_cards()
+	else:
+		_update_cloud_lazy_load()
+
+
+# ==================== 云端文件夹列表：封面懒加载 ====================
+
+func _update_cloud_lazy_load() -> void:
+	var scroll: ScrollContainer = list_scroll_container if list_view_mode else thumbnails_scroll_container
+	var container: Container = list_container if list_view_mode else grid_container
+	if not is_instance_valid(scroll) or not is_instance_valid(container):
+		return
+
+	var scroll_rect := scroll.get_global_rect()
+	var view_top: float = scroll_rect.position.y
+	var view_bottom: float = scroll_rect.position.y + scroll_rect.size.y
+
+	for child in container.get_children():
+		if not is_instance_valid(child) or not (child is Control):
+			continue
+		if not child.get_meta(\"cloud_cover_pending\", false):
+			continue
+
+		var rect: Rect2 = (child as Control).get_global_rect()
+		if rect.end.y < view_top - CLOUD_PRELOAD_MARGIN:
+			continue
+		if rect.position.y > view_bottom + CLOUD_PRELOAD_MARGIN:
+			continue
+
+		child.set_meta(\"cloud_cover_pending\", false)
+		_enqueue_cover_load(child, \"deck\")
+
+
+# ==================== 云端文件夹内部：虚拟滚动核心 ====================
+
+## 只创建虚拟根节点（撑高度），卡片按可视区动态创建
+func _populate_cloud_folder_items(items: Array, folder_title: String) -> void:
+	_clear_active_container()
+	_apply_container_visibility()
+
+	if items.is_empty():
+		GdScriptFunc.set_progress_bar_value(100, folder_title, \"云端收藏夹为空\")
+		return
+
+	_cloud_items = items
+
+	# 计算布局参数
+	var scroll: ScrollContainer = list_scroll_container if list_view_mode else thumbnails_scroll_container
+	var container: Container = list_container if list_view_mode else grid_container
+
+	if list_view_mode:
+		_cloud_cols = 1
+		_cloud_item_h = 90.0
+		_cloud_item_w = 0.0   # 用容器宽
+	else:
+		_cloud_item_h = 364.0
+		_cloud_item_w = 582.4
+		_cloud_gap = 10.0
+		# 让 GridContainer 只排一列，虚拟根节点独占整行
+		grid_container.columns = 1
+		_cloud_cols = max(1, int(scroll.size.x / (_cloud_item_w + _cloud_gap)))
+
+	_cloud_row_h = _cloud_item_h + _cloud_gap
+	var rows: int = int(ceil(float(items.size()) / _cloud_cols))
+	var total_h: float = rows * _cloud_row_h
+
+	# 创建虚拟根节点：唯一一个容器子节点，只负责撑高度
+	_cloud_virtual_root = Control.new()
+	_cloud_virtual_root.name = \"CloudVirtualRoot\"
+	_cloud_virtual_root.custom_minimum_size = Vector2(0, total_h)
+	_cloud_virtual_root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_cloud_virtual_root.mouse_filter = Control.MOUSE_FILTER_PASS
+	container.add_child(_cloud_virtual_root)
+
+	GdScriptFunc.set_progress_bar_value(100, folder_title, \"共 %d 个视频\" % items.size())
+
+	# 等布局稳定后触发首屏懒创建
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_update_cloud_virtual_cards()
+
+
+## 计算可视行范围，动态创建 / 销毁卡片
+func _update_cloud_virtual_cards() -> void:
+	if _cloud_virtual_root == null or not is_instance_valid(_cloud_virtual_root):
+		return
+	if _cloud_items.is_empty():
+		return
+
+	var scroll: ScrollContainer = list_scroll_container if list_view_mode else thumbnails_scroll_container
+	if not is_instance_valid(scroll):
+		return
+
+	var view_top: float = float(scroll.scroll_vertical)
+	var view_bottom: float = view_top + scroll.size.y
+
+	# 可视行范围（含缓冲）
+	var total_rows: int = int(ceil(float(_cloud_items.size()) / _cloud_cols))
+	var first_row: int = maxi(0, int(floor(view_top / _cloud_row_h)) - CLOUD_BUFFER_ROWS)
+	var last_row: int = mini(total_rows - 1, int(floor(view_bottom / _cloud_row_h)) + CLOUD_BUFFER_ROWS)
+
+	var first_idx: int = first_row * _cloud_cols
+	var last_idx: int = mini((last_row + 1) * _cloud_cols - 1, _cloud_items.size() - 1)
+
+	# 1) 销毁滚出范围的卡片
+	var to_free: Array = []
+	for idx in _cloud_active.keys():
+		if idx < first_idx or idx > last_idx:
+			to_free.append(idx)
+	for idx in to_free:
+		var n = _cloud_active[idx]
+		if is_instance_valid(n):
+			n.queue_free()
+		_cloud_active.erase(idx)
+
+	# 2) 为进入范围的索引创建卡片
+	var container_width: float = _cloud_virtual_root.size.x
+	if container_width <= 0.0:
+		container_width = scroll.size.x - 20.0
+
+	for idx in range(first_idx, last_idx + 1):
+		if _cloud_active.has(idx):
+			continue
+		_create_virtual_card(idx, container_width)
+
+
+## 创建单张虚拟卡片（含淡入动画 + 封面入队）
+func _create_virtual_card(idx: int, container_width: float) -> void:
+	if idx < 0 or idx >= _cloud_items.size():
+		return
+
+	var row: int = idx / _cloud_cols
+	var col: int = idx % _cloud_cols
+
+	# 计算卡片位置 / 尺寸
+	var pos_x: float = 0.0
+	var w: float = container_width
+	if _cloud_cols > 1:
+		w = _cloud_item_w
+		var total_w: float = _cloud_cols * _cloud_item_w + (_cloud_cols - 1) * _cloud_gap
+		var start_x: float = max(0.0, (container_width - total_w) / 2.0)
+		pos_x = start_x + col * (_cloud_item_w + _cloud_gap)
+
+	var pos_y: float = row * _cloud_row_h
+
+	# 构建数据
+	var local_info: Dictionary = GdScriptFunc.cloud_item_to_local(_cloud_items[idx])
+	local_info[\"is_cloud\"] = true
+	local_info[\"cloud_media_id\"] = _current_cloud_folder.get(\"media_id\", 0)
+
+	# 创建卡片（lazy_cover = true：不立刻拉封面）
+	var video_card := _create_video_card_node(local_info, true)
+	video_card.modulate = Color(0.9, 0.95, 1.0, 0.0)   # ★ 初始透明
+	video_card.set_meta(\"is_cloud\", true)
+
+	# 手动定位（父节点是普通 Control，不走 Container 布局）
+	if list_view_mode:
+		video_card.position = Vector2(0, pos_y)
+		video_card.size = Vector2(container_width, _cloud_item_h)
+	else:
+		video_card.position = Vector2(pos_x, pos_y)
+		video_card.size = Vector2(w, _cloud_item_h)
+	video_card.custom_minimum_size = video_card.size
+
+	_cloud_virtual_root.add_child(video_card)
+	GdScriptFunc.apply_theme_and_styles_to_node(video_card)
+
+	# ★ 淡入动画
+	var tween := create_tween()
+	tween.tween_property(video_card, \"modulate:a\", 1.0, 0.3).set_trans(Tween.TRANS_CUBIC)
+
+	# ★ 封面入队（串行 + RateLimiter 防 412）
+	_enqueue_cover_load(video_card, \"card\")
+
+	_cloud_active[idx] = video_card
+
+
+func _enqueue_cover_load(node: Node, type: String) -> void:
+	if not is_instance_valid(node):
+		return
+	var cleaned: Array = []
+	for item in _cover_queue:
+		var n: Variant = item.get(\"node\")
+		if is_instance_valid(n):
+			cleaned.append(item)
+	_cover_queue = cleaned
+	# 去重
+	for item in _cover_queue:
+		if item.get(\"node\") == node:
+			return
+	_cover_queue.append({\"node\": node, \"type\": type})
+	_run_cover_queue()
+
+
+func _run_cover_queue() -> void:
+	if _cover_queue_running:
+		return
+	if _cover_queue.is_empty():
+		return
+	_cover_queue_running = true
+	_next_cover_task()
+
+
+func _next_cover_task() -> void:
+	if _cover_queue.is_empty():
+		_cover_queue_running = false
+		return
+
+	var task: Dictionary = _cover_queue.pop_front()
+	var node_variant: Variant = task.get(\"node\")
+	var type: String = task.get(\"type\", \"card\")
+
+	if not is_instance_valid(node_variant) or not enable_cloud:
+		_next_cover_task.call_deferred()
+		return
+
+	var on_done := func():
+		await RateLimiter.wait_turn()
+		_next_cover_task()
+
+	if type == \"deck\":
+		_load_cloud_deck_covers(node_variant, on_done)
+	else:
+		_load_cloud_card_cover(node_variant, on_done)
+
+
+func _load_cloud_deck_covers(deck: Node, on_done: Callable) -> void:
+	if not is_instance_valid(deck):
+		on_done.call()
+		return
+	var media_id: int = int(deck.get_meta(\"cloud_media_id\", 0))
+	if media_id == 0:
+		on_done.call()
+		return
+	if deck.get_meta(\"cloud_covers_loaded\", false):
+		on_done.call()
+		return
+	deck.set_meta(\"cloud_covers_loaded\", true)
+
+	BilibiliApi.fetch_fav_items(media_id, func(page_data: Dictionary):
+		if is_instance_valid(deck):
+			var medias: Array = page_data.get(\"medias\", [])
+			var videos: Array = []
+			for m in medias:
+				if m == null:
+					continue
+				videos.append(GdScriptFunc.cloud_item_to_local(m))
+			if \"videos\" in deck:
+				deck.videos = videos
+			var real_count: int = int(deck.get_meta(\"cloud_count\", videos.size()))
+			if list_view_mode and deck.get(\"CountLabel\"):
+				deck.CountLabel.text = \"☁\" + str(real_count)
+		on_done.call()
+	, 1, 3)
+
+func _load_cloud_card_cover(card: Control, on_done: Callable) -> void:
+	if not is_instance_valid(card):
+		on_done.call()
+		return
+	var data: Dictionary = card.get_meta(\"cloud_cover_data\", {})
+	var link: String = data.get(\"link\", \"\")
+	if link.is_empty():
+		on_done.call()
+		return
+
+	var w: int = 70 if list_view_mode else 583
+	var h: int = 70 if list_view_mode else 364
+
+	BilibiliApi.fetch_cover(link, func(_bvid, tex):
+		if is_instance_valid(card) and tex:
+			card.cover = tex
+		on_done.call()
+	, w, h)
+
+
+# ==================== 按钮状态 ====================
+
 func set_select_mode(enable: bool) -> void:
 	is_select_mode = enable
 	_update_buttons_state()
 
+
 func _update_buttons_state() -> void:
 	var has_selection: bool = not selected_items.is_empty()
 	var clipboard_valid: bool = not _clipboard_type.is_empty() and not _clipboard_data.is_empty()
+
+	if enable_cloud:
+		_set_button_disabled(add_button, true)
+		_set_button_disabled(paste_button, true)
+		_set_button_disabled(remove_button, true)
+		_set_button_disabled(cut_button, true)
+		_set_button_disabled(copy_button, true)
+		_set_button_disabled(download_button, true)
+		if ok_button:
+			ok_button.visible = false
+		return
 
 	_set_button_disabled(add_button, not _is_showing_favorites)
 
@@ -120,12 +474,24 @@ func _update_buttons_state() -> void:
 		else:
 			ok_button.visible = false
 
+
 func _set_button_disabled(button: Button, disabled: bool) -> void:
 	if button == null:
 		return
 	button.disabled = disabled
 
+
 func update() -> void:
+	cloud_button.disabled = GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\") == null
+
+	if enable_cloud:
+		if _is_in_cloud_folder:
+			pass
+		else:
+			_load_cloud_decks()
+		_update_buttons_state()
+		return
+
 	if _is_showing_favorites != _last_showing_favorites:
 		_rebuild_current_view()
 		_last_showing_favorites = _is_showing_favorites
@@ -137,6 +503,7 @@ func update() -> void:
 				_lazy_update_video_cards()
 	_update_buttons_state()
 
+
 func _rebuild_current_view() -> void:
 	_clear_active_container()
 	_apply_container_visibility()
@@ -146,6 +513,7 @@ func _rebuild_current_view() -> void:
 		if not _current_fav_dir.is_empty():
 			_load_all_video_cards()
 
+
 func _clear_active_container() -> void:
 	if list_view_mode:
 		for child in list_container.get_children():
@@ -154,6 +522,14 @@ func _clear_active_container() -> void:
 		for child in grid_container.get_children():
 			child.queue_free()
 	selected_items.clear()
+	# 清理虚拟滚动状态
+	_cloud_active.clear()
+	_cloud_virtual_root = null
+	_cloud_items.clear()
+	# 恢复 GridContainer 列数（如果之前是虚拟模式）
+	if not list_view_mode and is_instance_valid(grid_container):
+		grid_container.columns = max(1, int(thumbnails_scroll_container.size.x / 600))
+
 
 func _lazy_update_decks() -> void:
 	_apply_container_visibility()
@@ -167,27 +543,28 @@ func _lazy_update_decks() -> void:
 		if (child is Button or child.has_method(\"refresh_covers\")) and \"directory_name\" in child:
 			existing[child.directory_name] = child
 
-			for dir_name in new_decks:
-				if existing.has(dir_name):
-					var deck_existing = existing[dir_name]
-					var new_videos = GdScriptFunc.get_data(\"Favorites\", dir_name, [])
-					if deck_existing.videos != new_videos:
-						deck_existing.videos = new_videos
-				else:
-					var deck_new = _create_deck_node(dir_name)
-					container.add_child(deck_new)
-					GdScriptFunc.apply_theme_and_styles_to_node(deck_new)
-					deck_new.call_deferred(\"_deferred_load_videos\", GdScriptFunc.get_data(\"Favorites\", dir_name, []))
+	for dir_name in new_decks:
+		if existing.has(dir_name):
+			var deck_existing = existing[dir_name]
+			var new_videos = GdScriptFunc.get_data(\"Favorites\", dir_name, [])
+			if deck_existing.videos != new_videos:
+				deck_existing.videos = new_videos
+		else:
+			var deck_new = _create_deck_node(dir_name)
+			container.add_child(deck_new)
+			GdScriptFunc.apply_theme_and_styles_to_node(deck_new)
+			deck_new.call_deferred(\"_deferred_load_videos\", GdScriptFunc.get_data(\"Favorites\", dir_name, []))
 
 	for dir_name in existing.keys():
 		if not new_decks.has(dir_name):
 			existing[dir_name].queue_free()
 
+
 func _create_deck_node(dir_name: String) -> Node:
 	if list_view_mode:
 		var deck = ListDeckScene.instantiate()
 		deck.directory_name = dir_name
-		deck.videos = GdScriptFunc.get_data(\"Favorites\", dir_name,[])
+		deck.videos = GdScriptFunc.get_data(\"Favorites\", dir_name, [])
 		deck.pressed.connect(_on_deck_pressed.bind(deck))
 		deck.gui_input.connect(_on_child_gui_input.bind(deck))
 		return deck
@@ -198,6 +575,7 @@ func _create_deck_node(dir_name: String) -> Node:
 		deck.pressed.connect(_on_deck_pressed.bind(deck))
 		deck.gui_input.connect(_on_child_gui_input.bind(deck))
 		return deck
+
 
 func _lazy_update_video_cards() -> void:
 	_apply_container_visibility()
@@ -249,7 +627,8 @@ func _lazy_update_video_cards() -> void:
 		if not still_exists:
 			existing[link].queue_free()
 
-func _create_video_card_node(video_data: Dictionary) -> Node:
+
+func _create_video_card_node(video_data: Dictionary, lazy_cover: bool = false) -> Node:
 	var video_card: Control
 	if list_view_mode:
 		video_card = VideoTransverseCardScene.instantiate()
@@ -266,25 +645,34 @@ func _create_video_card_node(video_data: Dictionary) -> Node:
 	video_card.author = video_data.get(\"author\", \"\")
 	video_card.description = video_data.get(\"description\", \"\")
 	video_card.link = video_data.get(\"link\", \"\")
-	video_card.set(\"list_name\", _current_fav_dir)
+
+	if not video_data.get(\"is_cloud\", false):
+		video_card.set(\"list_name\", _current_fav_dir)
+
 	video_card.pressed.connect(_on_video_card_pressed.bind(video_card))
 	video_card.gui_input.connect(_on_child_gui_input.bind(video_card))
 	video_card.block_play = true
 	video_card.reset()
 
-	if video_data.get(\"is_network\", true):
-		BilibiliApi.fetch_cover(video_card.link, set_cover.bind(video_card), 70 if list_view_mode else 583, 70 if list_view_mode else 364)
-	elif FileAccess.file_exists(video_card.link.get_basename() + \".jpg\"):
-		var image = Image.load_from_file(video_card.link.get_basename() + \".jpg\")
-		_set_cover(ImageTexture.create_from_image(image), video_card)
+	if lazy_cover:
+		video_card.set_meta(\"cloud_cover_pending\", true)
+		video_card.set_meta(\"cloud_cover_data\", video_data)
 	else:
-		_load_local_cover(video_card)
+		if video_data.get(\"is_network\", true):
+			BilibiliApi.fetch_cover(video_card.link, set_cover.bind(video_card), 70 if list_view_mode else 583, 70 if list_view_mode else 364)
+		elif FileAccess.file_exists(video_card.link.get_basename() + \".jpg\"):
+			var image = Image.load_from_file(video_card.link.get_basename() + \".jpg\")
+			_set_cover(ImageTexture.create_from_image(image), video_card)
+		else:
+			_load_local_cover(video_card)
 
-	if list_view_mode:
-		video_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	else:
-		video_card.custom_minimum_size = Vector2(582.4, 364.0)
+	if not lazy_cover:
+		if list_view_mode:
+			video_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		else:
+			video_card.custom_minimum_size = Vector2(582.4, 364.0)
 	return video_card
+
 
 func _load_local_cover(video_card: Control) -> void:
 	var audio_path = video_card.link
@@ -297,6 +685,7 @@ func _load_local_cover(video_card: Control) -> void:
 	else:
 		GdScriptFunc.generate_label_texture(Color.WHITE, video_card.title, _set_cover.bind(video_card), null, 50)
 
+
 func _load_all_decks() -> void:
 	var dir_names = GdScriptFunc.get_keys(\"Favorites\")
 	if dir_names.is_empty():
@@ -307,6 +696,7 @@ func _load_all_decks() -> void:
 		container.add_child(deck)
 		GdScriptFunc.apply_theme_and_styles_to_node(deck)
 
+
 func _load_all_video_cards() -> void:
 	var videos: Array = GdScriptFunc.get_data(\"Favorites\", _current_fav_dir, [])
 	var container = list_container if list_view_mode else grid_container
@@ -315,12 +705,15 @@ func _load_all_video_cards() -> void:
 		container.add_child(video_card)
 		GdScriptFunc.apply_theme_and_styles_to_node(video_card)
 
+
 func _set_cover(texture: Texture2D, video_card: Control) -> void:
 	set_cover(\"\", texture, video_card)
+
 
 func set_cover(_bvid: String, texture: Texture2D, video_card) -> void:
 	if is_instance_valid(video_card):
 		video_card.cover = texture
+
 
 func _handle_node_click(node: Node) -> void:
 	var now = Time.get_ticks_msec()
@@ -333,10 +726,12 @@ func _handle_node_click(node: Node) -> void:
 		_last_clicked_node = node
 		_last_click_time = now
 
+
 func _on_rename_pressed(node: Node) -> void:
 	rename_dialog.visible = true
 	rename_dialog.set_meta(\"node\", node.get_node(\"Title\").text)
 	rename_dialog.set_meta(\"node_parent\", _current_fav_dir)
+
 
 func _select_node(node: Node, ctrl_pressed: bool) -> void:
 	if ctrl_pressed:
@@ -350,7 +745,12 @@ func _select_node(node: Node, ctrl_pressed: bool) -> void:
 		selected_items.append(node)
 	_update_selection_visual()
 
+
 func _double_click_node(node: Node) -> void:
+	if node.get_meta(\"is_cloud\", false) and \"directory_name\" in node:
+		_enter_cloud_folder(node)
+		return
+
 	if \"directory_name\" in node:
 		_current_fav_dir = node.directory_name
 		_is_showing_favorites = false
@@ -358,6 +758,7 @@ func _double_click_node(node: Node) -> void:
 		update()
 	else:
 		node.play_card()
+
 
 func _update_selection_visual() -> void:
 	var container = list_container if list_view_mode else grid_container
@@ -377,17 +778,33 @@ func _update_selection_visual() -> void:
 					child.self_modulate = Color.WHITE
 	_update_buttons_state()
 
+
 func _on_deck_pressed(deck: Node) -> void:
 	_handle_node_click(deck)
 
+
 func _on_video_card_pressed(video_card: Control) -> void:
 	_handle_node_click(video_card)
+
 
 func _on_child_gui_input(event: InputEvent, node: Node) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 		_show_context_menu_for_node(node)
 
+
 func _show_context_menu_for_node(node: Node) -> void:
+	if node.get_meta(\"is_cloud\", false) and \"video_info\" in node:
+		var cloud_menu: Array[Dictionary] = []
+		cloud_menu.append({\"label\": tr(\"播放\"), \"action\": func(_d): node.play_card(), \"enabled\": true})
+		GdScriptFunc.open_right_click_menu_window(DisplayServer.mouse_get_position(), cloud_menu)
+		return
+
+	if node.get_meta(\"is_cloud\", false) and \"directory_name\" in node:
+		var deck_menu: Array[Dictionary] = []
+		deck_menu.append({\"label\": tr(\"进入云端收藏夹\"), \"action\": func(_d): _enter_cloud_folder(node), \"enabled\": true})
+		GdScriptFunc.open_right_click_menu_window(DisplayServer.mouse_get_position(), deck_menu)
+		return
+
 	if not selected_items.has(node):
 		_select_node(node, false)
 
@@ -419,8 +836,10 @@ func _show_context_menu_for_node(node: Node) -> void:
 
 	GdScriptFunc.open_right_click_menu_window(DisplayServer.mouse_get_position(), menu_data)
 
+
 func _on_properties_pressed(node: Node) -> void:
 	GdScriptFunc.open_metadata_manager_window(_current_fav_dir, node.link)
+
 
 func _select_all() -> void:
 	selected_items.clear()
@@ -429,9 +848,11 @@ func _select_all() -> void:
 		selected_items.append(child)
 	_update_selection_visual()
 
+
 func _deselect_all() -> void:
 	selected_items.clear()
 	_update_selection_visual()
+
 
 func _download_video(video_card: Control, on_finished: Callable = Callable()) -> void:
 	var video_info: Dictionary = video_card.get(\"video_info\")
@@ -576,7 +997,9 @@ func _download_video(video_card: Control, on_finished: Callable = Callable()) ->
 		)
 	)
 
+
 const TARGET_DIR := \"user://local_music/\"
+
 
 func _download_audio_async(bvid: String, callback: Callable) -> void:
 	var thread := Thread.new()
@@ -640,6 +1063,7 @@ func _download_audio_async(bvid: String, callback: Callable) -> void:
 	)
 	check_timer.start()
 
+
 func _process_download_queue() -> void:
 	if _is_downloading:
 		return
@@ -653,7 +1077,10 @@ func _process_download_queue() -> void:
 		_process_download_queue()
 	)
 
+
 func _delete_selected_items() -> void:
+	if enable_cloud:
+		return
 	var to_delete = selected_items.duplicate()
 	selected_items.clear()
 	for node in to_delete:
@@ -670,6 +1097,7 @@ func _delete_selected_items() -> void:
 	_update_selection_visual()
 	update()
 
+
 func _remove_video_from_current_fav(link: String) -> void:
 	if _current_fav_dir.is_empty():
 		return
@@ -680,7 +1108,10 @@ func _remove_video_from_current_fav(link: String) -> void:
 			new_videos.append(v)
 	GdScriptFunc.set_data(\"Favorites\", _current_fav_dir, new_videos)
 
+
 func _download_selected_cards() -> void:
+	if enable_cloud:
+		return
 	var cards_to_download = []
 	for node in selected_items:
 		if \"link\" in node and node.video_info.get(\"is_network\", true):
@@ -692,8 +1123,11 @@ func _download_selected_cards() -> void:
 	_download_queue = cards_to_download
 	_process_download_queue()
 
+
 func _on_add_pressed() -> void:
 	if not _is_showing_favorites:
+		return
+	if enable_cloud:
 		return
 
 	var deck = _create_deck_node(\"\")
@@ -704,17 +1138,40 @@ func _on_add_pressed() -> void:
 	GdScriptFunc.apply_theme_and_styles_to_node(deck)
 	_update_buttons_state()
 
+
 func _on_back_pressed() -> void:
+	if enable_cloud:
+		if _is_in_cloud_folder:
+			_is_in_cloud_folder = false
+			_current_cloud_folder = {}
+			_cover_queue.clear()
+			_clear_active_container()
+			_load_cloud_decks()
+			return
+		else:
+			enable_cloud = false
+			cloud_button.icon = CLOUD_ICON_NORMAL
+			_is_in_cloud_folder = false
+			_current_cloud_folder = {}
+			_cover_queue.clear()
+			back_button.hide()
+			_clear_active_container()
+			update()
+			return
+
 	back_button.hide()
 	_is_showing_favorites = true
 	update()
 
+
 func _on_remove_pressed() -> void:
 	_delete_selected_items()
+
 
 func _on_download_pressed() -> void:
 	_download_selected_cards()
 	_update_buttons_state()
+
 
 func scroll_to_bottom(scroll: ScrollContainer) -> void:
 	if not scroll: return
@@ -724,10 +1181,40 @@ func scroll_to_bottom(scroll: ScrollContainer) -> void:
 		v_scrollbar.queue_redraw()
 		scroll.queue_redraw()
 
+
 func _on_thumbnails_scroll_resized() -> void:
 	if not thumbnails_scroll_container or list_view_mode:
 		return
+	if enable_cloud and _is_in_cloud_folder and _cloud_virtual_root != null:
+		# 虚拟滚动模式：重算列数 & 布局
+		_rebuild_cloud_virtual_layout()
+		return
 	grid_container.columns = max(1, int(thumbnails_scroll_container.size.x / 600))
+
+
+## 重新计算虚拟布局（窗口尺寸变化时调用）
+func _rebuild_cloud_virtual_layout() -> void:
+	if _cloud_virtual_root == null or not is_instance_valid(_cloud_virtual_root):
+		return
+	if _cloud_items.is_empty():
+		return
+
+	var scroll: ScrollContainer = list_scroll_container if list_view_mode else thumbnails_scroll_container
+	var new_cols: int = max(1, int(scroll.size.x / (_cloud_item_w + _cloud_gap)))
+	if new_cols != _cloud_cols:
+		_cloud_cols = new_cols
+		var rows: int = int(ceil(float(_cloud_items.size()) / _cloud_cols))
+		_cloud_virtual_root.custom_minimum_size = Vector2(0, rows * _cloud_row_h)
+
+	# 清空当前活跃卡片，让 _update_cloud_virtual_cards 重新按新布局创建
+	for idx in _cloud_active.keys():
+		var n = _cloud_active[idx]
+		if is_instance_valid(n):
+			n.queue_free()
+	_cloud_active.clear()
+
+	_update_cloud_virtual_cards.call_deferred()
+
 
 func _on_ok_pressed() -> void:
 	var selected_favs: Array[String] = []
@@ -740,7 +1227,10 @@ func _on_ok_pressed() -> void:
 	if get_parent():
 		get_parent().queue_free()
 
+
 func _on_cut_pressed() -> void:
+	if enable_cloud:
+		return
 	if selected_items.is_empty():
 		return
 	_clipboard_type = \"cut\"
@@ -751,7 +1241,10 @@ func _on_cut_pressed() -> void:
 			_clipboard_data.append(data)
 	_update_buttons_state()
 
+
 func _on_copy_pressed() -> void:
+	if enable_cloud:
+		return
 	if selected_items.is_empty():
 		return
 	_clipboard_type = \"copy\"
@@ -762,7 +1255,10 @@ func _on_copy_pressed() -> void:
 			_clipboard_data.append(data)
 	_update_buttons_state()
 
+
 func _on_paste_pressed() -> void:
+	if enable_cloud:
+		return
 	if _clipboard_type.is_empty() or _clipboard_data.is_empty():
 		return
 
@@ -792,6 +1288,7 @@ func _on_paste_pressed() -> void:
 	update()
 	_update_buttons_state()
 
+
 func _serialize_node(node: Node) -> Dictionary:
 	if \"directory_name\" in node:
 		var videos = GdScriptFunc.get_data(\"Favorites\", node.directory_name, [])
@@ -808,12 +1305,14 @@ func _serialize_node(node: Node) -> Dictionary:
 		}
 	return {}
 
+
 func _paste_folder(data: Dictionary) -> bool:
 	var original_name = data[\"name\"]
 	var new_name = _generate_unique_folder_name(original_name)
 	var videos_copy = data[\"videos\"].duplicate(true)
 	GdScriptFunc.set_data(\"Favorites\", new_name, videos_copy)
 	return true
+
 
 func _paste_file(data: Dictionary) -> bool:
 	var file_data = data[\"data\"].duplicate(true)
@@ -827,6 +1326,7 @@ func _paste_file(data: Dictionary) -> bool:
 	GdScriptFunc.set_data(\"Favorites\", _current_fav_dir, fav_list)
 	return true
 
+
 func _paste_file_to_new_folder(data: Dictionary) -> bool:
 	var file_data = data[\"data\"].duplicate(true)
 	if file_data.is_empty():
@@ -836,6 +1336,7 @@ func _paste_file_to_new_folder(data: Dictionary) -> bool:
 	var video_list = [file_data]
 	GdScriptFunc.set_data(\"Favorites\", folder_name, video_list)
 	return true
+
 
 func _paste_folder_contents_to_current(data: Dictionary) -> bool:
 	if _current_fav_dir.is_empty():
@@ -858,6 +1359,7 @@ func _paste_folder_contents_to_current(data: Dictionary) -> bool:
 		GdScriptFunc.set_data(\"Favorites\", _current_fav_dir, fav_list)
 	return added_any
 
+
 func _generate_unique_folder_name(base: String) -> String:
 	var keys = GdScriptFunc.get_keys(\"Favorites\")
 	if keys == null: keys = []
@@ -867,6 +1369,7 @@ func _generate_unique_folder_name(base: String) -> String:
 		new_name = base + tr(\" - 副本\") + ((\" (\" + str(counter) + \")\") if counter > 1 else \"\")
 		counter += 1
 	return new_name
+
 
 func _execute_cut_delete() -> void:
 	for data in _clipboard_data:
@@ -885,8 +1388,10 @@ func _execute_cut_delete() -> void:
 						new_list.append(item)
 				GdScriptFunc.set_data(\"Favorites\", source_dir, new_list)
 
+
 func update_view() -> void:
 	_rebuild_current_view()
+
 
 func _on_view_mode_pressed() -> void:
 	list_view_mode = !list_view_mode
@@ -894,7 +1399,13 @@ func _on_view_mode_pressed() -> void:
 
 func _on_visibility_changed() -> void:
 	if visible:
-		_rebuild_current_view()
+		if enable_cloud:
+			if _is_in_cloud_folder:
+				pass
+			else:
+				_load_cloud_decks()
+		else:
+			_rebuild_current_view()
 
 
 func _on_rename_dialog_confirmed() -> void:
@@ -921,9 +1432,131 @@ func _on_rename_dialog_confirmed() -> void:
 	rename_dialog.hide()
 
 
-
 func _on_rename_dialog_canceled() -> void:
 	rename_dialog.hide()
+
+
+# ==================== 云收藏模式 ====================
+
+func _on_cloud_pressed() -> void:
+	enable_cloud = not enable_cloud
+	if enable_cloud:
+		cloud_button.icon = CLOUD_ICON_ENABLED
+		_is_in_cloud_folder = false
+		_current_cloud_folder = {}
+		_cover_queue.clear()
+		_clear_active_container()
+		back_button.show()
+		_load_cloud_decks()
+	else:
+		cloud_button.icon = CLOUD_ICON_NORMAL
+		_is_in_cloud_folder = false
+		_current_cloud_folder = {}
+		_cover_queue.clear()
+		back_button.hide()
+		_clear_active_container()
+		update()
+
+
+func _load_cloud_decks() -> void:
+	_clear_active_container()
+	_apply_container_visibility()
+	_cover_queue.clear()
+
+	if GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\") == null:
+		GdScriptFunc.set_progress_bar_value(100, \"云端收藏夹\", \"请先登录B站账号\")
+		return
+
+	var container = list_container if list_view_mode else grid_container
+	GdScriptFunc.set_progress_bar_value(10, \"云端收藏夹\", \"正在获取收藏夹列表...\")
+
+	var mode_snapshot = list_view_mode
+	BilibiliApi.fetch_fav_folders(func(folders: Array):
+		if not enable_cloud or _is_in_cloud_folder:
+			return
+		if mode_snapshot != list_view_mode:
+			return
+		if folders.is_empty():
+			GdScriptFunc.set_progress_bar_value(100, \"云端收藏夹\", \"未获取到收藏夹\")
+			return
+
+		_cloud_folders = folders
+		for f in folders:
+			var deck := _create_cloud_deck_node(f)
+			container.add_child(deck)
+			GdScriptFunc.apply_theme_and_styles_to_node(deck)
+
+		GdScriptFunc.set_progress_bar_value(100, \"云端收藏夹\", \"共 %d 个收藏夹\" % folders.size())
+
+		await get_tree().process_frame
+		await get_tree().process_frame
+		_update_cloud_lazy_load()
+	)
+
+
+func _create_cloud_deck_node(folder: Dictionary) -> Node:
+	var title: String = folder.get(\"title\", \"云端收藏夹\")
+	var media_id: int = int(folder.get(\"id\", 0))
+	var count: int = int(folder.get(\"media_count\", 0))
+
+	var display_name := \"☁ \" + title
+
+	var deck: Node
+	if list_view_mode:
+		deck = ListDeckScene.instantiate()
+		deck.directory_name = display_name
+		deck.videos = []
+	else:
+		deck = DeckScene.instantiate()
+		deck.directory_name = display_name
+		deck.videos = []
+
+	deck.set_meta(\"is_cloud\", true)
+	deck.set_meta(\"is_cloud_deck\", true)
+	deck.set_meta(\"cloud_media_id\", media_id)
+	deck.set_meta(\"cloud_title\", title)
+	deck.set_meta(\"cloud_count\", count)
+	deck.set_meta(\"cloud_cover_pending\", true)
+	deck.set_meta(\"cloud_covers_loaded\", false)
+
+	deck.modulate = Color(0.85, 0.95, 1.0, 1.0)
+
+	if \"text_node\" in deck and deck.text_node:
+		deck.text_node.editable = false
+
+	if list_view_mode and deck.get(\"CountLabel\"):
+		deck.CountLabel.text = \"☁\" + str(count)
+
+	deck.pressed.connect(_on_cloud_deck_pressed.bind(deck))
+	deck.gui_input.connect(_on_child_gui_input.bind(deck))
+	return deck
+
+
+func _on_cloud_deck_pressed(deck: Node) -> void:
+	_handle_node_click(deck)
+
+
+func _enter_cloud_folder(deck: Node) -> void:
+	var media_id: int = int(deck.get_meta(\"cloud_media_id\", 0))
+	var title: String = deck.get_meta(\"cloud_title\", \"云端收藏夹\")
+	if media_id == 0:
+		return
+
+	_is_in_cloud_folder = true
+	_current_cloud_folder = {\"media_id\": media_id, \"title\": title}
+	_cover_queue.clear()
+	_clear_active_container()
+	back_button.show()
+
+	GdScriptFunc.set_progress_bar_value(10, title, \"正在加载云端内容...\")
+
+	BilibiliApi.fetch_all_fav_items(media_id, func(items: Array):
+		if not enable_cloud or not _is_in_cloud_folder:
+			return
+		if int(_current_cloud_folder.get(\"media_id\", 0)) != media_id:
+			return
+		_populate_cloud_folder_items(items, title)
+	)
 "
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_1siev"]
@@ -944,7 +1577,7 @@ corner_radius_bottom_right = 9
 corner_radius_bottom_left = 9
 corner_detail = 4
 
-[node name="Page" type="Control" unique_id=585043204 node_paths=PackedStringArray("thumbnails_scroll_container", "grid_container", "list_scroll_container", "list_container", "back_button", "ok_button", "remove_button", "download_button", "cut_button", "copy_button", "paste_button", "add_button", "view_mode_button", "rename_dialog", "rename_dialog_edit")]
+[node name="Page" type="Control" unique_id=585043204 node_paths=PackedStringArray("thumbnails_scroll_container", "grid_container", "list_scroll_container", "list_container", "back_button", "ok_button", "remove_button", "download_button", "cloud_button", "cut_button", "copy_button", "paste_button", "add_button", "view_mode_button", "rename_dialog", "rename_dialog_edit")]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -963,6 +1596,7 @@ back_button = NodePath("Back")
 ok_button = NodePath("OK")
 remove_button = NodePath("Bar/Remove")
 download_button = NodePath("Bar/Download")
+cloud_button = NodePath("Bar/Cloud")
 cut_button = NodePath("Bar/Cut")
 copy_button = NodePath("Bar/Copy")
 paste_button = NodePath("Bar/Paste")
@@ -1059,6 +1693,14 @@ layout_mode = 2
 tooltip_text = "下载到本地"
 theme_override_colors/icon_disabled_color = Color(6.759, 0.807, 0.554, 0.612)
 icon = ExtResource("3_au07f")
+expand_icon = true
+
+[node name="Cloud" type="Button" parent="Bar" unique_id=1405863446]
+custom_minimum_size = Vector2(70, 70)
+layout_mode = 2
+tooltip_text = "显示Bilibili收藏夹"
+theme_override_colors/icon_disabled_color = Color(6.759, 0.807, 0.554, 0.612)
+icon = ExtResource("9_g0631")
 expand_icon = true
 
 [node name="ThumbnailsView" type="ScrollContainer" parent="." unique_id=352955920]
@@ -1175,6 +1817,7 @@ placeholder_text = "请输入文字"
 [connection signal="pressed" from="Bar/Paste" to="." method="_on_paste_pressed"]
 [connection signal="pressed" from="Bar/Remove" to="." method="_on_remove_pressed"]
 [connection signal="pressed" from="Bar/Download" to="." method="_on_download_pressed"]
+[connection signal="pressed" from="Bar/Cloud" to="." method="_on_cloud_pressed"]
 [connection signal="resized" from="ThumbnailsView" to="." method="_on_thumbnails_scroll_resized"]
 [connection signal="pressed" from="Back" to="." method="_on_back_pressed"]
 [connection signal="pressed" from="OK" to="." method="_on_ok_pressed"]

@@ -77,3 +77,58 @@ func fetch_subtitle_with_info(info: Dictionary, callback: Callable, save_path: S
 		return
 	_video_info_cache[bvid] = info
 	_subtitle.fetch_subtitle_auto(bvid, info, callback, save_path)
+# ==================== 音频播放地址（带 WBI 签名） ====================
+
+## 获取指定视频的音频播放地址（选最高码率）
+func fetch_audio_url(bvid: String, cid: int, callback: Callable) -> void:
+	if cid <= 0:
+		callback.call("")
+		return
+
+	var url = ("https://api.bilibili.com/x/player/wbi/playurl"
+			 + "?fnval=80&qn=80&fourk=0&otype=json&bvid=%s&cid=%d" % [bvid, cid])
+	var headers = _http.with_origin(
+		_http.get_headers(),
+		"https://www.bilibili.com/video/" + bvid,
+		"https://www.bilibili.com"
+	)
+	_http.request_with_sign(url, _on_audio_url_response, [callback], HTTPClient.METHOD_GET, headers)
+
+
+func _on_audio_url_response(_result: int, code: int, _headers: PackedStringArray, body: PackedByteArray, extra: Variant) -> void:
+	var callback: Callable = extra[0]
+	if code != 200:
+		push_error("[BilibiliVideoApi] 获取音频地址失败 HTTP %d" % code)
+		callback.call("")
+		return
+
+	var json = JSON.new()
+	if json.parse(body.get_string_from_utf8()) != OK:
+		push_error("[BilibiliVideoApi] 音频地址 JSON 解析失败")
+		callback.call("")
+		return
+
+	var data = json.get_data()
+	if data.get("code", -1) != 0:
+		push_error("[BilibiliVideoApi] 音频地址 API 错误: %s" % data.get("message", ""))
+		callback.call("")
+		return
+
+	var dash: Dictionary = data.get("data", {}).get("dash", {})
+	var audios: Array = dash.get("audio", [])
+	if audios.is_empty():
+		# 有些视频只有 durl（老格式），退化处理
+		var durl: Array = data.get("data", {}).get("durl", [])
+		if not durl.is_empty():
+			callback.call(durl[0].get("url", ""))
+		else:
+			callback.call("")
+		return
+
+	# 选码率最高的
+	var best: Dictionary = audios[0]
+	for a in audios:
+		if int(a.get("bandwidth", 0)) > int(best.get("bandwidth", 0)):
+			best = a
+	var base_url: String = best.get("baseUrl", best.get("base_url", ""))
+	callback.call(base_url)

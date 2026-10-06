@@ -201,7 +201,7 @@ func _on_mouse_exited() -> void:
 
 func _on_name_text_submitted(new_text: String) -> void:
 	new_text=new_text.strip_edges()
-	var err:=GdScriptFunc.set_key(\"Favorites\", directory_name, new_text)
+	var err:Error=GdScriptFunc.set_key(\"Favorites\", directory_name, new_text)
 	if err==OK:
 		directory_name = new_text
 		text_node.release_focus()

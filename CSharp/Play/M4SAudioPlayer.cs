@@ -587,12 +587,28 @@ public partial class M4SAudioPlayer : Node
         try
         {
             string audioUrl, referer, title, coverUrl;
+
             if (identifier.StartsWith("BV", StringComparison.OrdinalIgnoreCase))
-                (audioUrl, referer, title, coverUrl) = await DownloadAudio.Instance.GetAudioInfoByBvAsync(identifier);
+            {
+                // 1. 拿基础信息（title / cover / cid）
+                var basic = await DownloadAudio.Instance.GetVideoBasicInfoAsync(identifier);
+                title = basic.title;
+                coverUrl = basic.coverUrl;
+                referer = DownloadAudio.BuildVideoPageUrl(identifier);
+                // 2. 音频 URL 走 GDScript 的 WBI 签名路径
+                audioUrl = await GetAudioUrlViaGDScript(identifier, basic.cid);
+            }
             else if (identifier.StartsWith("au", StringComparison.OrdinalIgnoreCase))
+            {
                 (audioUrl, referer, title, coverUrl) = await DownloadAudio.Instance.GetAudioInfoByAuIdAsync(identifier);
+            }
             else
+            {
                 throw new ArgumentException("无法识别的标识符，请输入 BV 号或 AU 号。");
+            }
+
+            if (string.IsNullOrWhiteSpace(audioUrl))
+                throw new Exception("未获取到音频地址");
 
             await PlayAsync(audioUrl, referer);
         }
@@ -601,6 +617,24 @@ public partial class M4SAudioPlayer : Node
             GD.PrintErr($"自动播放失败: {ex.Message}");
             EmitSignal(SignalName.PlaybackError, ex.Message);
         }
+    }
+
+    /// <summary>
+    /// 通过 GDScript 的 BilibiliApi（带 WBI 签名）获取音频播放地址
+    /// </summary>
+    private Task<string> GetAudioUrlViaGDScript(string bvid, long cid)
+    {
+        var tcs = new TaskCompletionSource<string>();
+        var api = GetNodeOrNull("/root/BilibiliApi");
+        if (api == null)
+        {
+            tcs.TrySetResult("");
+            return tcs.Task;
+        }
+
+        var callback = Callable.From((string url) => tcs.TrySetResult(url ?? ""));
+        api.Call("fetch_audio_url", bvid, cid, callback);
+        return tcs.Task;
     }
 
     public void PlayByIdentifier(string identifier) =>
