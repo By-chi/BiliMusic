@@ -18,6 +18,7 @@ var _deferred_updates := []
 var _deferred_mutex := Mutex.new()
 var _by_link: Dictionary = {}   # link -> Array[exact_key]
 var _lru: Array = []            # FIFO 顺序
+
 func _init(api_request_func: Callable, download_request_func: Callable) -> void:
 	_api_request_func = api_request_func
 	_download_request_func = download_request_func
@@ -65,13 +66,34 @@ func update(_delta: float) -> bool:
 	if not _load_queue.is_empty():
 		has_work = true
 	return has_work
+
+# ==================================================================
+# ⚡[FIX-1] fetch_cover 恢复网络 fallback
+#   缓存命中：入队，由 update() 节流处理
+#   缓存未命中：立刻走网络下载
+# ==================================================================
 func fetch_cover(link: String, callback: Callable, width: int = 160, height: int = 160) -> void:
 	var cached_path := _get_cached_file(link, width, height)
 	if not cached_path.is_empty():
-		_load_queue.push_back({"link": link, "width": width, "height": height, "callback": callback, "cached_path": cached_path})
+		_load_queue.push_back({
+			"link": link,
+			"width": width,
+			"height": height,
+			"callback": callback,
+			"cached_path": cached_path
+		})
 		if _load_queue.size() >= BilibiliConstants.CACHE_QUEUE_MAX_SIZE:
 			flush()
 		return
+
+	# 缓存未命中 → 走网络
+	_get_cover_url(link, width, height, func(url):
+		if url.is_empty():
+			GdScriptFunc.safe_callback(link, null, callback)
+			return
+		_download_cover(url, link, width, height, callback)
+	)
+
 func flush() -> void:
 	while not _load_queue.is_empty():
 		_process_one_task()
@@ -148,16 +170,12 @@ func _on_cover_downloaded(result: int, response_code: int, _headers: PackedStrin
 	_save_mutex.unlock()
 	_save_semaphore.post()
 
+# ==================================================================
+# ⚡[FIX-2] 只选"实际尺寸 >= 请求尺寸"里面积最小的缓存
+#   索引里记录的 width/height 是磁盘文件的真实尺寸（由 _save_worker 保证）
+# ==================================================================
 func _get_cached_file(link: String, width: int, height: int) -> String:
 	_load_index()
-	var exact_key = _cache_key(link, width, height)
-	if _index.has(exact_key):
-		var entry: Dictionary = _index[exact_key]
-		var path = BilibiliConstants.CACHE_DIR.path_join(entry.file)
-		if FileAccess.file_exists(path):
-			return path
-		_remove_key(exact_key)
-
 	var candidates: Array = _by_link.get(link, [])
 	var best_key := ""
 	var best_area := INF
@@ -165,17 +183,19 @@ func _get_cached_file(link: String, width: int, height: int) -> String:
 		if not _index.has(k):
 			continue
 		var e = _index[k]
-		if e.width >= width and e.height >= height:
-			var area = e.width * e.height
-			if area < best_area:
-				best_area = area
-				best_key = k
+		if e.width < width or e.height < height:
+			continue
+		var area: int = e.width * e.height
+		if area < best_area:
+			best_area = area
+			best_key = k
 	if best_key != "":
 		var path = BilibiliConstants.CACHE_DIR.path_join(_index[best_key].file)
 		if FileAccess.file_exists(path):
 			return path
 		_remove_key(best_key)
 	return ""
+
 func _remove_key(key: String) -> void:
 	if not _index.has(key):
 		return
@@ -200,6 +220,7 @@ func _evict_fifo() -> void:
 			_remove_key(key)
 			to_remove -= 1
 	_lru = _lru.slice(i)
+
 func _add_to_index(link: String, width: int, height: int, filename: String) -> void:
 	_load_index()
 	var key = _cache_key(link, width, height)
@@ -215,9 +236,33 @@ func _add_to_index(link: String, width: int, height: int, filename: String) -> v
 	if _index.size() > BilibiliConstants.MAX_CACHE_SIZE:
 		_evict_fifo()
 	_save_index()
+
 func _load_index() -> void:
 	if _index_loaded:
 		return
+
+	# ==================================================================
+	# ⚡[FIX-3] 一次性清理旧版脏索引（旧版记录的是"请求尺寸"，与文件实际不符）
+	# ==================================================================
+	const INDEX_VERSION_KEY := "_index_version"
+	const CURRENT_INDEX_VERSION := 2
+	var stored_version: int = GdScriptFunc.get_data("CoverCacheMeta", INDEX_VERSION_KEY, 0)
+	if stored_version < CURRENT_INDEX_VERSION:
+		var old_keys = GdScriptFunc.get_keys("CoverCache")
+		for k in old_keys:
+			GdScriptFunc.remove_key("CoverCache", k)
+		GdScriptFunc.set_data("CoverCacheMeta", INDEX_VERSION_KEY, CURRENT_INDEX_VERSION, true)
+		var dir := DirAccess.open(BilibiliConstants.CACHE_DIR)
+		if dir:
+			dir.list_dir_begin()
+			var fn := dir.get_next()
+			while fn != "":
+				if not dir.current_is_dir() and fn.ends_with(".jpg"):
+					dir.remove(fn)
+				fn = dir.get_next()
+			dir.list_dir_end()
+		print("[BilibiliCoverCache] 已清理旧版封面缓存索引和文件")
+
 	var keys = GdScriptFunc.get_keys("CoverCache")
 	var times := []
 	for key in keys:
@@ -238,6 +283,7 @@ func _load_index() -> void:
 	times.sort_custom(func(a, b): return a.t < b.t)
 	_lru = times.map(func(x): return x.k)
 	_index_loaded = true
+
 func _save_index() -> void:
 	var old = GdScriptFunc.get_keys("CoverCache")
 	for k in old:
@@ -262,6 +308,9 @@ func _evict() -> void:
 			DirAccess.remove_absolute(old_path)
 		_index.erase(item.key)
 
+# ==================================================================
+# ⚡[FIX-4] 缩进修正：后续所有代码块与 if not FileAccess.file_exists(...) 同级
+# ==================================================================
 func _process_one_task() -> void:
 	if _load_queue.is_empty():
 		return
@@ -294,24 +343,42 @@ func _process_one_task() -> void:
 		)
 		return
 
-	# 尺寸匹配则直接使用，否则等比缩放并中心裁剪至请求尺寸
+	if img.get_width() < req_width or img.get_height() < req_height:
+		push_warning("[缓存] 实际尺寸 %dx%d 小于请求 %dx%d，丢弃并重新下载: %s"
+			% [img.get_width(), img.get_height(), req_width, req_height, link])
+		DirAccess.remove_absolute(cached_path)
+		_get_cover_url(link, req_width, req_height, func(url):
+			if url.is_empty():
+				GdScriptFunc.safe_callback(link, null, callback)
+				return
+			_download_cover(url, link, req_width, req_height, callback)
+		)
+		return
+
+	# 尺寸匹配则直接使用，否则等比缩小并中心裁剪
 	if img.get_width() != req_width or img.get_height() != req_height:
 		img = _resize_and_crop_center(img, req_width, req_height)
 
 	var tex = ImageTexture.create_from_image(img)
 	GdScriptFunc.safe_callback(link, tex, callback)
-# 等比缩放至完全覆盖目标区域，然后中心裁剪
+
+# 只缩不放
 func _resize_and_crop_center(src: Image, target_width: int, target_height: int) -> Image:
 	var sw = src.get_width()
 	var sh = src.get_height()
+	if sw <= 0 or sh <= 0:
+		return src
+	if sw < target_width or sh < target_height:
+		push_warning("[缓存] 源图 %dx%d 小于目标 %dx%d，跳过缩放直接返回"
+			% [sw, sh, target_width, target_height])
+		return src
+
 	var scale = max(float(target_width) / sw, float(target_height) / sh)
 	var new_w = int(sw * scale)
 	var new_h = int(sh * scale)
 
-	# 先等比放大到完全覆盖目标尺寸
-	src.resize(new_w, new_h, Image.INTERPOLATE_LANCZOS)  # 若报错可换成 Image.INTERPOLATE_BILINEAR
+	src.resize(new_w, new_h, Image.INTERPOLATE_LANCZOS)
 
-	# 计算中心裁剪区域
 	@warning_ignore("integer_division")
 	var crop_x = (new_w - target_width) / 2
 	@warning_ignore("integer_division")
@@ -319,6 +386,7 @@ func _resize_and_crop_center(src: Image, target_width: int, target_height: int) 
 	var rect = Rect2i(crop_x, crop_y, target_width, target_height)
 
 	return src.get_region(rect)
+
 func _save_worker() -> void:
 	while not _stop_save_thread:
 		_save_semaphore.wait()
@@ -331,7 +399,19 @@ func _save_worker() -> void:
 		var task = _save_queue.pop_front()
 		_save_mutex.unlock()
 
-		var filename = _get_cache_filename(task.link, task.width, task.height)
+		# 用实际图片尺寸作为索引键，避免"索引记 240×240、磁盘是 100×100"这类错乱
+		var probe := Image.new()
+		if probe.load_jpg_from_buffer(task.image_data) != OK \
+				and probe.load_png_from_buffer(task.image_data) != OK:
+			push_error("[后台] 无法解析封面图片数据: " + task.link)
+			continue
+		var real_w := probe.get_width()
+		var real_h := probe.get_height()
+		if real_w <= 0 or real_h <= 0:
+			push_error("[后台] 封面尺寸无效: " + task.link)
+			continue
+
+		var filename = _get_cache_filename(task.link, real_w, real_h)
 		var file_path = BilibiliConstants.CACHE_DIR.path_join(filename)
 		var dir = DirAccess.open(BilibiliConstants.CACHE_DIR)
 		if not dir:
@@ -341,7 +421,12 @@ func _save_worker() -> void:
 			file.store_buffer(task.image_data)
 			file.close()
 			_deferred_mutex.lock()
-			_deferred_updates.push_back({"link": task.link, "width": task.width, "height": task.height, "filename": filename})
+			_deferred_updates.push_back({
+				"link": task.link,
+				"width": real_w,
+				"height": real_h,
+				"filename": filename
+			})
 			_deferred_mutex.unlock()
 		else:
 			push_error("[后台] 写入封面缓存失败: " + file_path)

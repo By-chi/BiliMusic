@@ -160,7 +160,7 @@ func update_performance_node(new_theme_path: String) -> void:
 func _on_close_requested() -> void:
 	State.play_ui_mode = 0
 	var node: Panel = get_node(\"/root/Main\").bottom_menu
-	node.show()
+	node._show()
 	node.init_ui()
 	node.update_callback(Player.get_current_video_info())
 	hide()

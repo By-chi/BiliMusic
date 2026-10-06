@@ -332,13 +332,8 @@ func _on_details_pressed() -> void:
 		GdScriptFunc.apply_theme_and_styles_to_node(play_window)
 		play_window_mode=\"BigWindow\"
 	play_window.show()
-	var self_tween = get_tree().create_tween()
-	self_tween.tween_property(self, \"global_position\", Vector2(283, self.global_position.y + 300), 0.25).set_trans(Tween.TRANS_CUBIC)
-	await self_tween.finished
-	hide()
 	play_window.update(list_name,cover,Player.get_current_video_info())
-
-
+	_hide()
 func _on_PiP_pressed() -> void:
 	State.play_ui_mode=1
 	if play_window_mode!=\"PiP\"&&play_window!=null:
@@ -350,11 +345,18 @@ func _on_PiP_pressed() -> void:
 		GdScriptFunc.apply_theme_and_styles_to_node(play_window)
 		play_window_mode=\"PiP\"
 	play_window.show()
-	var self_tween = get_tree().create_tween()
-	self_tween.tween_property(self, \"global_position\", Vector2(283, self.global_position.y + 300), 0.25).set_trans(Tween.TRANS_CUBIC)
-	await self_tween.finished
-	hide()
 	play_window.update(list_name,cover,Player.get_current_video_info())
+	_hide()
+	
+
+func _show()->void:
+	show()
+	var self_tween = get_tree().create_tween()
+	self_tween.tween_property(self, \"offset_transform_position:y\",0.0, 0.25).set_trans(Tween.TRANS_CUBIC)
+func _hide()->void:
+	var self_tween = get_tree().create_tween()
+	self_tween.tween_property(self, \"offset_transform_position:y\",size.y, 0.25).set_trans(Tween.TRANS_CUBIC)
+	self_tween.finished.connect(hide,CONNECT_ONE_SHOT)
 "
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_kp1vv"]
@@ -575,6 +577,7 @@ offset_left = 283.0
 offset_top = -99.0
 grow_horizontal = 2
 grow_vertical = 0
+offset_transform_enabled = true
 theme_override_styles/panel = SubResource("StyleBoxFlat_aa3qu")
 script = SubResource("GDScript_6a8me")
 cover_node = NodePath("Cover")

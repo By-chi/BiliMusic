@@ -117,7 +117,7 @@ func _get_cover_image(video_data: Dictionary, index: int, session_id: int) -> vo
 				return
 			img.convert(Image.FORMAT_RGBA8)
 			_commit_cover(index, img, session_id)
-		, 100, 100)
+		, 240, 240)
 
 
 func _commit_cover(index: int, img: Image, session_id: int) -> void:
