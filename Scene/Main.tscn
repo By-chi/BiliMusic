@@ -40,7 +40,7 @@ func play(card:BaseVideoCard)->void:
 		i+=1
 	match State.play_ui_mode:
 		0:
-			bottom_menu.show()
+			bottom_menu._show()
 			if bottom_menu.play_window!=null:
 				bottom_menu.play_window.hide()
 			bottom_menu.play_button.button_pressed=true
@@ -50,7 +50,7 @@ func play(card:BaseVideoCard)->void:
 			bottom_menu.cover=card.cover
 			bottom_menu.list_name=card.list_name
 		1:
-			bottom_menu.hide()
+			bottom_menu._hide()
 			bottom_menu.play_window.show()
 			bottom_menu.play_window.update(card.list_name,card.cover,card.video_info)
 func _init() -> void:
@@ -72,7 +72,7 @@ func _ready() -> void:
 		button.connect(\"pressed\",change_page.bind(button.name))
 func show_search_bar()->void:
 	var tween:=search_bar.create_tween()
-	tween.tween_property(search_bar,\"offset_transform_scale:x\",1.0,0.3).set_trans(Tween.TRANS_SPRING)
+	tween.tween_property(search_bar,\"offset_transform_scale:x\",1.0,0.3).set_trans(Tween.TRANS_CUBIC)
 func hide_search_bar()->void:
 	var tween:=search_bar.create_tween()
 	tween.tween_property(search_bar,\"offset_transform_scale:x\",0,0.3).set_trans(Tween.TRANS_CUBIC)
@@ -116,7 +116,9 @@ func change_page(page_name: String) -> void:
 	current_page_tween.finished.connect(func(): is_switching = false)
 
 func _on_search_text_submitted(new_text: String) -> void:
-	get_node(\"Results\").update_page(new_text)
+	var node:Control=get_node(\"Results\")
+	node.search_bar.text=new_text
+	node.update_page(new_text)
 	change_page(\"Results\")
 "
 
@@ -445,14 +447,10 @@ metadata/_edit_use_anchors_ = true
 [node name="Portrait" type="Panel" parent="LeftMenu" unique_id=651722900]
 clip_children = 1
 layout_mode = 1
-anchors_preset = 4
-anchor_top = 0.5
-anchor_bottom = 0.5
 offset_left = 4.0
-offset_top = -475.5
+offset_top = 26.0
 offset_right = 64.0
-offset_bottom = -415.5
-grow_vertical = 2
+offset_bottom = 86.0
 theme_override_styles/panel = SubResource("StyleBoxFlat_uq86q")
 
 [node name="Icon" type="TextureRect" parent="LeftMenu/Portrait" unique_id=2069813124]
@@ -592,6 +590,7 @@ offset_top = -99.0
 grow_horizontal = 2
 grow_vertical = 0
 offset_transform_enabled = true
+offset_transform_position = Vector2(0, 99)
 theme_override_styles/panel = SubResource("StyleBoxFlat_aa3qu")
 script = SubResource("GDScript_6a8me")
 cover_node = NodePath("Cover")

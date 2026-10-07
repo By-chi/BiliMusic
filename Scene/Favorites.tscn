@@ -770,12 +770,12 @@ func _update_selection_visual() -> void:
 		else:
 			if selected_items.has(child):
 				if child.get(\"title_label\"):
-					child.title_label.add_theme_color_override(\"font_color\", Color(0.0, 0.352, 0.47, 1.0))
+					child.title_label.modulate= Color(0.0, 0.352, 0.47, 1.0)
 				else:
 					child.self_modulate = Color(0.753, 0.949, 1.0)
 			else:
 				if child.get(\"title_label\"):
-					child.title_label.add_theme_color_override(\"font_color\", Color.BLACK)
+					child.title_label.modulate=Color.WHITE
 				else:
 					child.self_modulate = Color.WHITE
 	_update_buttons_state()

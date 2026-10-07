@@ -677,8 +677,12 @@ func create_frosted_texture_async(
 
 func set_progress_bar_value(progress_value: int, title_str := "", text_str := "") -> void:
 	if progress_value==100:
-		State.main.progress_bar.offset_transform_scale.x=0
+		var tween:Tween=State.main.progress_bar.create_tween()
+		tween.set_parallel()
+		tween.tween_property(State.main.progress_bar,"offset_transform_scale:x",1.0,2).set_trans(Tween.TRANS_SINE)
+		tween.tween_property(State.main.progress_bar,"self_modulate:a",0.0,2).set_trans(Tween.TRANS_SINE)
 	else:
+		State.main.progress_bar.self_modulate.a=1.0
 		State.main.progress_bar.offset_transform_scale.x=progress_value/100.0
 var current_skin_name: String = ""
 

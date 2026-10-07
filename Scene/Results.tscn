@@ -9,6 +9,7 @@
 script/source = "extends Control
 
 @export var rsults_list: VBoxContainer
+@export var rsults_scroll: ScrollContainer
 @export var page_edit: LineEdit
 @export var sub_label: Label
 @export var SortModeButton: OptionButton
@@ -58,15 +59,21 @@ func clear_page() -> void:
 	await get_tree().create_timer(0.12).timeout
 	for i in rsults_list.get_child_count():
 		rsults_list.get_child(i).queue_free()
-	#label.text = tr(\"搜索\")
 	sub_label.text = tr(\"请搜索\")
 	fade_out(loading, 0.1)
 func show_search_bar()->void:
 	var tween:=search_bar.create_tween()
-	tween.tween_property(search_bar,\"offset_transform_scale:x\",1.0,0.3).set_trans(Tween.TRANS_SPRING)
+	tween.set_parallel()
+	tween.tween_property(search_bar,\"offset_transform_scale:x\",1.0,0.3).set_trans(Tween.TRANS_CUBIC)
+	tween.tween_property(rsults_scroll,\"offset_transform_position:y\",0.0,0.3).set_trans(Tween.TRANS_CUBIC)
+	tween.tween_property(rsults_scroll,\"size:y\",673.0,0.3).set_trans(Tween.TRANS_CUBIC)
+	
 func hide_search_bar()->void:
 	var tween:=search_bar.create_tween()
+	tween.set_parallel()
 	tween.tween_property(search_bar,\"offset_transform_scale:x\",0,0.3).set_trans(Tween.TRANS_CUBIC)
+	tween.tween_property(rsults_scroll,\"offset_transform_position:y\",-60.0,0.3).set_trans(Tween.TRANS_CUBIC)
+	tween.tween_property(rsults_scroll,\"size:y\",733.0,0.3).set_trans(Tween.TRANS_CUBIC)
 func update_page(keyword: String) -> void:
 	current_execution_number = randi()
 	_kill_active_tweens()
@@ -79,7 +86,6 @@ func update_page(keyword: String) -> void:
 	if keyword == \"\":
 		clear_page()
 		return
-	#label.text = \"搜索\\\"\" + keyword + \"\\\"\"
 	sub_label.text = tr(\"搜索中\")
 	fade_in(loading, 0.2)
 
@@ -183,27 +189,30 @@ func _on_tids_item_selected(_index: int) -> void: update_page(current_keyword)
 
 
 func _on_search_text_submitted(new_text: String) -> void:
+	State.main.search_bar.text=new_text
 	update_page(new_text)
 
 
 func _on_visibility_changed() -> void:
 	if visible:
-		_on_scroll_container_item_rect_changed()
+		_on_v_box_container_item_rect_changed()
 	else:
 		hide_search_bar()
 		State.main.show_search_bar()
-
-func _on_scroll_container_item_rect_changed() -> void:
-	if position.y<100:
+		on_show=false
+var on_show:=false
+func _on_v_box_container_item_rect_changed() -> void:
+	if rsults_list.position.y>-80&&!on_show:
 		State.main.hide_search_bar()
-		await get_tree().create_timer(0.3).timeout
 		show_search_bar()
-	else:
+		on_show=true
+	elif rsults_list.position.y<=-80&&on_show:
 		hide_search_bar()
 		State.main.show_search_bar()
+		on_show=false
 "
 
-[node name="Page3" type="Control" unique_id=585043204 node_paths=PackedStringArray("rsults_list", "page_edit", "sub_label", "SortModeButton", "TidsButton", "loading", "error", "obstacle", "search_bar")]
+[node name="Page3" type="Control" unique_id=585043204 node_paths=PackedStringArray("rsults_list", "rsults_scroll", "page_edit", "sub_label", "SortModeButton", "TidsButton", "loading", "error", "obstacle", "search_bar")]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -216,6 +225,7 @@ grow_vertical = 2
 mouse_filter = 1
 script = SubResource("GDScript_q7gkv")
 rsults_list = NodePath("ScrollContainer/VBoxContainer")
+rsults_scroll = NodePath("ScrollContainer")
 page_edit = NodePath("BottomBar/Page")
 sub_label = NodePath("SubLabel")
 SortModeButton = NodePath("SortMode")
@@ -338,6 +348,8 @@ offset_right = -60.0
 offset_bottom = -82.0
 grow_horizontal = 2
 grow_vertical = 2
+offset_transform_enabled = true
+offset_transform_visual_only = false
 horizontal_scroll_mode = 3
 
 [node name="VBoxContainer" type="VBoxContainer" parent="ScrollContainer" unique_id=68593511]
@@ -458,7 +470,7 @@ texture = ExtResource("3_loqq7")
 [connection signal="item_selected" from="SortMode" to="." method="_on_sort_mode_item_selected"]
 [connection signal="item_selected" from="Tids" to="." method="_on_tids_item_selected"]
 [connection signal="gui_input" from="ScrollContainer" to="." method="_on_scroll_container_gui_input"]
-[connection signal="item_rect_changed" from="ScrollContainer" to="." method="_on_scroll_container_item_rect_changed"]
+[connection signal="item_rect_changed" from="ScrollContainer/VBoxContainer" to="." method="_on_v_box_container_item_rect_changed"]
 [connection signal="pressed" from="BottomBar/Last" to="." method="_on_last_pressed"]
 [connection signal="text_submitted" from="BottomBar/Page" to="." method="_on_page_text_submitted"]
 [connection signal="pressed" from="BottomBar/Next" to="." method="_on_next_pressed"]
