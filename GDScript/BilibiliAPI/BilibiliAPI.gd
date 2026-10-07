@@ -1,6 +1,7 @@
 extends Node
 # BilibiliAPI autoload 门面。
-# 保持 autoload 名字与调用点不变，内部委托给子模块。
+# 只负责：初始化子模块、转发公开接口、转发静态工具、转发旧模块兼容 Callable。
+# 业务逻辑一律下沉到子模块，本文件不再写请求细节。
 
 # —— 内部子模块 ——
 var _http: BilibiliHttpClient
@@ -36,6 +37,7 @@ func _ready() -> void:
 
 	set_process(true)
 	_bootstrap_official_buvid()
+
 func _process(delta: float) -> void:
 	if cover_cache:
 		cover_cache.update(delta)
@@ -47,16 +49,15 @@ func _exit_tree() -> void:
 
 
 # ==================== 官方指纹后台拉取 ====================
-# 关键：这个函数必须是实例函数（非 static），
+# 关键：必须是实例函数（非 static），
 # 因为 static 函数里的 await 不能可靠挂起，会导致 HTTPRequest 未 ready 就 request → ERR_UNCONFIGURED(3)
-
 func _bootstrap_official_buvid() -> void:
 	print("[BilibiliAPI] 正在通过 HTTPRequest 获取官方 buvid3...")
 
 	var http := HTTPRequest.new()
 	add_child(http)
 
-	# 关键：等两帧，确保 HTTPRequest 进入树并 ready
+	# 等两帧，确保 HTTPRequest 进入树并 ready
 	await get_tree().process_frame
 	await get_tree().process_frame
 

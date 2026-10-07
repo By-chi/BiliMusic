@@ -1,5 +1,9 @@
 class_name BilibiliSubtitleManager
 
+# 字幕模块：字幕列表获取、候选字幕下载、LRC 生成、外部歌词纠正。
+# 依赖注入两个请求函数（api_request_func / download_request_func），
+# 均来自 BilibiliHttpClient，本类不再直接 new HTTPRequest。
+
 var _api_request_func: Callable
 var _download_request_func: Callable
 var _subtitle_correction: Node
@@ -101,8 +105,9 @@ func _try_download(index: int, candidates: Array, bvid: String, info: Dictionary
 	var url: String = c.url
 	var is_ai: bool = c.is_ai
 
+	# 统一取用下载请求头（平台自适应 UA + B站 Referer）
 	var headers = [
-		"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+		"User-Agent: " + BilibiliCookieStore.get_dynamic_user_agent(),
 		"Referer: https://www.bilibili.com/video/" + bvid
 	]
 
@@ -140,6 +145,7 @@ func _try_download(index: int, candidates: Array, bvid: String, info: Dictionary
 			_perform_correction(content, bvid, info, callback, save_path)
 
 	, [bvid, info, callback, save_path, candidates, index, skip_correction], HTTPClient.METHOD_GET, headers)
+
 func _check_music_ratio(sub: Dictionary) -> bool:
 	var body = sub.get("body", [])
 	if not body is Array or body.is_empty():

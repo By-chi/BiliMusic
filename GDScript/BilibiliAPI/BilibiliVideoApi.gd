@@ -1,6 +1,9 @@
 class_name BilibiliVideoApi
 extends RefCounted
 
+# 视频模块：视频信息、字幕、音频播放地址。
+# 所有请求经由 BilibiliHttpClient（_http）发出。
+
 var _http: BilibiliHttpClient
 var _subtitle: BilibiliSubtitleManager
 var _video_info_cache := {}
@@ -136,18 +139,18 @@ func _do_fetch(bvid: String, cid: int, mode: String, callback: Callable) -> void
 		use_wbi = true
 	elif mode == "PLAIN":
 		url = "https://api.bilibili.com/x/player/playurl?fnval=80&qn=80&fourk=0&otype=json&bvid=%s&cid=%d" % [bvid, cid]
+		# 未登录的 PLAIN 路径：只有 buvid3 + b_nut 的轻量 Cookie，其余走统一 UA/Referer
 		var buvid3 := BilibiliCookieStore.get_or_generate_buvid()
 		var b_nut := str(int(Time.get_unix_time_from_system()))
-		var ua := BilibiliCookieStore.get_dynamic_user_agent()
-		var referer := "https://www.bilibili.com/video/" + bvid
-		headers = PackedStringArray([
-			"User-Agent: " + ua,
-			"Referer: " + referer,
-			"Origin: https://www.bilibili.com",
-			"Accept: application/json, text/plain, */*",
-			"Accept-Language: zh-CN,zh;q=0.9,en;q=0.8",
-			"Cookie: buvid3=" + buvid3 + "; b_nut=" + b_nut + ";"
-		])
+		headers = _http.with_origin(
+			_http.get_headers(),
+			"https://www.bilibili.com/video/" + bvid,
+			"https://www.bilibili.com"
+		)
+		# 将完整 Cookie 替换为轻量 Cookie（未登录不携带会话信息）
+		for i in headers.size():
+			if headers[i].begins_with("Cookie: "):
+				headers[i] = "Cookie: buvid3=" + buvid3 + "; b_nut=" + b_nut + ";"
 	else:
 		push_error("[BilibiliVideoApi] 未知模式: " + mode)
 		callback.call("")

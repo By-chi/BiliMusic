@@ -1,6 +1,9 @@
 class_name BilibiliUserApi
 extends RefCounted
 
+# 用户模块：用户信息、用户视频列表、收藏夹。
+# 所有请求经由 BilibiliHttpClient（_http）发出，并受 RateLimiter 节流。
+
 var _http: BilibiliHttpClient
 
 func _init(http: BilibiliHttpClient) -> void:
@@ -12,18 +15,12 @@ func fetch_by_mid(mid: String, callback: Callable, max_retries: int = 3) -> void
 	_fetch_with_retry(mid, callback, max_retries)
 
 func _fetch_with_retry(mid: String, callback: Callable, retries_left: int) -> void:
-	
 	var keyword = "uid:" + mid
 	var url = "https://api.bilibili.com/x/web-interface/search/type?search_type=bili_user&keyword=%s&page=1&page_size=1&from_source=web_search&platform=pc" % keyword
 
 	var headers = _http.with_origin(_http.get_headers(), "https://search.bilibili.com", "https://search.bilibili.com")
 	await RateLimiter.wait_turn()
-
-	var http = HTTPRequest.new()
-	_http.host.add_child(http)
-	http.request(url, headers, HTTPClient.METHOD_GET)
-	var result = await http.request_completed
-	http.queue_free()
+	var result = await _http.request_async(url, HTTPClient.METHOD_GET, headers)
 
 	var response_code = result[1]
 	var body = result[3] as PackedByteArray
@@ -252,7 +249,7 @@ func fetch_fav_folders(callback: Callable) -> void:
 	var headers = _http.with_origin(
 		_http.get_headers(),
 		"https://space.bilibili.com/%s/favlist" % mid,
-        "https://space.bilibili.com"
+		"https://space.bilibili.com"
 	)
 	_http.request_with_sign(url, _on_fav_folders_received, [callback], HTTPClient.METHOD_GET, headers)
 
@@ -309,7 +306,7 @@ func fetch_fav_items(media_id: int, pn: int = 1, ps: int = 20, callback: Callabl
 	var headers = _http.with_origin(
 		_http.get_headers(),
 		"https://www.bilibili.com",
-        "https://www.bilibili.com"
+		"https://www.bilibili.com"
 	)
 	_http.request_with_sign(url, _on_fav_items_received, [callback], HTTPClient.METHOD_GET, headers)
 
@@ -362,6 +359,7 @@ func _on_fav_items_received(_result: int, code: int, _headers: PackedStringArray
 		"has_more": has_more,
 		"total": total,
 	})
+
 ## 递归获取一个收藏夹的全部内容（自动翻页）
 ## callback 参数: Array[Dictionary]，所有视频条目
 func fetch_all_fav_items(media_id: int, callback: Callable) -> void:

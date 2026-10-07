@@ -1,25 +1,41 @@
 class_name BilibiliHttpClient
 extends RefCounted
 
-# 用于 add_child(HTTPRequest) 的宿主 Node（就是 autoload 本体）
+# BilibiliHttpClient —— 网络层唯一请求出口。
+# 职责：
+#   1. 持有宿主 Node（用于 add_child(HTTPRequest)），即 autoload 本体。
+#   2. 统一构造请求头（平台自适应 UA、Cookie、Referer/Origin）。
+#   3. 提供回调式 / 签名式 / 异步式三种请求入口。
+# 所有业务模块（Auth/User/Search/Video/Subtitle/封面）都应经由本类发请求，
+# 禁止再手动 new HTTPRequest。
+
+## 宿主 Node（用于 add_child HTTPRequest，即 BilibiliAPI autoload 本体）
 var host: Node
 
+## WBI 密钥缓存：{"img_key": "", "sub_key": "", "cached_time": 0}
 var _wbi_key_cache := {"img_key": "", "sub_key": "", "cached_time": 0}
+
+## 公共 UA：三处硬编码合并为这一处，全项目统一取用
+const CHROME_UA := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 func _init(p_host: Node) -> void:
 	host = p_host
 
-# ---------------- Headers ----------------
 
+# ---------------- 头部构造（统一收敛） ----------------
+
+## 图片/静态资源下载专用头：无 Cookie，仅 UA + Referer
 func get_image_headers() -> PackedStringArray:
 	return PackedStringArray([
-		"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+		"User-Agent: " + BilibiliCookieStore.get_dynamic_user_agent(),
 		"Referer: https://www.bilibili.com"
 	])
 
+## 通用 API 请求头（不含 mid 专用 Referer）
 func get_headers() -> PackedStringArray:
 	return get_headers_with_mid(0)
 
+## 带 mid 的 API 请求头（Referer 指向该用户的空间）
 func get_headers_with_mid(mid: int = 0) -> PackedStringArray:
 	# buvid4 优先用官方指纹，缺失时才本地生成
 	var buvid4 := BilibiliCookieStore.get_cached_buvid4()
@@ -91,7 +107,7 @@ func get_headers_with_mid(mid: int = 0) -> PackedStringArray:
 		"Cookie: " + cookie
 	])
 
-# 便捷工具：替换 headers 里的 Referer / Origin
+## 便捷工具：替换 headers 里的 Referer / Origin
 func with_origin(headers: PackedStringArray, referer: String, origin: String) -> PackedStringArray:
 	var h = headers.duplicate()
 	for i in h.size():
@@ -101,8 +117,10 @@ func with_origin(headers: PackedStringArray, referer: String, origin: String) ->
 			h[i] = "Origin: " + origin
 	return h
 
-# ---------------- HTTP ----------------
 
+# ---------------- HTTP 请求入口（统一出口） ----------------
+
+## 回调式请求。callback 签名：func(result, code, headers, body, extra)
 func request(url: String, callback: Callable, extra = null, method: int = HTTPClient.METHOD_GET, custom_headers: PackedStringArray = PackedStringArray(), mid: int = 0) -> void:
 	var http = HTTPRequest.new()
 	host.add_child(http)
@@ -119,10 +137,12 @@ func request(url: String, callback: Callable, extra = null, method: int = HTTPCl
 		http.queue_free()
 		callback.call(HTTPRequest.RESULT_REQUEST_FAILED, 0, PackedStringArray(), PackedByteArray(), extra)
 
+## WBI 签名后再请求（需要先取密钥，故为协程）
 func request_with_sign(url: String, callback: Callable, extra = null, method: int = HTTPClient.METHOD_GET, custom_headers: PackedStringArray = PackedStringArray(), mid: int = 0) -> void:
 	var signed_url = await sign_wbi_url(url)
 	request(signed_url, callback, extra, method, custom_headers, mid)
 
+## 异步请求。返回 Array = [result, code, headers, body]
 func request_async(url: String, method: int = HTTPClient.METHOD_GET, custom_headers: PackedStringArray = PackedStringArray()) -> Array:
 	var http = HTTPRequest.new()
 	host.add_child(http)
@@ -134,7 +154,8 @@ func request_async(url: String, method: int = HTTPClient.METHOD_GET, custom_head
 	http.queue_free()
 	return result
 
-# ---------------- WBI ----------------
+
+# ---------------- WBI 签名 ----------------
 
 func sign_wbi_url(url: String) -> String:
 	var key_data = await get_wbi_key()

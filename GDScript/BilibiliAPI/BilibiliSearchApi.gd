@@ -1,6 +1,9 @@
 class_name BilibiliSearchApi
 extends RefCounted
 
+# 搜索模块：视频搜索、B站音乐周榜。
+# 所有请求经由 BilibiliHttpClient（_http）发出。
+
 var _http: BilibiliHttpClient
 
 func _init(http: BilibiliHttpClient) -> void:

@@ -22,7 +22,11 @@ public partial class DownloadAudio : Node
     public const int Channels = 2;
     public const int BytesPerFrame = 4;
     #endregion
-    private static string GetUserAgent()
+
+    #region 统一头构造（收敛重复）
+
+    /// <summary>平台自适应 User-Agent</summary>
+    public static string GetUserAgent()
     {
         if (OperatingSystem.IsWindows())
         {
@@ -40,13 +44,48 @@ public partial class DownloadAudio : Node
         return "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
     }
 
+    /// <summary>B站 API 通用请求头（含 Cookie，可带 referer）</summary>
+    private static string[] BuildApiHeaders(string referer, string extraCookie = "")
+    {
+        return
+        [
+            $"User-Agent: {GetUserAgent()}",
+            $"Referer: {referer ?? ""}",
+            "Origin: https://www.bilibili.com",
+            "Accept: application/json, text/plain, */*",
+            "Accept-Language: zh-CN,zh;q=0.9,en;q=0.8",
+            $"Cookie: {extraCookie}",
+        ];
+    }
+
+    /// <summary>从持久化配置读取 buvid3（缺省返回空串）</summary>
+    private static string GetStoredBuvid3()
+    {
+        if (Engine.GetMainLoop() is not SceneTree tree)
+            return "";
+        var gdFunc = tree.Root.GetNodeOrNull("/root/GDScriptFunc");
+        if (gdFunc == null)
+            return "";
+        var v = gdFunc.Call("get_data", "Network", "buvid3", "");
+        return v.VariantType == Variant.Type.String ? v.AsString() : "";
+    }
+
+    /// <summary>组装默认 buvid3 + b_nut Cookie 串</summary>
+    private static string BuildBuvidCookie()
+    {
+        string buvid3 = GetStoredBuvid3();
+        string bNut = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+        return $"buvid3={buvid3}; b_nut={bNut};";
+    }
+
+    #endregion
+
     // ======================== 异步方法 ========================
 
     public static async Task StreamAudioToStreamAsync(string url, string referer, Stream targetStream, CancellationToken cancellationToken = default)
     {
         using var client = new System.Net.Http.HttpClient();
         client.DefaultRequestHeaders.Add("Referer", referer ?? "");
-        // 🔧 修复：使用平台自适应的 User-Agent
         client.DefaultRequestHeaders.Add("User-Agent", GetUserAgent());
         client.DefaultRequestHeaders.Add("Accept-Encoding", "identity");
         client.DefaultRequestHeaders.Add("Accept", "*/*");
@@ -70,7 +109,6 @@ public partial class DownloadAudio : Node
         AddChild(http);
         try
         {
-            // 🔧 修复：使用平台自适应的 User-Agent
             var headers = new[]
             {
                 $"Referer: {referer ?? ""}",
@@ -110,24 +148,9 @@ public partial class DownloadAudio : Node
     {
         if (string.IsNullOrWhiteSpace(bvid))
             throw new ArgumentException("BV 号不能为空。", nameof(bvid));
-        string buvid3 = "";
-        var gdFunc = GetNodeOrNull("/root/GDScriptFunc");
-        if (gdFunc != null)
-        {
-            var v = gdFunc.Call("get_data", "Network", "buvid3", "");
-            if (v.VariantType == Variant.Type.String)
-                buvid3 = v.AsString();
-        }
+
         string referer = BuildVideoPageUrl(bvid);
-        string[] commonHeaders =
-        [
-            $"User-Agent: {GetUserAgent()}",
-            $"Referer: {referer}",
-            "Origin: https://www.bilibili.com",
-            "Accept: application/json, text/plain, */*",
-            "Accept-Language: zh-CN,zh;q=0.9,en;q=0.8",
-            $"Cookie: buvid3={buvid3}; b_nut={DateTimeOffset.UtcNow.ToUnixTimeSeconds()};",
-        ];
+        string[] commonHeaders = BuildApiHeaders(referer, BuildBuvidCookie());
 
         string viewUrl = $"https://api.bilibili.com/x/web-interface/view?bvid={bvid}";
         using var viewHttp = new HttpRequest();
@@ -200,7 +223,6 @@ public partial class DownloadAudio : Node
         if (!long.TryParse(sidStr, out long sid))
             throw new ArgumentException("AU 号格式不正确，应为数字。", nameof(auId));
 
-        // 🔧 修复：使用平台自适应的 User-Agent
         string userAgent = GetUserAgent();
         string referer = BuildAudioPageUrl(auId);
         string[] headers = [$"User-Agent: {userAgent}", $"Referer: {referer}"];
@@ -288,13 +310,11 @@ public partial class DownloadAudio : Node
     {
         try
         {
-            // 使用 HttpClient 同步下载
             string tempPath = CSharpFunc.NormalizePathSimple(Path.Combine(OS.GetUserDataDir(), $"temp_audio_{Guid.NewGuid()}.m4s"), true);
 
             using (var client = new System.Net.Http.HttpClient())
             {
                 client.DefaultRequestHeaders.Add("Referer", referer ?? "");
-                // 🔧 修复：使用平台自适应的 User-Agent
                 client.DefaultRequestHeaders.Add("User-Agent", GetUserAgent());
                 client.DefaultRequestHeaders.Add("Accept-Encoding", "identity");
                 client.DefaultRequestHeaders.Add("Accept", "*/*");
@@ -330,7 +350,6 @@ public partial class DownloadAudio : Node
 
         try
         {
-            // 1. 获取视频详情（cid, title, cover）
             string viewUrl = $"https://api.bilibili.com/x/web-interface/view?bvid={bvid}";
             string viewJson = RequestStringSync(viewUrl);
             using var viewDoc = JsonDocument.Parse(viewJson);
@@ -339,7 +358,6 @@ public partial class DownloadAudio : Node
             string coverUrl = viewData.GetProperty("pic").GetString();
             long cid = viewData.GetProperty("pages")[0].GetProperty("cid").GetInt64();
 
-            // 2. 获取播放地址
             string playUrl = $"https://api.bilibili.com/x/player/playurl?fnval=80&qn=80&fourk=0&otype=json&bvid={bvid}&cid={cid}";
             string playJson = RequestStringSync(playUrl);
             using var playDoc = JsonDocument.Parse(playJson);
@@ -378,10 +396,8 @@ public partial class DownloadAudio : Node
         try
         {
             string referer = BuildAudioPageUrl(auId);
-            // 🔧 修复：使用平台自适应的 User-Agent
             string userAgent = GetUserAgent();
 
-            // 1. 获取音频详情（title, cover）
             string infoUrl = $"https://www.bilibili.com/audio/music-service-c/web/song/info?sid={sid}";
             string infoJson = RequestStringSync(infoUrl, userAgent, referer);
             using var infoDoc = JsonDocument.Parse(infoJson);
@@ -394,7 +410,6 @@ public partial class DownloadAudio : Node
             string title = infoData.GetProperty("title").GetString();
             string coverUrl = infoData.GetProperty("cover").GetString();
 
-            // 2. 获取播放地址
             string playUrl = $"https://www.bilibili.com/audio/music-service-c/web/url?sid={sid}&privilege=2&quality=2";
             string playJson = RequestStringSync(playUrl, userAgent, referer);
             using var playDoc = JsonDocument.Parse(playJson);
@@ -427,7 +442,6 @@ public partial class DownloadAudio : Node
     {
         using (var client = new System.Net.Http.HttpClient())
         {
-            // 🔧 修复：使用平台自适应或提供的 User-Agent
             client.DefaultRequestHeaders.Add("User-Agent", userAgent ?? GetUserAgent());
             client.DefaultRequestHeaders.Add("Accept", "*/*");
             client.DefaultRequestHeaders.Add("Accept-Encoding", "identity");
@@ -442,6 +456,7 @@ public partial class DownloadAudio : Node
             }
         }
     }
+
     /// <summary>
     /// 只获取视频基础信息（title、cover、cid），不请求 playurl（避免 WBI 签名问题）
     /// </summary>
@@ -450,24 +465,8 @@ public partial class DownloadAudio : Node
         if (string.IsNullOrWhiteSpace(bvid))
             throw new ArgumentException("BV 号不能为空。", nameof(bvid));
 
-        string buvid3 = "";
-        var gdFunc = GetNodeOrNull("/root/GDScriptFunc");
-        if (gdFunc != null)
-        {
-            var v = gdFunc.Call("get_data", "Network", "buvid3", "");
-            if (v.VariantType == Variant.Type.String)
-                buvid3 = v.AsString();
-        }
-
         string referer = BuildVideoPageUrl(bvid);
-        string[] headers = new string[]
-        {
-            $"User-Agent: {GetUserAgent()}",
-            $"Referer: {referer}",
-            "Origin: https://www.bilibili.com",
-            "Accept: application/json, text/plain, */*",
-            $"Cookie: buvid3={buvid3};",
-        };
+        string[] headers = BuildApiHeaders(referer, $"buvid3={GetStoredBuvid3()};");
 
         string viewUrl = $"https://api.bilibili.com/x/web-interface/view?bvid={bvid}";
         using var http = new HttpRequest();
@@ -499,3 +498,4 @@ public partial class DownloadAudio : Node
         }
     }
 }
+//（注：内容由AI生成）

@@ -5,23 +5,26 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Godot;
 using HttpClient = System.Net.Http.HttpClient;
-public class LrclibSource : ILyricsSource
+
+/// <summary>
+/// Lrclib 歌词源（https://lrclib.net/api/search）
+/// </summary>
+public class LrclibSource(HttpClient http) : LyricsHttpSourceBase(http)
 {
     private const string SearchUrl = "https://lrclib.net/api/search";
-    private readonly HttpClient _http;
 
-    public LrclibSource(HttpClient http)
-    {
-        _http = http;
-    }
+    protected override string SourceName => "LRCLIB";
 
-    public async Task<List<SongInfo>> SearchAsync(string keyword)
+    public override async Task<List<SongInfo>> SearchAsync(string keyword)
     {
         string url = $"{SearchUrl}?track_name={Uri.EscapeDataString(keyword)}";
+        using var doc = await GetJsonAsync(url);
+        if (doc == null)
+            return null;
+
         try
         {
-            string json = await _http.GetStringAsync(url);
-            var results = JsonSerializer.Deserialize<List<LrclibResult>>(json,
+            var results = JsonSerializer.Deserialize<List<LrclibResult>>(doc.RootElement.GetRawText(),
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
             if (results == null || results.Count == 0) return null;
 
@@ -39,15 +42,18 @@ public class LrclibSource : ILyricsSource
         }
     }
 
-    public async Task<string> GetLyricAsync(SongInfo song)
+    public override async Task<string> GetLyricAsync(SongInfo song)
     {
         string trackName = song.Name;
         string artistName = song.Artist;
         string url = $"{SearchUrl}?track_name={Uri.EscapeDataString(trackName)}&artist_name={Uri.EscapeDataString(artistName ?? "")}";
+        using var doc = await GetJsonAsync(url);
+        if (doc == null)
+            return null;
+
         try
         {
-            string json = await _http.GetStringAsync(url);
-            var results = JsonSerializer.Deserialize<List<LrclibResult>>(json,
+            var results = JsonSerializer.Deserialize<List<LrclibResult>>(doc.RootElement.GetRawText(),
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
             if (results == null || results.Count == 0) return null;
             var best = results.FirstOrDefault(r => !string.IsNullOrWhiteSpace(r.SyncedLyrics));

@@ -1,6 +1,10 @@
 class_name BilibiliCoverCache
 
-# 注入两种请求函数：一个用于 B站 API（需要 WBI 签名），一个用于普通下载（图片/字幕）
+# 封面缓存：内存索引 + 磁盘缓存 + 网络回源下载。
+# 依赖注入两个请求函数（api_request_func / download_request_func），
+# 均来自 BilibiliHttpClient，本类不再直接 new HTTPRequest。
+
+## 注入：B站 API 请求（需 WBI 签名）、普通下载请求（图片/字幕）
 var _api_request_func: Callable
 var _download_request_func: Callable
 
@@ -68,7 +72,7 @@ func update(_delta: float) -> bool:
 	return has_work
 
 # ==================================================================
-# ⚡[FIX-1] fetch_cover 恢复网络 fallback
+# fetch_cover：
 #   缓存命中：入队，由 update() 节流处理
 #   缓存未命中：立刻走网络下载
 # ==================================================================
@@ -136,10 +140,10 @@ func _on_cover_url_received(result: int, response_code: int, _headers: PackedStr
 
 	next.call(pic + "@%dw_%dh_1c.jpg" % [width, height])
 
-# 使用普通下载请求函数下载图片
+# 使用普通下载请求函数下载图片（统一取用图片下载头）
 func _download_cover(url: String, bvid: String, width: int, height: int, callback: Callable) -> void:
 	var headers = [
-		"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+		"User-Agent: " + BilibiliCookieStore.get_dynamic_user_agent(),
 		"Referer: https://www.bilibili.com"
 	]
 	_download_request_func.call(url, _on_cover_downloaded, [bvid, width, height, callback], HTTPClient.METHOD_GET, headers)
@@ -171,7 +175,7 @@ func _on_cover_downloaded(result: int, response_code: int, _headers: PackedStrin
 	_save_semaphore.post()
 
 # ==================================================================
-# ⚡[FIX-2] 只选"实际尺寸 >= 请求尺寸"里面积最小的缓存
+# 只选"实际尺寸 >= 请求尺寸"里面积最小的缓存
 #   索引里记录的 width/height 是磁盘文件的真实尺寸（由 _save_worker 保证）
 # ==================================================================
 func _get_cached_file(link: String, width: int, height: int) -> String:
@@ -242,7 +246,7 @@ func _load_index() -> void:
 		return
 
 	# ==================================================================
-	# ⚡[FIX-3] 一次性清理旧版脏索引（旧版记录的是"请求尺寸"，与文件实际不符）
+	# 一次性清理旧版脏索引（旧版记录的是"请求尺寸"，与文件实际不符）
 	# ==================================================================
 	const INDEX_VERSION_KEY := "_index_version"
 	const CURRENT_INDEX_VERSION := 2
@@ -308,9 +312,6 @@ func _evict() -> void:
 			DirAccess.remove_absolute(old_path)
 		_index.erase(item.key)
 
-# ==================================================================
-# ⚡[FIX-4] 缩进修正：后续所有代码块与 if not FileAccess.file_exists(...) 同级
-# ==================================================================
 func _process_one_task() -> void:
 	if _load_queue.is_empty():
 		return
