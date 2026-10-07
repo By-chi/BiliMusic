@@ -65,7 +65,7 @@ public partial class DownloadAudio : Node
 
     public async Task<string> DownloadAudioAsync(string url, string referer, CancellationToken cancellationToken = default)
     {
-        var tempPath = CSharpFunc.NormalizePathSimple(Path.Combine(OS.GetUserDataDir(), $"temp_audio_{Guid.NewGuid()}.m4s"), true);
+        var tempPath = CachePaths.NewTempAudioPath(".m4s");
         var http = new HttpRequest();
         AddChild(http);
         try

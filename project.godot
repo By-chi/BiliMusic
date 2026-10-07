@@ -43,6 +43,7 @@ BilibiliApi="*uid://dujalxj743anw"
 ThemeKit="*uid://bjoy2lfui5chn"
 FavoritesIndex="*uid://c7yupifdqheok"
 RateLimiter="*uid://dfmrt0h4d1u1"
+CachePaths="*uid://bbrbw8mercq57"
 
 [debug]
 

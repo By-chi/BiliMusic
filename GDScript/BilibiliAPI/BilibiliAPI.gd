@@ -16,7 +16,6 @@ var subtitle_manager: BilibiliSubtitleManager
 
 
 func _ready() -> void:
-	# ① 同步初始化所有子模块（不依赖网络，立刻可用）
 	_http = BilibiliHttpClient.new(self)
 	_auth = BilibiliAuth.new(_http)
 	_user = BilibiliUserApi.new(_http)
@@ -36,11 +35,7 @@ func _ready() -> void:
 		sub_corr.SubtitleProcessed.connect(_on_subtitle_processed)
 
 	set_process(true)
-
-	# ② 后台异步拉取官方 buvid3（不阻塞 _ready 返回，子模块此刻已经可用）
 	_bootstrap_official_buvid()
-
-
 func _process(delta: float) -> void:
 	if cover_cache:
 		cover_cache.update(delta)

@@ -68,6 +68,7 @@ public partial class M4SAudioPlayer : Node
 
     public override void _Ready()
     {
+        CachePaths.CleanTempAudio();
         if ((bool)GetNode("/root/GdScriptFunc").Call("get_data", "Options", "Enable_HigherProcessPriority", true))
         {
             if (OperatingSystem.IsWindows())
@@ -210,7 +211,7 @@ public partial class M4SAudioPlayer : Node
                 try { File.Delete(_tempFilePath); } catch { }
             }
 
-            _tempFilePath = Path.GetTempFileName();
+            _tempFilePath = CachePaths.NewTempAudioPath(".m4s");
             CurrentAudioFilePath = _tempFilePath;
 
             StopPlayback();

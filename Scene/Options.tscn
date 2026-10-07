@@ -342,17 +342,34 @@ func _log_in_out(option: Control) -> void:
 					)
 		)
 
+# ==================== 缓存清理与统计 ====================
+
 func _on_clear_covers_cache_pressed() -> void:
-	delete_directory_contents(\"user://bilibili_cover_cache/\")
+	# 不存在时静默返回，避免 ERROR 刷屏
+	if not DirAccess.dir_exists_absolute(BilibiliConstants.CACHE_DIR):
+		_update_cache_size()
+		return
+	delete_directory_contents(BilibiliConstants.CACHE_DIR)
+	# 缓存索引仍在 config.cfg 里，文件被删后索引条目会在下次访问时自动失效（BilibiliCoverCache 已有兜底逻辑）
 	_update_cache_size()
 
 func _on_clear_lyrics_cache_pressed() -> void:
-	delete_directory_contents(\"user://lyrics/\")
+	if not DirAccess.dir_exists_absolute(BilibiliConstants.LYRICS_CACHE_DIR):
+		_update_cache_size()
+		return
+	delete_directory_contents(BilibiliConstants.LYRICS_CACHE_DIR)
+	_update_cache_size()
+
+func _on_clear_temp_audio_pressed() -> void:   # ★ 可选：新增\"清理临时音频\"按钮
+	CachePaths.CleanTempAudio()
 	_update_cache_size()
 
 func delete_directory_contents(path: String) -> bool:
 	var dir = DirAccess.open(path)
 	if dir == null:
+		# 目录不存在不算错误，直接返回成功
+		if not DirAccess.dir_exists_absolute(path):
+			return true
 		printerr(\"无法打开目录: \", path)
 		return false
 	dir.list_dir_begin()
@@ -369,13 +386,25 @@ func delete_directory_contents(path: String) -> bool:
 	dir.list_dir_end()
 	return true
 
+func _get_dir_size_mb(path: String) -> float:
+	if not DirAccess.dir_exists_absolute(path):
+		return 0.0
+	return CSharpFunc.GetDirectorySize(ProjectSettings.globalize_path(path))
+
 func _update_cache_size() -> void:
-	if DirAccess.dir_exists_absolute(\"user://bilibili_cover_cache/\"):
-		var cache_size = CSharpFunc.GetDirectorySize(ProjectSettings.globalize_path(\"user://bilibili_cover_cache/\"))
-		ClearCoversCache.text = tr(\"清理封面缓存(%.2fMB)\") % cache_size
-	if DirAccess.dir_exists_absolute(\"user://lyrics/\"):
-		var cache_size = CSharpFunc.GetDirectorySize(ProjectSettings.globalize_path(\"user://lyrics/\"))
-		ClearLyricsCache.text = tr(\"清理歌词缓存(%.2fMB)\") % cache_size
+	var cover_size := _get_dir_size_mb(BilibiliConstants.CACHE_DIR)
+	ClearCoversCache.text = tr(\"清理封面缓存(%.2fMB)\") % cover_size
+	if cover_size <= 0:
+		ClearCoversCache.disabled = true
+	else:
+		ClearCoversCache.disabled = false
+
+	var lyrics_size := _get_dir_size_mb(BilibiliConstants.LYRICS_CACHE_DIR)
+	ClearLyricsCache.text = tr(\"清理歌词缓存(%.2fMB)\") % lyrics_size
+	if lyrics_size <= 0:
+		ClearLyricsCache.disabled = true
+	else:
+		ClearLyricsCache.disabled = false
 
 func _on_visibility_changed() -> void:
 	_update_cache_size()
