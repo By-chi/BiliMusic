@@ -57,15 +57,17 @@ func _init() -> void:
 	State.main=self
 func _ready() -> void:
 	get_window().size_changed.connect(func():
-		GdScriptFunc.set_data(\"Window\",\"Size\",get_window().size)
-		
+		var window := get_window()
+		if window.mode == Window.MODE_WINDOWED:
+			GdScriptFunc.set_data(\"Window\",\"Size\",window.size)
+			GdScriptFunc.set_data(\"Window\",\"Position\",window.position,true)
 	)
 	get_window().close_requested.connect(func():
-		GdScriptFunc.set_data(\"Window\",\"Position\",get_window().position,true)
-		if GdScriptFunc.get_data(\"Options\",\"Close_to_tray\",false):
-			pass
-		else:
-			get_tree().quit()
+		var window := get_window()
+		if window.mode == Window.MODE_WINDOWED:
+			GdScriptFunc.set_data(\"Window\",\"Size\",window.size)
+			GdScriptFunc.set_data(\"Window\",\"Position\",window.position,true)
+		get_tree().quit()
 	)
 	get_window().min_size=Vector2i(1285,262)
 	for button in page_buttons:

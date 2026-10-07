@@ -212,6 +212,8 @@ func _on_v_box_container_item_rect_changed() -> void:
 		on_show=false
 "
 
+[sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_bp3gr"]
+
 [node name="Page3" type="Control" unique_id=585043204 node_paths=PackedStringArray("rsults_list", "rsults_scroll", "page_edit", "sub_label", "SortModeButton", "TidsButton", "loading", "error", "obstacle", "search_bar")]
 layout_mode = 3
 anchors_preset = 15
@@ -371,6 +373,7 @@ offset_right = 229.5
 offset_bottom = -7.0
 grow_horizontal = 2
 grow_vertical = 0
+theme_override_styles/panel = SubResource("StyleBoxEmpty_bp3gr")
 
 [node name="Last" type="Button" parent="BottomBar" unique_id=1166267069]
 layout_mode = 1
