@@ -10,16 +10,20 @@ public partial class M4SAudioPlayer : Node
 {
     #region 音频参数
     private const int BytesPerFrame = 4;
-    private const int MinBufferFrames = 44100 * 10;
+    private const int MinBufferFrames = 44100 * 3;
     private const int FramesPerBlock = 2048;
     private static readonly int MinBufferBlocks = (MinBufferFrames + FramesPerBlock - 1) / FramesPerBlock;
     private const int SeekMinBufferBlocks = 10;
+    // 队列上限：最多缓存 60 秒 PCM，防止解码快于播放时内存无限增长
+    private static readonly int MaxQueueBlocks = (44100 * 60 + FramesPerBlock - 1) / FramesPerBlock;
     #endregion
 
     #region 播放器组件
     private AudioStreamPlayer _audioPlayer;
     private AudioStreamGeneratorPlayback _playback;
+    // 队列跨线程（解码线程写 / 主线程读 / 停止时清空），用锁统一保护
     private readonly ConcurrentQueue<byte[]> _pcmQueue = new();
+    private readonly object _queueLock = new();
     #endregion
 
     #region 状态标志
@@ -57,6 +61,65 @@ public partial class M4SAudioPlayer : Node
     [Signal]
     public delegate void FinishEventHandler();
     private bool _finishedEmitted;
+    #endregion
+
+    #region 队列线程安全辅助（解码线程写入 / 主线程读取 / 停止清空共用锁）
+    /// <summary>
+    /// 入队一块 PCM。队列达到上限时短暂等待（限流），直到有空间或取消。
+    /// </summary>
+    private bool TryEnqueuePcm(byte[] chunk, CancellationToken token)
+    {
+        while (true)
+        {
+            token.ThrowIfCancellationRequested();
+            lock (_queueLock)
+            {
+                if (_pcmQueue.Count < MaxQueueBlocks)
+                {
+                    _pcmQueue.Enqueue(chunk);
+                    return true;
+                }
+            }
+            // 队列满：让出 CPU 等待播放消费，避免忙等
+            Thread.Sleep(2);
+        }
+    }
+
+    /// <summary>尝试出队一块 PCM（非阻塞）。</summary>
+    private bool TryDequeuePcm(out byte[] chunk)
+    {
+        lock (_queueLock)
+        {
+            return _pcmQueue.TryDequeue(out chunk);
+        }
+    }
+
+    /// <summary>队列中的块数（快照）。</summary>
+    private int GetPcmQueueCount()
+    {
+        lock (_queueLock)
+        {
+            return _pcmQueue.Count;
+        }
+    }
+
+    /// <summary>队列是否已空。</summary>
+    private bool IsPcmQueueEmpty()
+    {
+        lock (_queueLock)
+        {
+            return _pcmQueue.IsEmpty;
+        }
+    }
+
+    /// <summary>清空队列（与解码线程的写入互斥，避免竞态）。</summary>
+    private void ClearPcmQueue()
+    {
+        lock (_queueLock)
+        {
+            _pcmQueue.Clear();
+        }
+    }
     #endregion
 
     public void SetAudioPlayer(AudioStreamPlayer player)
@@ -97,10 +160,10 @@ public partial class M4SAudioPlayer : Node
 
         if (!_bufferReady)
         {
-            if (_pcmQueue.Count >= _requiredBufferBlocks)
+            if (GetPcmQueueCount() >= _requiredBufferBlocks)
             {
                 _bufferReady = true;
-                GD.Print($"预缓冲完成，队列中有 {_pcmQueue.Count} 个数据块，要求最少 {_requiredBufferBlocks}");
+                GD.Print($"预缓冲完成，队列中有 {GetPcmQueueCount()} 个数据块，要求最少 {_requiredBufferBlocks}");
             }
             return;
         }
@@ -123,9 +186,9 @@ public partial class M4SAudioPlayer : Node
         {
             if (_currentChunk == null || _currentChunkOffset >= _currentChunk.Length)
             {
-                if (!_pcmQueue.TryDequeue(out _currentChunk))
+                if (!TryDequeuePcm(out _currentChunk))
                 {
-                    if (_decodingCompleted && _pcmQueue.IsEmpty)
+                    if (_decodingCompleted && IsPcmQueueEmpty())
                     {
                         if (!_finishedEmitted)
                         {
@@ -222,7 +285,8 @@ public partial class M4SAudioPlayer : Node
             _bufferReady = false;
             _requiredBufferBlocks = MinBufferBlocks;
             _isPaused = false;
-            _pcmQueue.Clear();
+            _currentAudioDuration = 0;
+            ClearPcmQueue();
             _simulatedPosition = 0;
             _finishedEmitted = false;
             _cts = new CancellationTokenSource();
@@ -254,9 +318,40 @@ public partial class M4SAudioPlayer : Node
             }
         }
 
-        using var fileStream = File.Open(_tempFilePath, FileMode.Create, System.IO.FileAccess.Write, FileShare.Read);
+                using var fileStream = File.Open(_tempFilePath, FileMode.Create, System.IO.FileAccess.Write, FileShare.Read);
         var ffmpegProcess = AudioConverter.StartFFmpegPipe();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (!token.IsCancellationRequested && _currentAudioDuration <= 0)
+                {
+                    await Task.Delay(500, token);
+                    if (!File.Exists(_tempFilePath))
+                    {
+                        continue;
+                    }
+                    FileInfo fi = new(_tempFilePath);
+                    if (fi.Length < 256 * 1024)
+                    {
+                        continue; // 等头部数据写够再探测
+                    }
 
+
+                    double d = await AudioConverter.GetAudioDurationAsync(_tempFilePath, token);
+                    if (d > 0)
+                    {
+                        _currentAudioDuration = d;
+                        GD.Print($"[提前探测] 获取音频时长: {d} 秒");
+                    }
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch { /* 探测失败则保持 0，由下载完成后的兜底探测覆盖 */ }
+        }, token).ContinueWith(t =>
+        {
+            if (t.IsFaulted) GD.PrintErr($"[提前探测] 失败: {t.Exception?.GetBaseException().Message}");
+        }, token);
         var downloadTask = Task.Run(async () =>
         {
             try
@@ -285,7 +380,7 @@ public partial class M4SAudioPlayer : Node
                     if (aligned == 0) continue;
                     byte[] chunk = new byte[aligned];
                     Array.Copy(buffer, 0, chunk, 0, aligned);
-                    _pcmQueue.Enqueue(chunk);
+                    TryEnqueuePcm(chunk, token);
                 }
             }
             catch (OperationCanceledException) { }
@@ -303,8 +398,7 @@ public partial class M4SAudioPlayer : Node
         await fileStream.FlushAsync(token);
         fileStream.Close();
         _decodingCompleted = true;
-
-        if (File.Exists(_tempFilePath))
+        if (File.Exists(_tempFilePath) && _currentAudioDuration <= 0)
         {
             double duration = await AudioConverter.GetAudioDurationAsync(_tempFilePath, token);
             if (duration > 0)
@@ -317,7 +411,7 @@ public partial class M4SAudioPlayer : Node
         GD.Print("解码完成，等待播放队列清空");
         _isLoading = false;
 
-        while (!_pcmQueue.IsEmpty && _isPlaying && !token.IsCancellationRequested)
+        while (!IsPcmQueueEmpty() && _isPlaying && !token.IsCancellationRequested)
         {
             await ToSignal(GetTree(), "process_frame");
         }
@@ -357,7 +451,8 @@ public partial class M4SAudioPlayer : Node
             _bufferReady = false;
             _requiredBufferBlocks = MinBufferBlocks;
             _isPaused = false;
-            _pcmQueue.Clear();
+            _currentAudioDuration = 0;
+            ClearPcmQueue();
             _simulatedPosition = 0;
             _finishedEmitted = false;
             _cts = new CancellationTokenSource();
@@ -418,7 +513,7 @@ public partial class M4SAudioPlayer : Node
             {
                 await foreach (var chunk in AudioConverter.DecodeAudioToPcm44100Async(filePath, 0, token))
                 {
-                    _pcmQueue.Enqueue(chunk);
+                    TryEnqueuePcm(chunk, token);
                 }
                 _decodingCompleted = true;
                 GD.Print("本地文件解码完成");
@@ -435,7 +530,7 @@ public partial class M4SAudioPlayer : Node
         _isLoading = false;
         await decodeTask;
 
-        while (!_pcmQueue.IsEmpty && _isPlaying && !token.IsCancellationRequested)
+        while (!IsPcmQueueEmpty() && _isPlaying && !token.IsCancellationRequested)
         {
             await ToSignal(GetTree(), "process_frame");
         }
@@ -448,7 +543,7 @@ public partial class M4SAudioPlayer : Node
         _decodingCompleted = false;
         _isPaused = false;
         _bufferReady = false;
-        _pcmQueue.Clear();
+        ClearPcmQueue();
         _currentChunk = null;
         _currentChunkOffset = 0;
         _simulatedPosition = 0;
@@ -519,7 +614,7 @@ public partial class M4SAudioPlayer : Node
             _decodingCompleted = false;
             _bufferReady = false;
             _requiredBufferBlocks = SeekMinBufferBlocks;
-            _pcmQueue.Clear();
+            ClearPcmQueue();
             _simulatedPosition = seconds;
             _finishedEmitted = false;
             _cts = new CancellationTokenSource();
@@ -550,7 +645,7 @@ public partial class M4SAudioPlayer : Node
                 {
                     await foreach (var chunk in AudioConverter.DecodeAudioToPcm44100Async(CurrentAudioFilePath, seconds, token))
                     {
-                        _pcmQueue.Enqueue(chunk);
+                        TryEnqueuePcm(chunk, token);
                     }
                     _decodingCompleted = true;
                 }

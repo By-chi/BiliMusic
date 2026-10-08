@@ -20,7 +20,19 @@ public partial class CachePaths : Node
         if (!Directory.Exists(dir)) return;
         foreach (var f in Directory.GetFiles(dir))
         {
-            try { File.Delete(f); } catch { /* 文件被占用则跳过 */ }
+            try
+            {
+                File.Delete(f);
+            }
+            catch (IOException)
+            {
+                // 文件正被播放器占用，跳过并在下次启动清理
+                GD.Print($"临时音频文件被占用，跳过清理: {f}");
+            }
+            catch (UnauthorizedAccessException)
+            {
+                GD.Print($"临时音频文件无权限删除: {f}");
+            }
         }
     }
 }

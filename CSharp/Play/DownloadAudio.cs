@@ -23,6 +23,9 @@ public partial class DownloadAudio : Node
     public const int BytesPerFrame = 4;
     #endregion
 
+    // 同步阻塞方法使用，防止网络挂起时后台线程无限阻塞、耗尽线程池
+    private static readonly TimeSpan SyncHttpTimeout = TimeSpan.FromSeconds(30);
+
     #region 统一头构造（收敛重复）
 
     /// <summary>平台自适应 User-Agent</summary>
@@ -308,11 +311,14 @@ public partial class DownloadAudio : Node
     /// </summary>
     public static string DownloadAudioSync(string url, string referer)
     {
+        if (string.IsNullOrWhiteSpace(url))
+            throw new ArgumentException("URL 不能为空。", nameof(url));
+
         try
         {
             string tempPath = CSharpFunc.NormalizePathSimple(Path.Combine(OS.GetUserDataDir(), $"temp_audio_{Guid.NewGuid()}.m4s"), true);
 
-            using (var client = new System.Net.Http.HttpClient())
+            using (var client = new System.Net.Http.HttpClient { Timeout = SyncHttpTimeout })
             {
                 client.DefaultRequestHeaders.Add("Referer", referer ?? "");
                 client.DefaultRequestHeaders.Add("User-Agent", GetUserAgent());
@@ -440,7 +446,10 @@ public partial class DownloadAudio : Node
 
     private static string RequestStringSync(string url, string userAgent = null, string referer = null)
     {
-        using (var client = new System.Net.Http.HttpClient())
+        if (string.IsNullOrWhiteSpace(url))
+            throw new ArgumentException("URL 不能为空。", nameof(url));
+
+        using (var client = new System.Net.Http.HttpClient { Timeout = SyncHttpTimeout })
         {
             client.DefaultRequestHeaders.Add("User-Agent", userAgent ?? GetUserAgent());
             client.DefaultRequestHeaders.Add("Accept", "*/*");
@@ -498,4 +507,3 @@ public partial class DownloadAudio : Node
         }
     }
 }
-//（注：内容由AI生成）
