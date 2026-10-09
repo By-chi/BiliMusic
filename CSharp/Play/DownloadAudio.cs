@@ -85,7 +85,8 @@ public partial class DownloadAudio : Node
 
     // ======================== 异步方法 ========================
 
-    public static async Task StreamAudioToStreamAsync(string url, string referer, Stream targetStream, CancellationToken cancellationToken = default)
+    public static async Task StreamAudioToStreamAsync(string url, string referer, Stream targetStream,
+        CancellationToken cancellationToken = default, long rangeFrom = 0, Action<long> onTotalSize = null)
     {
         using var client = new System.Net.Http.HttpClient();
         client.DefaultRequestHeaders.Add("Referer", referer ?? "");
@@ -93,8 +94,14 @@ public partial class DownloadAudio : Node
         client.DefaultRequestHeaders.Add("Accept-Encoding", "identity");
         client.DefaultRequestHeaders.Add("Accept", "*/*");
 
-        using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        if (rangeFrom > 0)
+            request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(rangeFrom, null);
+        using var response = await client.SendAsync(request,
+            HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
+        onTotalSize?.Invoke(response.Content.Headers.ContentRange?.Length
+                            ?? response.Content.Headers.ContentLength ?? -1);
         using var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
         byte[] buffer = new byte[8192];
         int bytesRead;
@@ -104,7 +111,6 @@ public partial class DownloadAudio : Node
             cancellationToken.ThrowIfCancellationRequested();
         }
     }
-
     public async Task<string> DownloadAudioAsync(string url, string referer, CancellationToken cancellationToken = default)
     {
         var tempPath = CachePaths.NewTempAudioPath(".m4s");

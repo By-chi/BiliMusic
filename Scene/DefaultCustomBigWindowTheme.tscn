@@ -1,7 +1,7 @@
 [gd_scene format=3 uid="uid://bj14jds4q2er0"]
 
-[ext_resource type="Texture2D" uid="uid://c4vd7n5kbhijn" path="res://UI/Icon/default_img.tres" id="1_rs2yu"]
 [ext_resource type="Shader" uid="uid://cuy1wvbhmf4o0" path="res://GDShader/flow.gdshader" id="1_u3t73"]
+[ext_resource type="Texture2D" uid="uid://ea1t1ixlcsfo" path="res://UI/Icon/point.svg" id="2_u3t73"]
 
 [sub_resource type="GDScript" id="GDScript_snpjp"]
 script/source = "extends Control
@@ -519,7 +519,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-texture = ExtResource("1_rs2yu")
+texture = ExtResource("2_u3t73")
 expand_mode = 1
 stretch_mode = 6
 

@@ -1,58 +1,55 @@
 using Godot;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using FileAccess = System.IO.FileAccess;
+using Thread = System.Threading.Thread;
 
+/// <summary>
+/// M4S 音频播放器：网络流边下载边解码（ffmpeg 管道 → PCM 队列 → AudioStreamGenerator），
+/// 支持 DASH sidx 索引的远程定点 Seek。Seek/起播采用“挂起播放器直到预缓冲完成”策略。
+/// </summary>
 public partial class M4SAudioPlayer : Node
 {
-    #region 音频参数
-    private const int BytesPerFrame = 4;
-    private const int MinBufferFrames = 44100 * 3;
+    #region 常量
+    private const int MixRate = 44100;
+    private const int BytesPerFrame = 4;              // s16le 立体声
     private const int FramesPerBlock = 2048;
-    private static readonly int MinBufferBlocks = (MinBufferFrames + FramesPerBlock - 1) / FramesPerBlock;
-    private const int SeekMinBufferBlocks = 10;
-    // 队列上限：最多缓存 60 秒 PCM，防止解码快于播放时内存无限增长
-    private static readonly int MaxQueueBlocks = (44100 * 60 + FramesPerBlock - 1) / FramesPerBlock;
+    private const double PrebufferSeconds = 3;        // 起播预缓冲
+    private const double SeekPrebufferSeconds = 1;    // Seek 预缓冲
+    private static int BlocksFor(double seconds) => (int)Math.Ceiling(MixRate * seconds / FramesPerBlock);
+    private static readonly int MinBufferBlocks = BlocksFor(PrebufferSeconds);
+    private static readonly int SeekMinBufferBlocks = BlocksFor(SeekPrebufferSeconds);
+    private static readonly int MaxQueueBlocks = BlocksFor(60);   // PCM 队列上限（背压控制）
+    private const int ReadBufferSize = 16 * 1024;
+    private const int ProbeMaxAttempts = 60;          // 元数据探测上限（约 30 秒）
     #endregion
 
-    #region 播放器组件
+    #region 状态
     private AudioStreamPlayer _audioPlayer;
     private AudioStreamGeneratorPlayback _playback;
-    // 队列跨线程（解码线程写 / 主线程读 / 停止时清空），用锁统一保护
     private readonly ConcurrentQueue<byte[]> _pcmQueue = new();
-    private readonly object _queueLock = new();
-    #endregion
-
-    #region 状态标志
-    private bool _isPlaying;
-    private bool _isStopped;
-    private bool _decodingCompleted;
-    private bool _isPaused;
-    private double _currentAudioDuration;
-    private bool _isLoading = false;
-    private readonly SemaphoreSlim _playLock = new(1, 1);
-    #endregion
-
-    #region 预缓冲控制
-    private bool _bufferReady;
-    private int _requiredBufferBlocks = MinBufferBlocks;
+    private bool _isPlaying, _isPaused, _decodingCompleted, _isStreamingRemote,
+        _isFullyDownloaded, _isLoading, _bufferReady, _prebufferHold, _finishedEmitted;
+    private int _requiredBufferBlocks;
+    private double _currentAudioDuration, _simulatedPosition;   // Generator 无内置位置，手动模拟
+    private readonly Vector2[] _buffer = new Vector2[FramesPerBlock];
     private byte[] _currentChunk;
     private int _currentChunkOffset;
-    private Vector2[] _buffer = new Vector2[FramesPerBlock];
-    #endregion
-
-    #region 临时文件与取消支持
-    private string _tempFilePath;
+    private readonly SemaphoreSlim _playLock = new(1, 1);
     private CancellationTokenSource _cts;
     private Task _currentPlayTask;
     public string CurrentAudioFilePath;
-    #endregion
 
-    #region 模拟位置
-    private double _simulatedPosition;
+    // 网络流定点 Seek
+    private string _tempFilePath, _currentUrl, _currentReferer;
+    private byte[] _initSegment;                       // ftyp+moov(+sidx)，定点续传时需先写入
+    private long _totalFileSize;
+    private List<(double StartSec, double DurSec, long FileOffset)> _segmentIndex;
     #endregion
 
     #region 信号
@@ -60,179 +57,115 @@ public partial class M4SAudioPlayer : Node
     public delegate void PlaybackErrorEventHandler(string error);
     [Signal]
     public delegate void FinishEventHandler();
-    private bool _finishedEmitted;
-    #endregion
 
-    #region 队列线程安全辅助（解码线程写入 / 主线程读取 / 停止清空共用锁）
-    /// <summary>
-    /// 入队一块 PCM。队列达到上限时短暂等待（限流），直到有空间或取消。
-    /// </summary>
-    private bool TryEnqueuePcm(byte[] chunk, CancellationToken token)
-    {
-        while (true)
-        {
-            token.ThrowIfCancellationRequested();
-            lock (_queueLock)
-            {
-                if (_pcmQueue.Count < MaxQueueBlocks)
-                {
-                    _pcmQueue.Enqueue(chunk);
-                    return true;
-                }
-            }
-            // 队列满：让出 CPU 等待播放消费，避免忙等
-            Thread.Sleep(2);
-        }
-    }
+    /// <summary>跨线程安全的错误信号发送（后台线程 EmitSignal 不安全）</summary>
+    private void EmitPlaybackError(string message) =>
+        CallDeferred(MethodName.EmitPlaybackErrorDeferred, message);
 
-    /// <summary>尝试出队一块 PCM（非阻塞）。</summary>
-    private bool TryDequeuePcm(out byte[] chunk)
-    {
-        lock (_queueLock)
-        {
-            return _pcmQueue.TryDequeue(out chunk);
-        }
-    }
-
-    /// <summary>队列中的块数（快照）。</summary>
-    private int GetPcmQueueCount()
-    {
-        lock (_queueLock)
-        {
-            return _pcmQueue.Count;
-        }
-    }
-
-    /// <summary>队列是否已空。</summary>
-    private bool IsPcmQueueEmpty()
-    {
-        lock (_queueLock)
-        {
-            return _pcmQueue.IsEmpty;
-        }
-    }
-
-    /// <summary>清空队列（与解码线程的写入互斥，避免竞态）。</summary>
-    private void ClearPcmQueue()
-    {
-        lock (_queueLock)
-        {
-            _pcmQueue.Clear();
-        }
-    }
+    public void EmitPlaybackErrorDeferred(string message) =>
+        EmitSignal(SignalName.PlaybackError, message);
     #endregion
 
     public void SetAudioPlayer(AudioStreamPlayer player)
     {
         _audioPlayer = player ?? throw new ArgumentNullException(nameof(player));
-        var generator = new AudioStreamGenerator { MixRate = 44100, BufferLength = 2f };
-        _audioPlayer.Stream = generator;
+        _audioPlayer.Stream = new AudioStreamGenerator { MixRate = MixRate, BufferLength = 2f };
     }
 
     public override void _Ready()
     {
         CachePaths.CleanTempAudio();
-        if ((bool)GetNode("/root/GdScriptFunc").Call("get_data", "Options", "Enable_HigherProcessPriority", true))
+        if (OperatingSystem.IsWindows()
+            && GetFuncNode() is Node funcNode
+            && funcNode.Call("get_data", "Options", "Enable_HigherProcessPriority", true).AsBool())
         {
-            if (OperatingSystem.IsWindows())
+            try
             {
-                try
-                {
-                    Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.High;
-                    GD.Print("[CSharpFunc] 进程优先级已设置为 High");
-                }
-                catch (Exception ex)
-                {
-                    GD.PrintErr($"[CSharpFunc] 设置进程优先级失败: {ex.Message}");
-                }
+                Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.High;
+                GD.Print("[CSharpFunc] 进程优先级已设置为 High");
             }
-            else
-            {
-                GD.Print($"[CSharpFunc] 当前平台: {(OperatingSystem.IsMacOS() ? "macOS" : OperatingSystem.IsLinux() ? "Linux" : "Unknown")}，进程优先级设置功能不支持");
-            }
+            catch (Exception ex) { GD.PrintErr($"[CSharpFunc] 设置进程优先级失败: {ex.Message}"); }
         }
     }
 
+    /// <summary>原代码节点名写法不一致，两种路径都尝试</summary>
+    private Node GetFuncNode() =>
+        GetNodeOrNull("/root/GdScriptFunc") ?? GetNodeOrNull("/root/GDScriptFunc");
+
     public override void _Process(double delta)
     {
-        if (_audioPlayer == null || _playback == null || _isStopped)
+        if (!_isPlaying || _playback == null)
             return;
 
+        // 预缓冲：数据足够前播放器保持挂起（不输出静音，位置不推进）
         if (!_bufferReady)
         {
-            if (GetPcmQueueCount() >= _requiredBufferBlocks)
-            {
-                _bufferReady = true;
-                GD.Print($"预缓冲完成，队列中有 {GetPcmQueueCount()} 个数据块，要求最少 {_requiredBufferBlocks}");
-            }
-            return;
+            if (_pcmQueue.Count < _requiredBufferBlocks)
+                return;
+            _bufferReady = true;
+            _isLoading = false;
+            GD.Print($"预缓冲完成：{_pcmQueue.Count}/{_requiredBufferBlocks} 块");
         }
 
-        if (_isPaused)
-            return;
-
-        if (_isPlaying)
+        if (!_isPaused)
         {
             _simulatedPosition += delta;
-            if (_simulatedPosition > _currentAudioDuration && _currentAudioDuration > 0)
+            if (_currentAudioDuration > 0 && _simulatedPosition > _currentAudioDuration)
                 _simulatedPosition = _currentAudioDuration;
         }
+        // 暂停时仍继续向下填充数据，保证 Resume 无缝
 
         int framesAvailable = _playback.GetFramesAvailable();
-        if (framesAvailable == 0)
-            return;
-
         while (framesAvailable > 0)
         {
             if (_currentChunk == null || _currentChunkOffset >= _currentChunk.Length)
             {
-                if (!TryDequeuePcm(out _currentChunk))
+                if (!_pcmQueue.TryDequeue(out _currentChunk))
                 {
-                    if (_decodingCompleted && IsPcmQueueEmpty())
+                    // 断供：空 buffer 由 Godot 补静音；解码全部结束则触发 Finish
+                    // （TryDequeue 失败时 out 被置 null）
+                    if (!_isPaused && _decodingCompleted && !_finishedEmitted)
                     {
-                        if (!_finishedEmitted)
-                        {
-                            _finishedEmitted = true;
-                            _simulatedPosition = _currentAudioDuration;
-                            GD.Print("播放结束");
-                            EmitSignal(SignalName.Finish);
-                            StopPlayback();
-                        }
-                    }
-                    else
-                    {
-                        Array.Clear(_buffer, 0, FramesPerBlock);
-                        int silentFrames = Math.Min(FramesPerBlock, framesAvailable);
-                        _playback?.PushBuffer(_buffer.AsSpan(0, silentFrames));
+                        _finishedEmitted = true;
+                        _simulatedPosition = _currentAudioDuration;
+                        GD.Print("播放结束");
+                        EmitSignal(SignalName.Finish);
+                        StopPlayback();
                     }
                     break;
                 }
                 _currentChunkOffset = 0;
             }
 
-            int framesToPush = Math.Min(FramesPerBlock, framesAvailable);
-            int bytesToPush = framesToPush * BytesPerFrame;
-            int bytesRemaining = _currentChunk.Length - _currentChunkOffset;
-            int bytesToTake = Math.Min(bytesToPush, bytesRemaining);
+            int bytesToTake = Math.Min(Math.Min(FramesPerBlock, framesAvailable) * BytesPerFrame,
+                _currentChunk.Length - _currentChunkOffset);
             int framesToTake = bytesToTake / BytesPerFrame;
-
             if (framesToTake == 0)
                 break;
 
             for (int i = 0; i < framesToTake; i++)
             {
                 int offset = _currentChunkOffset + i * BytesPerFrame;
-                short left = (short)(_currentChunk[offset] | (_currentChunk[offset + 1] << 8));
-                short right = (short)(_currentChunk[offset + 2] | (_currentChunk[offset + 3] << 8));
-                _buffer[i] = new Vector2(left / 32768.0f, right / 32768.0f);
+                _buffer[i] = new Vector2(
+                    (short)(_currentChunk[offset] | (_currentChunk[offset + 1] << 8)) / 32768f,
+                    (short)(_currentChunk[offset + 2] | (_currentChunk[offset + 3] << 8)) / 32768f);
             }
 
             _playback.PushBuffer(_buffer.AsSpan(0, framesToTake));
             _currentChunkOffset += bytesToTake;
             framesAvailable -= framesToTake;
         }
+
+        // 数据已填入缓冲，解除挂起——声音无缝从起播/Seek 点开始
+        if (_prebufferHold)
+        {
+            _prebufferHold = false;
+            if (!_isPaused)
+                _audioPlayer.StreamPaused = false;
+        }
     }
 
+    #region 公共控制
     public void Pause()
     {
         if (_isPlaying && !_isPaused)
@@ -247,483 +180,499 @@ public partial class M4SAudioPlayer : Node
     {
         if (_isPlaying && _isPaused)
         {
-            _audioPlayer.StreamPaused = false;
             _isPaused = false;
+            _audioPlayer.StreamPaused = _prebufferHold;   // 预缓冲未完成时继续保持挂起
             GD.Print("播放已恢复");
-        }
-    }
-
-    public async Task PlayAsync(string url, string referer = null)
-    {
-        if (_audioPlayer == null) throw new InvalidOperationException("AudioStreamPlayer 未设置");
-
-        Task newPlayTask;
-        await _playLock.WaitAsync();
-        try
-        {
-            var oldTask = _currentPlayTask;
-            _currentPlayTask = null;
-            if (oldTask != null && !oldTask.IsCompleted)
-            {
-                _cts?.Cancel();
-                try { await oldTask; } catch (OperationCanceledException) { }
-            }
-
-            if (!string.IsNullOrEmpty(_tempFilePath) && File.Exists(_tempFilePath))
-            {
-                try { File.Delete(_tempFilePath); } catch { }
-            }
-
-            _tempFilePath = CachePaths.NewTempAudioPath(".m4s");
-            CurrentAudioFilePath = _tempFilePath;
-
-            StopPlayback();
-
-            _isPlaying = true;
-            _isStopped = false;
-            _decodingCompleted = false;
-            _bufferReady = false;
-            _requiredBufferBlocks = MinBufferBlocks;
-            _isPaused = false;
-            _currentAudioDuration = 0;
-            ClearPcmQueue();
-            _simulatedPosition = 0;
-            _finishedEmitted = false;
-            _cts = new CancellationTokenSource();
-            var token = _cts.Token;
-
-            newPlayTask = PlayInternalAsync(url, referer, token);
-            _currentPlayTask = newPlayTask;
-        }
-        finally
-        {
-            _playLock.Release();
-        }
-
-        await newPlayTask;
-    }
-
-    private async Task PlayInternalAsync(string url, string referer, CancellationToken token)
-    {
-        _isLoading = true;
-
-        if (_playback == null)
-        {
-            _audioPlayer.Play();
-            _playback = (AudioStreamGeneratorPlayback)_audioPlayer.GetStreamPlayback();
-            if (_playback == null)
-            {
-                _isLoading = false;
-                throw new Exception("无法获取 AudioStreamGeneratorPlayback");
-            }
-        }
-
-                using var fileStream = File.Open(_tempFilePath, FileMode.Create, System.IO.FileAccess.Write, FileShare.Read);
-        var ffmpegProcess = AudioConverter.StartFFmpegPipe();
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                while (!token.IsCancellationRequested && _currentAudioDuration <= 0)
-                {
-                    await Task.Delay(500, token);
-                    if (!File.Exists(_tempFilePath))
-                    {
-                        continue;
-                    }
-                    FileInfo fi = new(_tempFilePath);
-                    if (fi.Length < 256 * 1024)
-                    {
-                        continue; // 等头部数据写够再探测
-                    }
-
-
-                    double d = await AudioConverter.GetAudioDurationAsync(_tempFilePath, token);
-                    if (d > 0)
-                    {
-                        _currentAudioDuration = d;
-                        GD.Print($"[提前探测] 获取音频时长: {d} 秒");
-                    }
-                }
-            }
-            catch (OperationCanceledException) { }
-            catch { /* 探测失败则保持 0，由下载完成后的兜底探测覆盖 */ }
-        }, token).ContinueWith(t =>
-        {
-            if (t.IsFaulted) GD.PrintErr($"[提前探测] 失败: {t.Exception?.GetBaseException().Message}");
-        }, token);
-        var downloadTask = Task.Run(async () =>
-        {
-            try
-            {
-                using var multiStream = new MultiWriteStream(ffmpegProcess.StandardInput.BaseStream, fileStream);
-                await DownloadAudio.StreamAudioToStreamAsync(url, referer, multiStream, token);
-            }
-            catch (OperationCanceledException) { }
-            catch (Exception ex)
-            {
-                _isLoading = false;
-                GD.PrintErr($"下载/保存失败: {ex.Message}");
-            }
-        }, token);
-
-        var pcmReadTask = Task.Factory.StartNew(async () =>
-        {
-            try
-            {
-                using var outputStream = ffmpegProcess.StandardOutput.BaseStream;
-                byte[] buffer = new byte[4096];
-                int bytesRead;
-                while ((bytesRead = await outputStream.ReadAsync(buffer, token)) > 0)
-                {
-                    int aligned = bytesRead / BytesPerFrame * BytesPerFrame;
-                    if (aligned == 0) continue;
-                    byte[] chunk = new byte[aligned];
-                    Array.Copy(buffer, 0, chunk, 0, aligned);
-                    TryEnqueuePcm(chunk, token);
-                }
-            }
-            catch (OperationCanceledException) { }
-            catch (Exception ex)
-            {
-                _isLoading = false;
-                GD.PrintErr($"读取 PCM 数据失败: {ex.Message}");
-            }
-        }, token, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
-
-        await downloadTask;
-        ffmpegProcess.StandardInput.Close();
-        await pcmReadTask;
-        await ffmpegProcess.WaitForExitAsync(token);
-        await fileStream.FlushAsync(token);
-        fileStream.Close();
-        _decodingCompleted = true;
-        if (File.Exists(_tempFilePath) && _currentAudioDuration <= 0)
-        {
-            double duration = await AudioConverter.GetAudioDurationAsync(_tempFilePath, token);
-            if (duration > 0)
-            {
-                _currentAudioDuration = duration;
-                GD.Print($"获取音频时长: {_currentAudioDuration} 秒");
-            }
-        }
-
-        GD.Print("解码完成，等待播放队列清空");
-        _isLoading = false;
-
-        while (!IsPcmQueueEmpty() && _isPlaying && !token.IsCancellationRequested)
-        {
-            await ToSignal(GetTree(), "process_frame");
-        }
-    }
-
-    public async Task PlayLocalAsync(string filePath)
-    {
-        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
-        {
-            EmitSignal(SignalName.PlaybackError, "文件路径无效或不存在");
-            return;
-        }
-        if (_audioPlayer == null)
-        {
-            EmitSignal(SignalName.PlaybackError, "AudioStreamPlayer 未设置");
-            return;
-        }
-
-        Task newPlayTask;
-        await _playLock.WaitAsync();
-        try
-        {
-            var oldTask = _currentPlayTask;
-            _currentPlayTask = null;
-            if (oldTask != null && !oldTask.IsCompleted)
-            {
-                _cts?.Cancel();
-                try { await oldTask; } catch (OperationCanceledException) { }
-                await Task.Delay(50);
-            }
-
-            StopPlayback();
-
-            _isPlaying = true;
-            _isStopped = false;
-            _decodingCompleted = false;
-            _bufferReady = false;
-            _requiredBufferBlocks = MinBufferBlocks;
-            _isPaused = false;
-            _currentAudioDuration = 0;
-            ClearPcmQueue();
-            _simulatedPosition = 0;
-            _finishedEmitted = false;
-            _cts = new CancellationTokenSource();
-            var token = _cts.Token;
-
-            CurrentAudioFilePath = filePath;
-            _tempFilePath = null;
-
-            newPlayTask = PlayLocalInternalAsync(filePath, token);
-            _currentPlayTask = newPlayTask;
-        }
-        finally
-        {
-            _playLock.Release();
-        }
-
-        await newPlayTask;
-    }
-
-    public void PlayLocal(string filePath) =>
-        _ = PlayLocalAsync(filePath).ContinueWith(t =>
-        {
-            if (t.IsFaulted) GD.PrintErr($"本地播放失败：{t.Exception}");
-        }, TaskScheduler.FromCurrentSynchronizationContext());
-
-    private async Task PlayLocalInternalAsync(string filePath, CancellationToken token)
-    {
-        _isLoading = true;
-
-        if (_playback == null)
-        {
-            _audioPlayer.Play();
-            _playback = (AudioStreamGeneratorPlayback)_audioPlayer.GetStreamPlayback();
-            if (_playback == null)
-            {
-                _isLoading = false;
-                EmitSignal(SignalName.PlaybackError, "无法获取 AudioStreamGeneratorPlayback");
-                return;
-            }
-        }
-
-        try
-        {
-            double duration = await AudioConverter.GetAudioDurationAsync(filePath, token);
-            if (duration > 0)
-                _currentAudioDuration = duration;
-            else
-                GD.PrintErr("获取本地音频时长失败");
-        }
-        catch (Exception ex)
-        {
-            GD.PrintErr($"获取本地音频时长失败: {ex.Message}");
-        }
-
-        var decodeTask = Task.Run(async () =>
-        {
-            try
-            {
-                await foreach (var chunk in AudioConverter.DecodeAudioToPcm44100Async(filePath, 0, token))
-                {
-                    TryEnqueuePcm(chunk, token);
-                }
-                _decodingCompleted = true;
-                GD.Print("本地文件解码完成");
-            }
-            catch (OperationCanceledException) { }
-            catch (Exception ex)
-            {
-                _isLoading = false;
-                GD.PrintErr($"本地文件解码错误: {ex.Message}");
-                EmitSignal(SignalName.PlaybackError, ex.Message);
-            }
-        }, token);
-
-        _isLoading = false;
-        await decodeTask;
-
-        while (!IsPcmQueueEmpty() && _isPlaying && !token.IsCancellationRequested)
-        {
-            await ToSignal(GetTree(), "process_frame");
         }
     }
 
     public void StopPlayback()
     {
-        _isStopped = true;
         _isPlaying = false;
         _decodingCompleted = false;
         _isPaused = false;
         _bufferReady = false;
-        ClearPcmQueue();
+        _isLoading = false;
+        _prebufferHold = false;
+        _pcmQueue.Clear();
         _currentChunk = null;
         _currentChunkOffset = 0;
-        _simulatedPosition = 0;
-        _cts?.Cancel();
-        _audioPlayer?.Stop();
-        _audioPlayer.StreamPaused = false;
+        try { _cts?.Cancel(); } catch { }
+        if (_audioPlayer != null)
+        {
+            _audioPlayer.Stop();
+            _audioPlayer.StreamPaused = false;
+        }
         _playback = null;
     }
 
-    public double GetCurrentPosition() => _simulatedPosition;
+    public Task PlayAsync(string url, string referer = null) =>
+        StartSessionAsync(() =>
+        {
+            RotateTempFile();
+            ResetSession(MinBufferBlocks, 0);
+            _currentAudioDuration = 0;
+            _isStreamingRemote = true;
+            _isFullyDownloaded = false;
+            _currentUrl = url;
+            _currentReferer = referer;
+            _initSegment = null;
+            _segmentIndex = null;
+            _totalFileSize = 0;
+        }, token => StreamPlayInternalAsync(url, referer, 0, token));
 
-    public float GetCurrentPercentage()
+    public async Task PlayLocalAsync(string filePath)
     {
-        double duration = _currentAudioDuration;
-        if (duration <= 0) return 0;
-        return (float)Math.Clamp(GetCurrentPosition() / duration, 0, 1);
+        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+        {
+            EmitPlaybackError("文件路径无效或不存在");
+            return;
+        }
+        if (_audioPlayer == null)
+        {
+            EmitPlaybackError("AudioStreamPlayer 未设置");
+            return;
+        }
+        await StartSessionAsync(() =>
+        {
+            _tempFilePath = null;
+            CurrentAudioFilePath = filePath;
+            ResetSession(MinBufferBlocks, 0);
+            _currentAudioDuration = 0;
+            _isStreamingRemote = false;
+            _isFullyDownloaded = true;
+        }, token => PlayLocalInternalAsync(filePath, 0, token));
     }
 
-    public float GetCurrentAudioDuration() => (float)_currentAudioDuration;
+    public async Task SeekAsync(double seconds)
+    {
+        // 预缓冲尚未完成时没有可靠的 seek 基准，忽略本次请求
+        if (_isLoading)
+        {
+            GD.Print("[Seek] 忽略：预缓冲尚未完成");
+            return;
+        }
+
+        Task seekTask = null;
+        await _playLock.WaitAsync();
+        try
+        {
+            if (string.IsNullOrEmpty(CurrentAudioFilePath) || !File.Exists(CurrentAudioFilePath))
+            {
+                EmitPlaybackError("无法 Seek，音频文件不存在");
+                return;
+            }
+
+            await CancelCurrentTaskAsync();
+            bool wasPaused = _isPaused;
+            StopPlayback();
+            var token = (_cts = new CancellationTokenSource()).Token;
+
+            double duration = _currentAudioDuration;
+            if (duration <= 0)
+                _currentAudioDuration = duration =
+                    await AudioConverter.GetAudioDurationAsync(CurrentAudioFilePath, token);
+            if (duration > 0)
+                seconds = Math.Clamp(seconds, 0, duration);
+
+            bool canLocal = !_isStreamingRemote || _isFullyDownloaded;
+            long restartOffset = -1;
+            if (!canLocal)
+            {
+                restartOffset = MapSecondsToByteOffset(seconds, duration);
+                if (restartOffset < 0)
+                {
+                    EmitPlaybackError("正在解析音频索引，请稍后再试");
+                    return;
+                }
+            }
+
+            ResetSession(SeekMinBufferBlocks, seconds);
+
+            try { EnsurePlayback(); }
+            catch (Exception ex)
+            {
+                GD.PrintErr($"Seek 失败：{ex.Message}");
+                EmitPlaybackError(ex.Message);
+                _isPlaying = false;
+                _isLoading = false;
+                return;
+            }
+
+            if (canLocal)
+            {
+                _isStreamingRemote = false;
+                seekTask = PlayLocalInternalAsync(CurrentAudioFilePath, seconds, token);
+            }
+            else
+            {
+                GD.Print($"[Seek] 定点续传：{seconds:F1}s → 字节偏移 {restartOffset}");
+                RotateTempFile();
+                _isStreamingRemote = true;
+                _isFullyDownloaded = false;
+                seekTask = StreamPlayInternalAsync(_currentUrl, _currentReferer, restartOffset, token);
+            }
+
+            _currentPlayTask = seekTask;
+            if (wasPaused)
+                Pause();
+        }
+        finally { _playLock.Release(); }
+
+        if (seekTask != null)
+            await seekTask;
+    }
 
     public async Task SeekPercentageAsync(float percentage)
     {
         double duration = _currentAudioDuration;
         if (duration <= 0 && !string.IsNullOrEmpty(CurrentAudioFilePath) && File.Exists(CurrentAudioFilePath))
         {
-            var token = _cts?.Token ?? CancellationToken.None;
-            duration = await AudioConverter.GetAudioDurationAsync(CurrentAudioFilePath, token);
+            duration = await AudioConverter.GetAudioDurationAsync(CurrentAudioFilePath, _cts?.Token ?? CancellationToken.None);
             _currentAudioDuration = duration;
         }
-        double seconds = Math.Clamp(percentage, 0f, 1f) * duration;
-        await SeekAsync(seconds);
+        await SeekAsync(Math.Clamp(percentage, 0f, 1f) * duration);
     }
 
-    public void SeekPercentage(float percentage) =>
-        _ = SeekPercentageAsync(percentage).ContinueWith(t =>
-        {
-            if (t.IsFaulted) GD.PrintErr($"SeekPercentage 失败: {t.Exception}");
-        }, TaskScheduler.FromCurrentSynchronizationContext());
+    public void PlayByIdentifier(string identifier) => _ = RunFireAndForget(PlayByIdentifierAsync(identifier), "播放");
+    public void PlayLocal(string filePath) => _ = RunFireAndForget(PlayLocalAsync(filePath), "本地播放");
+    public void Seek(double seconds) => _ = RunFireAndForget(SeekAsync(seconds), "Seek");
+    public void SeekPercentage(float percentage) => _ = RunFireAndForget(SeekPercentageAsync(percentage), "SeekPercentage");
 
-    private async Task SeekAsync(double seconds)
+    private static async Task RunFireAndForget(Task task, string op)
     {
-        if (_isLoading) return;
+        try { await task; }
+        catch (Exception ex) { GD.PrintErr($"{op}失败: {ex.Message}"); }
+    }
+    #endregion
 
-        Task seekTask;
+    #region 查询
+    public double GetCurrentPosition() => _simulatedPosition;
+
+    public float GetCurrentPercentage() => _currentAudioDuration <= 0
+        ? 0
+        : (float)Math.Clamp(GetCurrentPosition() / _currentAudioDuration, 0, 1);
+
+    public float GetCurrentAudioDuration() => (float)_currentAudioDuration;
+    #endregion
+
+    #region 会话管理（私有）
+    /// <summary>统一会话启动：取消旧任务 → Stop → 初始化 → 锁外执行新任务</summary>
+    private async Task StartSessionAsync(Action setup, Func<CancellationToken, Task> run)
+    {
+        Task task = null;
+        if (_audioPlayer == null)
+            throw new InvalidOperationException("AudioStreamPlayer 未设置");
         await _playLock.WaitAsync();
         try
         {
-            if (string.IsNullOrEmpty(CurrentAudioFilePath) || !File.Exists(CurrentAudioFilePath))
-            {
-                GD.PrintErr("Seek 失败：没有有效的音频文件");
-                EmitSignal(SignalName.PlaybackError, "无法 Seek，音频文件不存在");
-                return;
-            }
-
-            var oldTask = _currentPlayTask;
-            _currentPlayTask = null;
-            if (oldTask != null && !oldTask.IsCompleted)
-            {
-                _cts?.Cancel();
-                try { await oldTask; } catch (OperationCanceledException) { }
-                await Task.Delay(50);
-            }
-
+            await CancelCurrentTaskAsync();
             StopPlayback();
-
-            _isPlaying = true;
-            _isStopped = false;
-            _decodingCompleted = false;
-            _bufferReady = false;
-            _requiredBufferBlocks = SeekMinBufferBlocks;
-            ClearPcmQueue();
-            _simulatedPosition = seconds;
-            _finishedEmitted = false;
+            setup();
             _cts = new CancellationTokenSource();
-            var token = _cts.Token;
+            task = _currentPlayTask = run(_cts.Token);
+        }
+        finally { _playLock.Release(); }
+        if (task != null)
+            await task;
+    }
 
-            double duration = _currentAudioDuration;
-            if (duration <= 0)
+    /// <summary>删除旧临时文件并生成新路径（起播 / 远程 Seek 共用）</summary>
+    private void RotateTempFile()
+    {
+        try { if (!string.IsNullOrEmpty(_tempFilePath) && File.Exists(_tempFilePath)) File.Delete(_tempFilePath); } catch { }
+        _tempFilePath = CachePaths.NewTempAudioPath(".m4s");
+        CurrentAudioFilePath = _tempFilePath;
+    }
+
+    /// <summary>取消并等待旧的播放任务退出（含给 ffmpeg 退出留出的缓冲时间）</summary>
+    private async Task CancelCurrentTaskAsync()
+    {
+        var old = _currentPlayTask;
+        _currentPlayTask = null;
+        if (old == null || old.IsCompleted)
+            return;
+        try { _cts?.Cancel(); } catch { }
+        try { await old; }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { GD.PrintErr($"[M4S] 旧任务异常退出: {ex.Message}"); }
+        await Task.Delay(50);
+    }
+
+    /// <summary>开启新的播放会话（调用前必须先 StopPlayback）</summary>
+    private void ResetSession(int requiredBufferBlocks, double startPosition)
+    {
+        _isPlaying = true;
+        _isPaused = false;
+        _decodingCompleted = false;
+        _bufferReady = false;
+        _isLoading = true;
+        _requiredBufferBlocks = requiredBufferBlocks;
+        _finishedEmitted = false;
+        _simulatedPosition = startPosition;
+    }
+
+    /// <summary>获取 playback 并挂起播放器等待预缓冲（起播/Seek 后不立即出声，避免静音卡顿）</summary>
+    private void EnsurePlayback()
+    {
+        if (_playback != null)
+            return;
+        _audioPlayer.Play();
+        _playback = (AudioStreamGeneratorPlayback)_audioPlayer.GetStreamPlayback();
+        if (_playback == null)
+        {
+            _audioPlayer.Stop();
+            throw new InvalidOperationException("无法获取 AudioStreamGeneratorPlayback");
+        }
+        _audioPlayer.StreamPaused = true;
+        _prebufferHold = true;
+    }
+
+    /// <summary>等待 _Process 消费完队列（轮询，避免从线程池线程调用 Godot API）</summary>
+    private async Task WaitForQueueDrainAsync(CancellationToken token)
+    {
+        while (!_pcmQueue.IsEmpty && _isPlaying && !token.IsCancellationRequested)
+            await Task.Delay(50, token);
+    }
+    #endregion
+
+    #region 内部播放任务
+    private async Task StreamPlayInternalAsync(string url, string referer, long startOffset, CancellationToken token)
+    {
+        Process ffmpeg = null;
+        FileStream fileStream = null;
+        CancellationTokenRegistration killReg = default;
+        try
+        {
+            EnsurePlayback();
+
+            fileStream = File.Open(_tempFilePath, FileMode.Create, FileAccess.Write, FileShare.Read);
+            ffmpeg = AudioConverter.StartFFmpegPipe();
+            killReg = token.Register(() =>
             {
-                duration = await AudioConverter.GetAudioDurationAsync(CurrentAudioFilePath, token);
-                _currentAudioDuration = duration;
-            }
-            seconds = Math.Clamp(seconds, 0, duration);
+                try { if (ffmpeg is { HasExited: false }) ffmpeg.Kill(entireProcessTree: true); } catch { }
+            });
 
-            if (_playback == null)
-            {
-                _audioPlayer.Play();
-                _playback = (AudioStreamGeneratorPlayback)_audioPlayer.GetStreamPlayback();
-                if (_playback == null)
-                {
-                    GD.PrintErr("Seek 失败：无法启动播放器");
-                    return;
-                }
-            }
+            StartMetadataProbe(token);
 
-            seekTask = Task.Run(async () =>
+            var downloadTask = Task.Run(async () =>
             {
                 try
                 {
-                    await foreach (var chunk in AudioConverter.DecodeAudioToPcm44100Async(CurrentAudioFilePath, seconds, token))
-                    {
-                        TryEnqueuePcm(chunk, token);
-                    }
-                    _decodingCompleted = true;
+                    using var multiStream = new MultiWriteStream(ffmpeg.StandardInput.BaseStream, fileStream);
+                    if (startOffset > 0)
+                        await multiStream.WriteAsync(_initSegment, 0, _initSegment.Length, token);
+
+                    // 比例估算的偏移可能落在片段中间，需丢弃数据直到下一个 moof 边界
+                    Stream dest = (startOffset > 0 && _segmentIndex == null)
+                        ? new SyncSkipStream(multiStream)
+                        : multiStream;
+
+                    await DownloadAudio.StreamAudioToStreamAsync(url, referer, dest, token, startOffset,
+                        total => _totalFileSize = total);
+                    _isFullyDownloaded = true;
+                    GD.Print("[下载] 音频已完整落盘");
                 }
                 catch (OperationCanceledException) { }
                 catch (Exception ex)
                 {
-                    GD.PrintErr($"Seek 解码错误: {ex.Message}");
-                    EmitSignal(SignalName.PlaybackError, ex.Message);
+                    // 取消旧任务时流被释放属正常现象，不向用户报错
+                    if (!token.IsCancellationRequested)
+                    {
+                        GD.PrintErr($"下载失败: {ex.Message}");
+                        EmitPlaybackError("下载失败: " + ex.Message);
+                    }
+                }
+            }, token);
+
+            var pcmReadTask = Task.Run(async () =>
+            {
+                try
+                {
+                    var output = ffmpeg.StandardOutput.BaseStream;
+                    byte[] buf = new byte[ReadBufferSize];
+                    int read;
+                    while ((read = await output.ReadAsync(buf, token)) > 0)
+                    {
+                        int aligned = read / BytesPerFrame * BytesPerFrame;
+                        if (aligned == 0) continue;
+                        byte[] chunk = new byte[aligned];
+                        Array.Copy(buf, 0, chunk, 0, aligned);
+                        EnqueuePcm(chunk, token);
+                    }
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception ex)
+                {
+                    if (!token.IsCancellationRequested)
+                        GD.PrintErr($"读取 PCM 失败: {ex.Message}");
+                }
+            }, token);
+
+            await downloadTask.WaitAsync(token);
+
+            // 关闭 ffmpeg 输入使其排空解码数据并正常退出；缺少这一步会死等输入导致挂起
+            try { ffmpeg.StandardInput.Close(); } catch { }
+
+            await pcmReadTask;
+            await ffmpeg.WaitForExitAsync(CancellationToken.None);
+
+            _decodingCompleted = true;
+            if (_currentAudioDuration <= 0)
+            {
+                double duration = await AudioConverter.GetAudioDurationAsync(_tempFilePath, token);
+                if (duration > 0)
+                {
+                    _currentAudioDuration = duration;
+                    GD.Print($"[M4S] 音频时长: {duration:F1}s");
+                }
+            }
+
+            GD.Print("解码完成，等待播放队列清空");
+            await WaitForQueueDrainAsync(token);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"播放失败: {ex.Message}");
+            EmitPlaybackError(ex.Message);
+        }
+        finally
+        {
+            if (!_bufferReady)
+                _isLoading = false;
+            killReg.Dispose();
+            try { if (ffmpeg is { HasExited: false }) ffmpeg.Kill(entireProcessTree: true); } catch { }
+            ffmpeg?.Dispose();
+            fileStream?.Dispose();
+        }
+    }
+
+    /// <summary>本地播放（含 Seek 定点：startOffset > 0 即为本地 Seek 路径）</summary>
+    private async Task PlayLocalInternalAsync(string filePath, double startOffset, CancellationToken token)
+    {
+        try
+        {
+            EnsurePlayback();
+
+            if (_currentAudioDuration <= 0)
+            {
+                try
+                {
+                    double duration = await AudioConverter.GetAudioDurationAsync(filePath, token);
+                    if (duration > 0) _currentAudioDuration = duration;
+                    else GD.PrintErr("获取本地音频时长失败");
+                }
+                catch (Exception ex) { GD.PrintErr($"获取本地音频时长失败: {ex.Message}"); }
+            }
+
+            await Task.Run(async () =>
+            {
+                try
+                {
+                    await foreach (var chunk in AudioConverter.DecodeAudioToPcm44100Async(filePath, startOffset, token))
+                        EnqueuePcm(chunk, token);
+                    _decodingCompleted = true;
+                    GD.Print("本地文件解码完成");
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception ex)
+                {
+                    GD.PrintErr($"本地解码错误: {ex.Message}");
+                    EmitPlaybackError(ex.Message);
                     _isPlaying = false;
                 }
             }, token);
 
-            _currentPlayTask = seekTask;
+            await WaitForQueueDrainAsync(token);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"本地播放失败: {ex.Message}");
+            EmitPlaybackError(ex.Message);
         }
         finally
         {
-            _playLock.Release();
+            if (!_bufferReady)
+                _isLoading = false;
         }
-
-        await seekTask;
     }
 
-    public void Seek(double seconds) =>
-        _ = SeekAsync(seconds).ContinueWith(t =>
+    /// <summary>后台提前探测音频时长与 DASH 索引（供远程 Seek 使用）。
+    /// sidx 一出现即可精确计算 fMP4 总时长，无需等 ffprobe（其常需下载较完整文件才能算出）。</summary>
+    private void StartMetadataProbe(CancellationToken token) => _ = Task.Run(async () =>
+    {
+        try
         {
-            if (t.IsFaulted) GD.PrintErr($"Seek 失败: {t.Exception}");
-        }, TaskScheduler.FromCurrentSynchronizationContext());
+            for (int attempt = 0; attempt < ProbeMaxAttempts && !token.IsCancellationRequested; attempt++)
+            {
+                if (_currentAudioDuration > 0 && _initSegment != null)
+                    break;
+                await Task.Delay(500, token);
+                if (!File.Exists(_tempFilePath) || new FileInfo(_tempFilePath).Length < 256 * 1024)
+                    continue;
 
+                if (_initSegment == null)
+                {
+                    TryCaptureDashIndex();
+                    if (_segmentIndex is { Count: > 0 })
+                    {
+                        _currentAudioDuration = _segmentIndex[^1].StartSec + _segmentIndex[^1].DurSec;
+                        GD.Print($"[探测] sidx 时长: {_currentAudioDuration:F1}s");
+                    }
+                }
+                if (_currentAudioDuration > 0)
+                    continue;
+
+                double d = await AudioConverter.GetAudioDurationAsync(_tempFilePath, token);
+                if (d > 0)
+                {
+                    _currentAudioDuration = d;
+                    GD.Print($"[探测] 音频时长: {d:F1}s");
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch { }
+    });
+    #endregion
+
+    #region 标识符播放（BV / AU）
     public async Task PlayByIdentifierAsync(string identifier)
     {
         if (string.IsNullOrWhiteSpace(identifier))
         {
-            EmitSignal(SignalName.PlaybackError, "标识符不能为空");
+            EmitPlaybackError("标识符不能为空");
             return;
         }
-
         try
         {
-            string audioUrl, referer, title, coverUrl;
-
+            string audioUrl, referer;
             if (identifier.StartsWith("BV", StringComparison.OrdinalIgnoreCase))
             {
-                // 判断登录状态
-                string sessdata = "";
-                var gdFunc = GetNodeOrNull("/root/GDScriptFunc");
-                if (gdFunc != null)
-                {
-                    var v = gdFunc.Call("get_data", "AccountData", "SESSDATA", "");
-                    if (v.VariantType == Variant.Type.String)
-                        sessdata = v.AsString();
-                }
-                bool loggedIn = !string.IsNullOrEmpty(sessdata);
+                // 优先用登录态（SESSDATA）换取高音质地址，无登录则走免登录接口
+                var v = GetFuncNode()?.Call("get_data", "AccountData", "SESSDATA", "");
+                string sessdata = v?.VariantType == Variant.Type.String ? v.Value.AsString() : "";
 
-                if (!loggedIn)
+                if (string.IsNullOrEmpty(sessdata))
                 {
-                    // 未登录：走 C# 同步方法（.NET HttpClient），
-                    // 避免 Godot HTTPRequest 的 TLS 指纹被 B 站风控返回 412
                     var info = await Task.Run(() => DownloadAudio.GetAudioInfoByBvSync(identifier));
                     if (info == null || info.Count == 0)
                         throw new Exception("未获取到音频信息");
                     audioUrl = info["audioUrl"].AsString();
-                    title = info["title"].AsString();
-                    coverUrl = info["coverUrl"].AsString();
                     referer = info["referer"].AsString();
                 }
                 else
                 {
-                    // 已登录：保持原逻辑，走 GDScript WBI 签名路径
                     var basic = await DownloadAudio.Instance.GetVideoBasicInfoAsync(identifier);
-                    title = basic.title;
-                    coverUrl = basic.coverUrl;
                     referer = DownloadAudio.BuildVideoPageUrl(identifier);
                     audioUrl = await GetAudioUrlViaGDScript(identifier, basic.cid);
                 }
             }
             else if (identifier.StartsWith("au", StringComparison.OrdinalIgnoreCase))
             {
-                (audioUrl, referer, title, coverUrl) = await DownloadAudio.Instance.GetAudioInfoByAuIdAsync(identifier);
+                (audioUrl, referer, _, _) = await DownloadAudio.Instance.GetAudioInfoByAuIdAsync(identifier);
             }
             else
             {
@@ -738,13 +687,10 @@ public partial class M4SAudioPlayer : Node
         catch (Exception ex)
         {
             GD.PrintErr($"自动播放失败: {ex.Message}");
-            EmitSignal(SignalName.PlaybackError, ex.Message);
+            EmitPlaybackError(ex.Message);
         }
     }
 
-    /// <summary>
-    /// 通过 GDScript 的 BilibiliApi（带 WBI 签名）获取音频播放地址
-    /// </summary>
     private Task<string> GetAudioUrlViaGDScript(string bvid, long cid)
     {
         var tcs = new TaskCompletionSource<string>();
@@ -754,21 +700,135 @@ public partial class M4SAudioPlayer : Node
             tcs.TrySetResult("");
             return tcs.Task;
         }
-
         var callback = Callable.From((string url) => tcs.TrySetResult(url ?? ""));
         api.Call("fetch_audio_url", bvid, cid, callback);
         return tcs.Task;
     }
+    #endregion
 
-    public void PlayByIdentifier(string identifier) =>
-        _ = PlayByIdentifierAsync(identifier).ContinueWith(t =>
+    #region PCM 队列
+    /// <summary>入队（队列满时阻塞解码线程，形成对 ffmpeg/下载的背压）</summary>
+    private void EnqueuePcm(byte[] chunk, CancellationToken token)
+    {
+        while (_pcmQueue.Count >= MaxQueueBlocks)
         {
-            if (t.IsFaulted) GD.PrintErr($"播放失败：{t.Exception}");
-        }, TaskScheduler.FromCurrentSynchronizationContext());
+            token.ThrowIfCancellationRequested();
+            Thread.Sleep(2);
+        }
+        _pcmQueue.Enqueue(chunk);
+    }
+    #endregion
 
+    #region DASH 解析
+    private void TryCaptureDashIndex()
+    {
+        if (_initSegment != null || string.IsNullOrEmpty(_tempFilePath) || !File.Exists(_tempFilePath))
+            return;
+        try
+        {
+            using var fs = new FileStream(_tempFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            if (fs.Length < 256 * 1024) return;
+            byte[] head = new byte[(int)Math.Min(fs.Length, 8 * 1024 * 1024)];
+            for (int read = 0; read < head.Length;)
+            {
+                int n = fs.Read(head, read, head.Length - read);
+                if (n <= 0) break;
+                read += n;
+            }
+            if (TryParseDashIndex(head, out var init, out var index))
+            {
+                _initSegment = init;
+                _segmentIndex = index;
+                GD.Print($"[DASH] 初始化段 {init.Length} 字节，片段索引 {index?.Count ?? 0} 段"
+                    + (index != null
+                        ? $"（覆盖至 {index[^1].StartSec + index[^1].DurSec:F0}s）"
+                        : "（无 sidx，按比例估算 seek 偏移）"));
+            }
+        }
+        catch { }
+    }
+
+    private static bool TryParseDashIndex(byte[] head, out byte[] initSegment,
+        out List<(double StartSec, double DurSec, long FileOffset)> index)
+    {
+        initSegment = null;
+        index = null;
+
+        // 扫描顶层 box，首个 moof/mdat 之前即初始化段，同时记录 sidx 位置
+        int pos = 0, sidxBody = -1, sidxBodyLen = 0;
+        while (pos + 8 <= head.Length)
+        {
+            uint size = BE32(head, pos);
+            if (size < 8 || pos + size > head.Length) break;
+            uint type = BE32(head, pos + 4);
+            if (type == 0x6D6F6F66 /*moof*/ || type == 0x6D646174 /*mdat*/)
+            {
+                initSegment = head[..pos];
+                break;
+            }
+            if (type == 0x73696478 /*sidx*/) { sidxBody = pos + 8; sidxBodyLen = (int)size - 8; }
+            pos += (int)size;
+        }
+        if (initSegment == null) return false;
+
+        long anchor = pos;
+        if (sidxBody < 0) return true;   // 无 sidx，仅初始化段
+
+        try
+        {
+            int p = sidxBody;
+            int version = head[p];
+            p += 8;                                       // version/flags + reference_ID
+            uint timescale = BE32(head, p); p += 4;
+            if (timescale == 0) return true;
+            ulong ept = version == 1 ? BE64(head, p) : BE32(head, p); p += version == 1 ? 8 : 4;
+            ulong firstOff = version == 1 ? BE64(head, p) : BE32(head, p); p += version == 1 ? 8 : 4;
+            p += 2;                                       // reserved
+            ushort refCount = (ushort)(head[p] << 8 | head[p + 1]); p += 2;
+
+            index = new List<(double, double, long)>(refCount);
+            double t = ept / (double)timescale;
+            long off = anchor + (long)firstOff;
+            for (int i = 0; i < refCount && p + 12 <= sidxBody + sidxBodyLen; i++)
+            {
+                uint entry = BE32(head, p); p += 4;
+                uint dur = BE32(head, p); p += 8;         // subsegment_duration + SAP 字段
+                index.Add((t, dur / (double)timescale, off));
+                t += dur / (double)timescale;
+                off += entry & 0x7FFFFFFF;
+            }
+            if (index.Count == 0) index = null;
+        }
+        catch { index = null; }
+        return true;
+    }
+
+    private long MapSecondsToByteOffset(double seconds, double duration)
+    {
+        if (_segmentIndex is { Count: > 0 })
+        {
+            foreach (var s in _segmentIndex)
+                if (seconds < s.StartSec + s.DurSec)
+                    return s.FileOffset;
+            return _segmentIndex[^1].FileOffset;
+        }
+        if (duration <= 0 || _totalFileSize <= 0 || _initSegment == null) return -1;
+        long mediaStart = _initSegment.Length;
+        long mediaLen = Math.Max(1, _totalFileSize - mediaStart);
+        return mediaStart + (long)(Math.Clamp(seconds / duration, 0, 0.999) * mediaLen);
+    }
+
+    private static uint BE32(byte[] b, int p) =>
+        (uint)((b[p] << 24) | (b[p + 1] << 16) | (b[p + 2] << 8) | b[p + 3]);
+
+    private static ulong BE64(byte[] b, int p) =>
+        ((ulong)BE32(b, p) << 32) | BE32(b, p + 4);
+    #endregion
+
+    #region 辅助流
+    /// <summary>同时写入 ffmpeg stdin 与本地文件（Dispose 不关闭内部流，由调用方管理）</summary>
     private class MultiWriteStream(params Stream[] streams) : Stream
     {
-        private readonly Stream[] _streams = streams;
         public override bool CanRead => false;
         public override bool CanSeek => false;
         public override bool CanWrite => true;
@@ -777,7 +837,7 @@ public partial class M4SAudioPlayer : Node
 
         public override void Flush()
         {
-            foreach (var s in _streams) s.Flush();
+            foreach (var s in streams) s.Flush();
         }
 
         public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
@@ -786,13 +846,72 @@ public partial class M4SAudioPlayer : Node
 
         public override void Write(byte[] buffer, int offset, int count)
         {
-            foreach (var s in _streams) s.Write(buffer, offset, count);
+            foreach (var s in streams) s.Write(buffer, offset, count);
         }
 
         public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
         {
-            foreach (var s in _streams)
+            foreach (var s in streams)
                 await s.WriteAsync(buffer.AsMemory(offset, count), cancellationToken);
         }
     }
+
+    /// <summary>丢弃数据直到 moof 边界（比例估算偏移的定点续传）。
+    /// 用 8 字节滑动窗口（size+type）对齐 box 起点，并校验 size 防误同步。</summary>
+    private sealed class SyncSkipStream(Stream inner) : Stream
+    {
+        private bool _synced;
+        private readonly byte[] _win = new byte[8];
+        private int _winLen;
+
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+        public override void Flush() => inner.Flush();
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            if (_synced) { inner.Write(buffer, offset, count); return; }
+            FilterWrite(buffer, offset, count, inner.Write);
+        }
+
+        public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken ct)
+        {
+            if (_synced) { await inner.WriteAsync(buffer.AsMemory(offset, count), ct); return; }
+            using var ms = new MemoryStream();
+            FilterWrite(buffer, offset, count, ms.Write);
+            if (ms.Length > 0)
+                await inner.WriteAsync(ms.GetBuffer(), 0, (int)ms.Length, ct);
+        }
+
+        private void FilterWrite(byte[] buffer, int offset, int count, Action<byte[], int, int> sink)
+        {
+            int end = offset + count;
+            for (int i = offset; i < end; i++)
+            {
+                if (_winLen < 8) _win[_winLen++] = buffer[i];
+                else { Array.Copy(_win, 1, _win, 0, 7); _win[7] = buffer[i]; }
+
+                if (_winLen == 8 && _win[4] == (byte)'m' && _win[5] == (byte)'o'
+                    && _win[6] == (byte)'o' && _win[7] == (byte)'f')
+                {
+                    uint size = BE32(_win, 0);
+                    if (size is >= 8 and < 0x10000000)   // 合理 box 大小才认为同步成功
+                    {
+                        _synced = true;
+                        sink(_win, 0, 8);
+                        if (i + 1 < end) sink(buffer, i + 1, end - i - 1);
+                        return;
+                    }
+                }
+            }
+        }
+    }
+    #endregion
 }
