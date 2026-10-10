@@ -22,7 +22,7 @@ func _ready() -> void:
 	_user = BilibiliUserApi.new(_http)
 	_search = BilibiliSearchApi.new(_http)
 
-	var sub_corr = get_node_or_null("/root/SubtitleCorrection")
+	var sub_corr = get_node_or_null("/root/LyricsPipeline")
 	var m4s_player = get_node_or_null("/root/M4SAudioPlayer")
 
 	var api_func = Callable(_http, "request_with_sign")

@@ -69,7 +69,6 @@ public partial class AudioConverter
 		}
 	}
 
-	// ==================== 路径获取（核心修改） ====================
 	public static string FfmpegPath
 	{
 		get
@@ -132,7 +131,6 @@ public partial class AudioConverter
 		}
 	}
 
-	// ==================== 原有基础方法 ====================
 	public static string FfmpegBasePath
 	{
 		get
@@ -173,7 +171,6 @@ public partial class AudioConverter
 		}
 	}
 
-	// ==================== 以下为原有逻辑，完全不变 ====================
 	public static Process StartFFmpegPipe()
 	{
 		var startInfo = new ProcessStartInfo

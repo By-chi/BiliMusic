@@ -83,7 +83,6 @@ public partial class DownloadAudio : Node
 
     #endregion
 
-    // ======================== 异步方法 ========================
 
     public static async Task StreamAudioToStreamAsync(string url, string referer, Stream targetStream,
         CancellationToken cancellationToken = default, long rangeFrom = 0, Action<long> onTotalSize = null)
@@ -310,7 +309,6 @@ public partial class DownloadAudio : Node
     public static string BuildVideoPageUrl(string bvid) => $"https://www.bilibili.com/video/{bvid}";
     public static string BuildAudioPageUrl(string auId) => $"https://www.bilibili.com/audio/{(auId.StartsWith("au", StringComparison.OrdinalIgnoreCase) ? auId : "au" + auId)}";
 
-    // ======================== 同步阻塞方法 ========================
 
     /// <summary>
     /// 同步下载音频文件，返回临时文件路径。会阻塞直到下载完成。

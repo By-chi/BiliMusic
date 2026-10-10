@@ -312,11 +312,10 @@ public static class SubtitleUtils
 
     public static bool ContainsTimestamps(string lrc) =>
         Regex.IsMatch(lrc, @"\[\d{2}:\d{2}\.\d{2,3}\]");
-
-    // ========================= 带 DEBUG 输出的 CleanLrcMeta =========================
     public static string CleanLrcMeta(string lrcContent)
     {
-        GD.Print("[DEBUG-LRC] ========== CleanLrcMeta 开始 ==========");
+        if (string.IsNullOrEmpty(lrcContent)) return string.Empty;
+
         var lines = lrcContent.Split('\n');
         var sb = new StringBuilder();
         int lineNum = 0;
@@ -325,54 +324,39 @@ public static class SubtitleUtils
         {
             lineNum++;
             string line = rawLine.Trim();
-            if (string.IsNullOrEmpty(line))
-            {
-                GD.Print($"  [行{lineNum}] 空行，跳过");
-                continue;
-            }
 
-            // 1. 检查标准元数据头
-            if (Regex.IsMatch(line, @"^\[(ti|ar|al|by|offset|length):", RegexOptions.IgnoreCase))
-            {
-                GD.Print($"  [行{lineNum}] 标准LRC元数据头，跳过: {line}");
-                continue;
-            }
+            if (string.IsNullOrEmpty(line)) continue;
 
-            // 2. 提取时间标签后的文本
-            var m = Regex.Match(line, @"^\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)");
-            if (!m.Success)
-            {
-                GD.Print($"  [行{lineNum}] 无合法时间标签，跳过: {line}");
+            // 1. 跳过标准元数据头
+            if (Regex.IsMatch(line, @"^\[(ti|ar|al|by|offset|length|re|ve|au):", RegexOptions.IgnoreCase))
                 continue;
-            }
 
-            string text = m.Groups[4].Value.Trim();
-            if (string.IsNullOrEmpty(text))
+            // 2. 提取时间标签（支持一行多标签）
+            var tags = Regex.Matches(line, @"\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]");
+            if (tags.Count == 0) continue;
+
+            // 正文 = 最后一个时间标签之后的内容
+            Match lastTag = tags[tags.Count - 1];
+            string text = line.Substring(lastTag.Index + lastTag.Length).Trim();
+            if (string.IsNullOrEmpty(text)) continue;
+
+            // 3. 过滤元数据/版权文本
+            if (IsMetaDataLine(text)) continue;
+
+            // 4. 每个时间标签展开成独立一行，格式统一为 [mm:ss.mmm]
+            foreach (Match tm in tags)
             {
-                GD.Print($"  [行{lineNum}] 文本为空，跳过");
-                continue;
+                string frac = tm.Groups[3].Success
+                    ? tm.Groups[3].Value.PadRight(3, '0')
+                    : "000";
+                sb.AppendLine($"[{int.Parse(tm.Groups[1].Value):D2}:{tm.Groups[2].Value}.{frac}]{text}");
             }
-
-            // 3. 检查是否为元数据文本（版权/冒号等）
-            bool isMeta = IsMetaDataLine(text);
-            GD.Print($"  [行{lineNum}] 文本='{text}' | IsMetaDataLine={isMeta}");
-            if (isMeta)
-            {
-                GD.Print($"    => 被过滤（元数据/版权）");
-                continue;
-            }
-
-            // 通过检查，保留
-            GD.Print($"    => 保留");
-            sb.AppendLine(line);
         }
 
         string result = sb.ToString().Trim();
-        GD.Print($"[DEBUG-LRC] CleanLrcMeta 结束，保留行数: {result.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length}");
+        GD.Print($"[LRC] CleanLrcMeta 完成，保留行数: {result.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length}");
         return result;
     }
-
-    // ========================= 带 DEBUG 输出的 ExtractLyricLinesFromLrc =========================
     public static List<string> ExtractLyricLinesFromLrc(string cleanedLrc)
     {
         GD.Print("[DEBUG-LRC] ========== ExtractLyricLinesFromLrc 开始 ==========");

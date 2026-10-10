@@ -196,7 +196,7 @@ func _generate_lrc(content: Dictionary, bvid: String, callback: Callable, save_p
 
 func _perform_correction(content: Dictionary, bvid: String, info: Dictionary, callback: Callable, save_path: String) -> void:
 	if not is_instance_valid(_subtitle_correction):
-		push_error("SubtitleCorrection 不可用")
+		push_error("LyricsPipeline 不可用")
 		_generate_lrc(content, bvid, callback, save_path)
 		return
 	var audio = _get_current_audio_path()
@@ -206,7 +206,7 @@ func _perform_correction(content: Dictionary, bvid: String, info: Dictionary, ca
 	var track_name: String = CSharpFunc.ExtractSongName(info.get("title", ""))
 	var rid = str(Time.get_ticks_msec()) + "_" + str(randi())
 	_pending[rid] = {"callback": callback, "fallback": content, "save_path": save_path, "info": info}
-	_subtitle_correction.ProcessSubtitleAsync(content, audio, track_name, BilibiliConstants.LYRICS_CACHE_DIR, rid)
+	_subtitle_correction.ProcessSubtitleAsync(content, audio, track_name, BilibiliConstants.LYRICS_CACHE_DIR, rid,true,info.get("title", ""))
 
 func _fallback_external(info: Dictionary, callback: Callable, save_path: String) -> void:
 	if not is_instance_valid(_subtitle_correction):
@@ -219,7 +219,7 @@ func _fallback_external(info: Dictionary, callback: Callable, save_path: String)
 	var track_name: String = CSharpFunc.ExtractSongName(info.get("title", ""))
 	var rid = str(Time.get_ticks_msec()) + "_" + str(randi())
 	_pending[rid] = {"callback": callback, "fallback": {}, "save_path": save_path, "info": info}
-	_subtitle_correction.FetchAndAlignExternalAsync(audio, track_name, BilibiliConstants.LYRICS_CACHE_DIR, rid)
+	_subtitle_correction.FetchAndAlignExternalAsync(audio, track_name, BilibiliConstants.LYRICS_CACHE_DIR, rid,info.get("title", ""))
 
 func handle_correction_result(request_id: String, lrc_path: String) -> void:
 	if not _pending.has(request_id):

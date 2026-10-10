@@ -10,7 +10,102 @@ public static class SongInfoExtractor
     private static HashSet<string> KnownSingers;
     private static bool samplesLoaded = false;
     private static readonly object loadLock = new();
+    private static List<(string original, string normalized)> _normalizedSingers;
+    private static readonly object singerCacheLock = new();
+    /// <summary>
+    /// 从视频标题提取歌手提示。
+    /// 原理：不做标题解析，直接用 singer.txt 全量词表在标题中做包含扫描，
+    /// 命中的最长歌手名即为提示。返回原始写法的歌手名，未命中返回 ""。
+    ///
+    /// 例："【菲妃Faye】流年 MV" → ""（词库无此人，优雅回退）
+    ///     "王菲 流年 高清"      → "王菲"
+    ///     "《孤勇者》-陈奕迅live" → "陈奕迅"
+    /// </summary>
+    public static string ExtractSingerHint(string title)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(title)) return "";
+            EnsureSingerCacheLoaded();
 
+            string normTitle = NormalizeForMatch(title);
+            if (normTitle.Length < 2) return "";
+
+            string best = "";
+            foreach (var (original, normalized) in _normalizedSingers)
+            {
+                // 过短的名（单字）误命中率高，跳过
+                if (normalized.Length < 2) continue;
+                if (normTitle.Contains(normalized) && normalized.Length > NormalizeForMatch(best).Length)
+                    best = original;
+            }
+            return best;
+        }
+        catch (Exception e)
+        {
+            GD.PrintErr($"ExtractSingerHint failed: {e.Message}");
+            return "";
+        }
+    }
+    /// <summary>
+    /// 判断候选歌手是否与提示匹配。
+    /// 双向包含：候选 "NINEONE#乃万" vs 提示 "乃万" 也能命中。
+    /// </summary>
+    public static bool IsKnownSingerMatch(string candidateArtist, string artistHint)
+    {
+        if (string.IsNullOrEmpty(candidateArtist) || string.IsNullOrEmpty(artistHint))
+            return false;
+        EnsureSingerCacheLoaded();
+
+        string na = NormalizeForMatch(candidateArtist);
+        string nh = NormalizeForMatch(artistHint);
+        if (na.Length < 2 || nh.Length < 2) return false;
+
+        // 双向包含（任一方向）
+        if (na.Contains(nh) || nh.Contains(na)) return true;
+
+        // 候选可能是 "歌手A/歌手B" 或 "歌手A、歌手B" 多人形式，拆开逐个比对
+        var parts = candidateArtist.Split(new[] { '/', '、', '&', ',', '，', 'x', 'X', '×' },
+            StringSplitOptions.RemoveEmptyEntries);
+        foreach (var p in parts)
+        {
+            string np = NormalizeForMatch(p);
+            if (np.Length >= 2 && (np.Contains(nh) || nh.Contains(np))) return true;
+        }
+        return false;
+    }
+    private static void EnsureSingerCacheLoaded()
+    {
+        if (_normalizedSingers != null) return;
+        lock (singerCacheLock)
+        {
+            if (_normalizedSingers != null) return;
+            EnsureSamplesLoaded();
+            var list = new List<(string, string)>();
+            if (KnownSingers != null)
+            {
+                foreach (var s in KnownSingers)
+                    list.Add((s, NormalizeForMatch(s)));
+                // 按长度降序，长名优先命中（避免 "乃万" 抢在 "NINEONE#乃万" 前）
+                list.Sort((a, b) => b.Item2.Length.CompareTo(a.Item2.Length));
+            }
+            _normalizedSingers = list;
+        }
+    }
+
+    /// <summary>匹配用归一化：小写、去空白和常见标点装饰</summary>
+    private static string NormalizeForMatch(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return "";
+        var sb = new StringBuilder(s.Length);
+        foreach (char c in s)
+        {
+            if (char.IsWhiteSpace(c)) continue;
+            if ("·・-—–_#♯()（）【】「」『』".Contains(c)) continue;
+            sb.Append(char.ToLowerInvariant(c));
+        }
+        return sb.ToString();
+    }
     private static void EnsureSamplesLoaded()
     {
         if (samplesLoaded) return;
@@ -58,8 +153,13 @@ public static class SongInfoExtractor
             KnownSongNames = null;
             KnownSingers = null;
         }
+        lock (singerCacheLock)
+        {
+            _normalizedSingers = null;
+        }
         EnsureSamplesLoaded();
     }
+
 
     private static readonly HashSet<string> GenericTags = new(StringComparer.OrdinalIgnoreCase)
     {

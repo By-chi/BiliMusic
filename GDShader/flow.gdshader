@@ -48,7 +48,6 @@ void fragment() {
     float gradient = 1.0 - darken_gradient * UV.y;
     color *= gradient;
 
-    // --- 色调与亮度 ---
     color *= tint_color * brightness;
 
     
