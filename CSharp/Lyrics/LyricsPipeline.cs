@@ -58,10 +58,12 @@ public partial class LyricsPipeline : Node
     /// <summary>
     /// 入口1：有B站字幕内容。isAiSubtitle=false 时字幕即真相直接输出；
     /// =true 时走外部歌词+DP对齐。
+    /// subtitleContent：B站字幕JSON（GDScript传Dictionary或JSON字符串均可）。
     /// videoTitle：视频标题（可 null），用于歌手先验与搜索增强。
+    /// requestId：调用方生成的请求ID，用于回调关联（handle_correction_result 靠它查 _pending）。
     /// </summary>
     public async void ProcessSubtitleAsync(
-        string subtitleContent,
+        Variant subtitleContent,
         string m4sPath,
         string trackName,
         string outputDir,
@@ -72,14 +74,25 @@ public partial class LyricsPipeline : Node
         if (string.IsNullOrEmpty(requestId))
             requestId = $"{Time.GetTicksMsec() % 1000000}_{GD.Randi() % 1000000000}";
 
+        // ── 并发去重：同一音频文件已有任务在跑则直接忽略 ──
+        string flightKey = $"sub_{Path.GetFileNameWithoutExtension(m4sPath)}";
+        if (!_inFlight.TryAdd(flightKey, 0))
+        {
+            GD.Print($"[Pipeline] 忽略重复请求: {trackName} (同曲目任务进行中)");
+            return;
+        }
+
         try
         {
             GD.Print($"[Pipeline] 开始, 曲目: {trackName}, AI字幕: {isAiSubtitle}, 请求ID: {requestId}");
+            GD.Print($"[Pipeline] videoTitle: {videoTitle ?? "(null)"}");
+
             outputDir = ProjectSettings.GlobalizePath(outputDir);
             Directory.CreateDirectory(outputDir);
 
             string result;
 
+            // ---- 优先级1：非AI字幕 = 真相，直接转换 ----
             if (!isAiSubtitle)
             {
                 var subs = ParseBiliSubs(ToDict(subtitleContent));
@@ -98,6 +111,7 @@ public partial class LyricsPipeline : Node
             }
             else
             {
+                // ---- 优先级2/3 ----
                 result = await ProcessInternal(subtitleContent, m4sPath, trackName, outputDir, videoTitle);
             }
 
@@ -107,6 +121,10 @@ public partial class LyricsPipeline : Node
         {
             GD.PrintErr($"[Pipeline] 异常: {e}");
             EmitSignal(SignalName.SubtitleProcessed, "", requestId);
+        }
+        finally
+        {
+            _inFlight.TryRemove(flightKey, out _);
         }
     }
 
@@ -118,9 +136,21 @@ public partial class LyricsPipeline : Node
         string m4sPath, string trackName, string outputDir, string requestId,
         string videoTitle = null)
     {
+        if (string.IsNullOrEmpty(requestId))
+            requestId = $"{Time.GetTicksMsec() % 1000000}_{GD.Randi() % 1000000000}";
+
+        string flightKey = $"ext_{Path.GetFileNameWithoutExtension(m4sPath)}";
+        if (!_inFlight.TryAdd(flightKey, 0))
+        {
+            GD.Print($"[Pipeline] 忽略重复请求: {trackName} (同曲目任务进行中)");
+            return;
+        }
+
         try
         {
             GD.Print($"[Pipeline] 外部歌词模式, 曲目: {trackName}, 请求ID: {requestId}");
+            GD.Print($"[Pipeline] videoTitle: {videoTitle ?? "(null)"}");
+
             outputDir = ProjectSettings.GlobalizePath(outputDir);
             Directory.CreateDirectory(outputDir);
 
@@ -130,20 +160,23 @@ public partial class LyricsPipeline : Node
         catch (Exception e)
         {
             GD.PrintErr($"[Pipeline] 异常: {e}");
-            EmitSignal(SignalName.SubtitleProcessed, "", requestId ?? "");
+            EmitSignal(SignalName.SubtitleProcessed, "", requestId);
+        }
+        finally
+        {
+            _inFlight.TryRemove(flightKey, out _);
         }
     }
 
 
     /// <summary>AI字幕 + 外部歌词 → DP对齐；失败/质量不足 → 回退纯外部</summary>
     private async Task<string> ProcessInternal(
-        string subtitleContent,
+        Variant subtitleContent,
         string m4sPath,
         string trackName,
         string outputDir,
         string videoTitle)
     {
-        // ── AI字幕条目（保留时间戳，对齐器要用） ──
         var aiSubs = ParseBiliSubs(ToDict(subtitleContent));
         string aiFullText = aiSubs.Count > 0 ? string.Join("\n", aiSubs.Select(s => s.content)) : null;
         bool hasAi = !string.IsNullOrEmpty(aiFullText);
@@ -152,10 +185,8 @@ public partial class LyricsPipeline : Node
         else
             GD.PrintErr("[Pipeline] AI字幕标记为true但解析为空，按纯外部处理");
 
-        // ── 音频时长 ──
         double audioDuration = GetAudioDuration();
 
-        // ── 选最佳外部歌词（含歌手先验） ──
         var best = await SelectBestLyricAsync(trackName, aiFullText, audioDuration, videoTitle);
         if (best == null)
         {
@@ -182,7 +213,7 @@ public partial class LyricsPipeline : Node
                 if (alignResult.Quality >= MinAlignQuality)
                 {
                     GD.Print($"[Pipeline] ✓ 对齐成功: {alignResult.AnchoredCount}/{alignResult.TotalLines} 行锚定, " +
-                             $"质量 {alignResult.Quality:F3}");
+                            $"质量 {alignResult.Quality:F3}");
                     string lrcPath = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(m4sPath) + ".lrc");
                     await File.WriteAllTextAsync(lrcPath, alignResult.ToLrc(), Encoding.UTF8);
                     return lrcPath;
@@ -193,6 +224,16 @@ public partial class LyricsPipeline : Node
             {
                 GD.PrintErr($"[Pipeline] 对齐失败，回退纯外部歌词: {e.Message}");
             }
+        }
+
+        // 守门：有AI字幕但最佳候选文本分极低 → 搜索/选歌几乎肯定错了，
+        // 输出错误歌曲的歌词（如 RUDE!）还不如输出AI字幕原文
+        if (hasAi && best.TextScore < 0.05)
+        {
+            GD.Print($"[Pipeline] 最佳候选文本分过低({best.TextScore:F3})，疑似选错歌曲，输出AI字幕原文");
+            string aiOnlyPath = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(m4sPath) + ".lrc");
+            await File.WriteAllTextAsync(aiOnlyPath, ConvertToLrc(aiSubs), Encoding.UTF8);
+            return aiOnlyPath;
         }
 
         return await WriteExternalLrcAsync(best, m4sPath, outputDir);
@@ -225,7 +266,6 @@ public partial class LyricsPipeline : Node
     private async Task<ScoredLyric> SelectBestLyricAsync(
         string trackName, string aiFullText, double duration, string videoTitle)
     {
-        // ── 歌手先验 + 搜索关键词增强 ──
         string artistHint = SongInfoExtractor.ExtractSingerHint(videoTitle ?? "");
         if (!string.IsNullOrEmpty(artistHint))
             GD.Print($"[Pipeline] 歌手提示: {artistHint}（来自视频标题）");
@@ -243,12 +283,10 @@ public partial class LyricsPipeline : Node
         try { lrclibResults = await _lrclibSource.SearchAsync(searchKeyword); }
         catch (Exception e) { GD.PrintErr($"[LRCLIB] 搜索失败: {e.Message}"); }
 
-        // ── 去重合并（歌名+歌手归一化去重，保留首次出现的源） ──
         var candidates = DedupeCandidates(oiapiResults, neteaseResults, lrclibResults);
         GD.Print($"[Pipeline] 搜索到 {candidates.Count} 个去重候选");
         if (candidates.Count == 0) return null;
 
-        // ── 下载 + 打分 ──
         var scored = await LyricCandidateSelector.ScoreCandidatesAsync(
             candidates, MaxDownloadCandidates, duration > 0 ? duration : (double?)null,
             TailThresholdSec, aiFullText, trackName, videoTitle);
@@ -290,29 +328,30 @@ public partial class LyricsPipeline : Node
         catch { return 0; }
     }
 
-    /// <summary>
-    /// 两种形态都兼容：{"body":[...]} 包裹对象，或裸 [...] 数组。
-    /// </summary>
-    private static Godot.Collections.Dictionary ToDict(string subtitleContent)
+    /// <summary>兼容 Dictionary / JSON字符串 两种形态，统一转为 Godot Dictionary</summary>
+    private static Godot.Collections.Dictionary ToDict(Variant subtitleContent)
     {
-        if (string.IsNullOrEmpty(subtitleContent)) return null;
-        try
+        // 形态1：调用方直接传 Dictionary（GDScript 场景）
+        if (subtitleContent.VariantType == Variant.Type.Dictionary)
+            return subtitleContent.AsGodotDictionary();
+        if (subtitleContent.VariantType == Variant.Type.String)
         {
-            var parsed = Json.ParseString(subtitleContent);
-
-            // 形态1：{"body": [...]} 对象
-            if (parsed.VariantType == Variant.Type.Dictionary)
-                return parsed.AsGodotDictionary();
-
-            // 形态2：裸数组 [...]，包一层 body
-            if (parsed.VariantType == Variant.Type.Array)
+            string s = subtitleContent.AsString();
+            if (string.IsNullOrEmpty(s)) return null;
+            try
             {
-                var wrapper = new Godot.Collections.Dictionary();
-                wrapper["body"] = parsed.AsGodotArray();
-                return wrapper;
+                var parsed = Json.ParseString(s);
+                if (parsed.VariantType == Variant.Type.Dictionary)
+                    return parsed.AsGodotDictionary();
+                if (parsed.VariantType == Variant.Type.Array)   // 裸数组包一层 body
+                {
+                    var wrapper = new Godot.Collections.Dictionary();
+                    wrapper["body"] = parsed.AsGodotArray();
+                    return wrapper;
+                }
             }
+            catch { }
         }
-        catch { }
         return null;
     }
 

@@ -17,9 +17,8 @@ public static class SongInfoExtractor
     /// 原理：不做标题解析，直接用 singer.txt 全量词表在标题中做包含扫描，
     /// 命中的最长歌手名即为提示。返回原始写法的歌手名，未命中返回 ""。
     ///
-    /// 例："【菲妃Faye】流年 MV" → ""（词库无此人，优雅回退）
-    ///     "王菲 流年 高清"      → "王菲"
-    ///     "《孤勇者》-陈奕迅live" → "陈奕迅"
+    /// 例："周深《大梦归》百万豪装录音棚大声听" → "周深"
+    ///     "【菲妃Faye】流年 MV"               → ""（词库无此人，优雅回退）
     /// </summary>
     public static string ExtractSingerHint(string title)
     {
@@ -36,6 +35,14 @@ public static class SongInfoExtractor
             {
                 // 过短的名（单字）误命中率高，跳过
                 if (normalized.Length < 2) continue;
+
+                // 纯ASCII且过短的歌手名（如"RU"）极易撞上标题里的任意字母串，
+                // 误报远多于命中，要求至少3个字符
+                bool isAsciiOnly = true;
+                foreach (char c in normalized)
+                    if (c >= 128) { isAsciiOnly = false; break; }
+                if (isAsciiOnly && normalized.Length < 3) continue;
+
                 if (normTitle.Contains(normalized) && normalized.Length > NormalizeForMatch(best).Length)
                     best = original;
             }
@@ -485,8 +492,6 @@ public static class SongInfoExtractor
         if (KnownSongNames != null && KnownSongNames.Contains(cleaned)) return cleaned;
         return IsValidSongName(cleaned) ? cleaned : "";
     }
-
-    // ── 完整噪音清洗 ──
     public static string CleanString(string raw)
     {
         if (string.IsNullOrEmpty(raw)) return "";

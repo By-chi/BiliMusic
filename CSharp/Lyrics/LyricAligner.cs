@@ -36,7 +36,6 @@ public class LyricAligner
         List<(double from, string content)> aiLines,
         ScoredLyric external)
     {
-        // ── 预处理：过滤AI噪声行（纯符号/空） ──
         var ai = aiLines
             .Where(l => !string.IsNullOrWhiteSpace(l.content))
             .Where(l => l.content.Count(c => char.IsLetterOrDigit(c) ||
@@ -53,13 +52,11 @@ public class LyricAligner
         if (n == 0 || m == 0)
             return EmptyResult(external, n + m);
 
-        // ── 预计算相似度矩阵 ──
         var sim = new double[n, m];
         for (int i = 0; i < n; i++)
             for (int j = 0; j < m; j++)
                 sim[i, j] = LineSim(ai[i].content, ext[j].text);
 
-        // ── Needleman-Wunsch DP ──
         // dp[i,j]：ai前i行与ext前j行的最优累积分
         var dp = new double[n + 1, m + 1];
         for (int i = 1; i <= n; i++) dp[i, 0] = dp[i - 1, 0] + GapPenalty;
@@ -79,7 +76,6 @@ public class LyricAligner
             }
         }
 
-        // ── 回溯 ──
         var pairs = new List<(int ai, int ext, double score)>();
         int x = n, y = m;
         while (x > 0 && y > 0)
@@ -97,14 +93,12 @@ public class LyricAligner
         }
         pairs.Reverse();
 
-        // ── 质量报告 ──
         var anchored = pairs.Where(p => p.score >= MatchThreshold).ToList();
         int totalUnits = Math.Min(n, m);
         double coverage = totalUnits > 0 ? (double)anchored.Count / totalUnits : 0;
         double avgScore = anchored.Count > 0 ? anchored.Average(p => p.score) : 0;
         double quality = anchored.Count == 0 ? 0 : avgScore * 0.6 + coverage * 0.4;
 
-        // ── 构建输出时间轴：锚定行用AI时间戳+外部文本 ──
         var extTimeOf = new double?[m];
         foreach (var p in anchored)
             if (!extTimeOf[p.ext].HasValue) extTimeOf[p.ext] = ai[p.ai].from;

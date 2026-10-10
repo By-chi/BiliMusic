@@ -3,6 +3,12 @@ class_name BilibiliSubtitleManager
 # 字幕模块：字幕列表获取、候选字幕下载、LRC 生成、外部歌词纠正。
 # 依赖注入两个请求函数（api_request_func / download_request_func），
 # 均来自 BilibiliHttpClient，本类不再直接 new HTTPRequest。
+#
+# 歌词缓存：
+#   - 缓存键：网络视频用 bvid（跨会话稳定），本地文件退回音频文件名
+#   - 缓存文件：LYRICS_CACHE_DIR/bili_cache_<key>.lrc
+#   - 调用管线前先查缓存，命中直接回调（跳过搜索/下载/对齐全流程）
+#   - 管线成功返回后将产物复制进缓存，供下次播放同曲命中
 
 var _api_request_func: Callable
 var _download_request_func: Callable
@@ -203,10 +209,20 @@ func _perform_correction(content: Dictionary, bvid: String, info: Dictionary, ca
 	if audio.is_empty():
 		_generate_lrc(content, bvid, callback, save_path)
 		return
+
+	# ── 缓存命中：直接回调，跳过整个搜索/下载/对齐流程 ──
+	var cache_key := _get_cache_key(bvid, info, audio)
+	var cached := _get_cached_lrc(cache_key)
+	if not cached.is_empty():
+		print("歌词缓存命中 (%s): %s" % [cache_key, cached])
+		callback.call({"type": "aligned_lrc", "path": cached})
+		return
+
 	var track_name: String = CSharpFunc.ExtractSongName(info.get("title", ""))
 	var rid = str(Time.get_ticks_msec()) + "_" + str(randi())
-	_pending[rid] = {"callback": callback, "fallback": content, "save_path": save_path, "info": info}
-	_subtitle_correction.ProcessSubtitleAsync(content, audio, track_name, BilibiliConstants.LYRICS_CACHE_DIR, rid,true,info.get("title", ""))
+	_pending[rid] = {"callback": callback, "fallback": content, "save_path": save_path, "info": info, "cache_key": cache_key}
+	# 参数顺序：subtitleContent, m4sPath, trackName, outputDir, isAiSubtitle, videoTitle, requestId
+	_subtitle_correction.ProcessSubtitleAsync(content, audio, track_name, BilibiliConstants.LYRICS_CACHE_DIR, true, info.get("title", ""), rid)
 
 func _fallback_external(info: Dictionary, callback: Callable, save_path: String) -> void:
 	if not is_instance_valid(_subtitle_correction):
@@ -216,10 +232,20 @@ func _fallback_external(info: Dictionary, callback: Callable, save_path: String)
 	if audio.is_empty():
 		callback.call({})
 		return
+
+	# ── 缓存命中 ──
+	var cache_key := _get_cache_key("", info, audio)
+	var cached := _get_cached_lrc(cache_key)
+	if not cached.is_empty():
+		print("歌词缓存命中 (%s): %s" % [cache_key, cached])
+		callback.call({"type": "aligned_lrc", "path": cached})
+		return
+
 	var track_name: String = CSharpFunc.ExtractSongName(info.get("title", ""))
 	var rid = str(Time.get_ticks_msec()) + "_" + str(randi())
-	_pending[rid] = {"callback": callback, "fallback": {}, "save_path": save_path, "info": info}
-	_subtitle_correction.FetchAndAlignExternalAsync(audio, track_name, BilibiliConstants.LYRICS_CACHE_DIR, rid,info.get("title", ""))
+	_pending[rid] = {"callback": callback, "fallback": {}, "save_path": save_path, "info": info, "cache_key": cache_key}
+	# 参数顺序：m4sPath, trackName, outputDir, requestId, videoTitle
+	_subtitle_correction.FetchAndAlignExternalAsync(audio, track_name, BilibiliConstants.LYRICS_CACHE_DIR, rid, info.get("title", ""))
 
 func handle_correction_result(request_id: String, lrc_path: String) -> void:
 	if not _pending.has(request_id):
@@ -236,7 +262,48 @@ func handle_correction_result(request_id: String, lrc_path: String) -> void:
 		else:
 			callback.call({})
 		return
+
+	# ── 成功产物写入缓存（供下次播放同曲直接命中） ──
+	_store_cache_copy(ctx.get("cache_key", ""), lrc_path)
+
 	callback.call({"type": "aligned_lrc", "path": lrc_path})
+
+# ---------- 歌词缓存 ----------
+
+func _get_cache_key(bvid: String, info: Dictionary, audio_path: String) -> String:
+	var bv: String = bvid
+	if bv.is_empty():
+		bv = info.get("BV", "")
+	if not bv.is_empty():
+		return bv
+	if not audio_path.is_empty():
+		return audio_path.get_file().get_basename()
+	return ""
+
+func _get_cached_lrc(cache_key: String) -> String:
+	if cache_key.is_empty():
+		return ""
+	var path := BilibiliConstants.LYRICS_CACHE_DIR.path_join("bili_cache_%s.lrc" % cache_key)
+	return path if FileAccess.file_exists(path) else ""
+
+func _store_cache_copy(cache_key: String, lrc_path: String) -> void:
+	if cache_key.is_empty() or lrc_path.is_empty() or not FileAccess.file_exists(lrc_path):
+		return
+	var dir := BilibiliConstants.LYRICS_CACHE_DIR
+	if not DirAccess.dir_exists_absolute(dir):
+		DirAccess.make_dir_recursive_absolute(dir)
+	var cache_path := dir.path_join("bili_cache_%s.lrc" % cache_key)
+	# 已有缓存不覆盖（首次结果为准，避免低质量重跑污染）
+	if FileAccess.file_exists(cache_path):
+		return
+	var src := FileAccess.open(lrc_path, FileAccess.READ)
+	if src == null:
+		return
+	var dst := FileAccess.open(cache_path, FileAccess.WRITE)
+	if dst:
+		dst.store_string(src.get_as_text())
+		dst.close()
+	src.close()
 
 func _get_current_audio_path() -> String:
 	if not is_instance_valid(_m4s_audio_player):
