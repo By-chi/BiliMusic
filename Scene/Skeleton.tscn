@@ -1,4 +1,4 @@
-[gd_scene load_steps=2 format=3 uid="uid://dy5skel0nq1w2e"]
+[gd_scene format=3 uid="uid://dhqpisllokwsw"]
 
 [sub_resource type="GDScript" id="GDScript_skel1"]
 script/source = "extends Control
@@ -14,7 +14,8 @@ script/source = "extends Control
 #   s.unregister_kind(\"mine\")               # 删除
 #   s.custom({...})                          # 一次性，不进注册表
 
-const SWEEP_W := 130.0
+const SWEEP_MIN_W := 130.0
+const SWEEP_MAX_W := 420.0
 
 static var _kinds := {
 	\"row\": {
@@ -152,14 +153,16 @@ func _make_sweep(light_skin: bool) -> void:
 	sweep.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	sweep.anchor_top = 0.0
 	sweep.anchor_bottom = 1.0
-	sweep.offset_right = SWEEP_W
-	sweep.position.x = -SWEEP_W
+	sweep.position.x = -SWEEP_MIN_W
 	add_child(sweep)
 
 	var tw := create_tween().set_loops()
 	tw.tween_interval(randf() * 0.4)
 	tw.tween_method(func(t: float):
-		sweep.position.x = lerpf(-SWEEP_W, size.x + 20.0, t)
+		# 高光宽度跟着控件走：宽控件用更宽的高光，短控件保底，拉伸时也跟手
+		var w := clampf(size.x * 0.5, SWEEP_MIN_W, SWEEP_MAX_W)
+		sweep.size.x = w
+		sweep.position.x = lerpf(-w, size.x + 20.0, t)
 	, 0.0, 1.0, 0.8).set_trans(Tween.TRANS_SINE)
 	tw.tween_interval(0.45)
 
@@ -171,5 +174,7 @@ func dismiss(duration := 0.18) -> void:
 	tw.finished.connect(queue_free)
 "
 
-[node name="Skeleton" type="Control"]
+[node name="Skeleton" type="Control" unique_id=1278549021]
+layout_mode = 3
+anchors_preset = 0
 script = SubResource("GDScript_skel1")
