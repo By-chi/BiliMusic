@@ -47,6 +47,18 @@ const CLOUD_BUFFER_ROWS: int = 3
 ## Deck 缩略图懒加载预加载余量
 const CLOUD_PRELOAD_MARGIN: float = 400.0
 
+## 云端还没回来之前，先垫几个骨架占着位
+func _fill_skeletons(container: Container, skeleton_kind: String, count: int) -> void:
+	for i in count:
+		var s = preload(\"res://Scene/Skeleton.tscn\").instantiate()
+		s.kind = skeleton_kind
+		container.add_child(s)
+
+func _dismiss_skeletons(container: Container) -> void:
+	for child in container.get_children():
+		if child.has_meta(\"is_skeleton\"):
+			child.dismiss()
+
 var _is_showing_favorites: bool = true
 var _current_fav_dir: String = \"\"
 var _last_showing_favorites: bool = true
@@ -1471,9 +1483,11 @@ func _load_cloud_decks() -> void:
 
 	var container = list_container if list_view_mode else grid_container
 	GdScriptFunc.set_progress_bar_value(10, \"云端收藏夹\", \"正在获取收藏夹列表...\")
+	_fill_skeletons(container, \"row\" if list_view_mode else \"deck\", 6 if list_view_mode else 4)
 
 	var mode_snapshot = list_view_mode
 	BilibiliApi.fetch_fav_folders(func(folders: Array):
+		_dismiss_skeletons(container)
 		if not enable_cloud or _is_in_cloud_folder:
 			return
 		if mode_snapshot != list_view_mode:
@@ -1483,10 +1497,17 @@ func _load_cloud_decks() -> void:
 			return
 
 		_cloud_folders = folders
+		var deck_index := 0
 		for f in folders:
 			var deck := _create_cloud_deck_node(f)
 			container.add_child(deck)
 			GdScriptFunc.apply_theme_and_styles_to_node(deck)
+			# 收藏夹一个接一个冒出来，比齐刷刷糊一屏舒服
+			deck.modulate.a = 0.0
+			var dtw = deck.create_tween()
+			dtw.tween_interval(minf(deck_index * 0.05, 0.4))
+			dtw.tween_property(deck, \"modulate:a\", 1.0, 0.25)
+			deck_index += 1
 
 		GdScriptFunc.set_progress_bar_value(100, \"云端收藏夹\", \"共 %d 个收藏夹\" % folders.size())
 
@@ -1552,6 +1573,7 @@ func _enter_cloud_folder(deck: Node) -> void:
 	back_button.show()
 
 	GdScriptFunc.set_progress_bar_value(10, title, \"正在加载云端内容...\")
+	_fill_skeletons(list_container if list_view_mode else grid_container, \"row\" if list_view_mode else \"deck\", 6 if list_view_mode else 4)
 
 	BilibiliApi.fetch_all_fav_items(media_id, func(items: Array):
 		if not enable_cloud or not _is_in_cloud_folder:

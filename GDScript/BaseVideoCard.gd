@@ -25,6 +25,8 @@ var author := "":
 			author_label.text = value
 		_after_text_changed()
 
+var _cover_tween: Tween
+
 var cover: Texture2D:
 	set(value):
 		cover = value
@@ -33,6 +35,13 @@ var cover: Texture2D:
 		if value == null || not value.get_image():
 			return
 		cover_node.texture = value
+
+		# 封面到手后淡一下，别硬贴上去
+		if _cover_tween and _cover_tween.is_running():
+			_cover_tween.kill()
+		cover_node.modulate.a = 0.0
+		_cover_tween = cover_node.create_tween()
+		_cover_tween.tween_property(cover_node, "modulate:a", 1.0, 0.25).set_trans(Tween.TRANS_CUBIC)
 
 		var colors: Array[Color] = CSharpFunc.ExtractThemeColors(value.get_image(), 1, true, 0.15,link)
 		if colors.size() > 0:

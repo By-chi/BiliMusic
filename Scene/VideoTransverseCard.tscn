@@ -24,6 +24,7 @@ func _after_text_changed() -> void:
 		GdScriptFunc.apply_highlight(title_label, keywords, title)
 		GdScriptFunc.apply_highlight(author_label, keywords, author)
 var video_info:Dictionary={}
+var _press_tween: Tween
 var play: int = 0:
 	set(value):
 		play = value
@@ -44,6 +45,22 @@ func _on_mouse_exited() -> void:
 	if _hover_tween and _hover_tween.is_running(): _hover_tween.kill()
 	_hover_tween = color_rect.create_tween()
 	_hover_tween.tween_property(color_rect, \"modulate\", Color.TRANSPARENT, 0.25).set_trans(Tween.TRANS_CUBIC)
+	# 防止按住时拖出去，缩放卡在半路
+	if scale != Vector2.ONE:
+		_play_press_tween(Vector2.ONE, 0.12)
+
+# 按下时轻微缩一下，松手弹回来
+func _on_button_down() -> void:
+	pivot_offset = size / 2
+	_play_press_tween(Vector2(0.98, 0.98), 0.07)
+
+func _on_button_up() -> void:
+	_play_press_tween(Vector2.ONE, 0.15)
+
+func _play_press_tween(target: Vector2, duration: float) -> void:
+	if _press_tween and _press_tween.is_running(): _press_tween.kill()
+	_press_tween = create_tween()
+	_press_tween.tween_property(self, \"scale\", target, duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 func reset()->void:
 	super.reset()
 	_update_share_button()
@@ -218,6 +235,8 @@ expand_icon = true
 
 [connection signal="mouse_entered" from="." to="." method="_on_mouse_entered"]
 [connection signal="mouse_exited" from="." to="." method="_on_mouse_exited"]
+[connection signal="button_down" from="." to="." method="_on_button_down"]
+[connection signal="button_up" from="." to="." method="_on_button_up"]
 [connection signal="pressed" from="." to="." method="_on_pressed"]
 [connection signal="pressed" from="Share" to="." method="_on_share_pressed"]
 [connection signal="toggled" from="Share" to="." method="_on_share_toggled"]

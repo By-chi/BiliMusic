@@ -87,6 +87,10 @@ func _load_avatar(face_url: String, icon: TextureRect) -> void:
 		var img := Image.new()
 		if img.load_jpg_from_buffer(img_body) == OK or img.load_png_from_buffer(img_body) == OK:
 			icon.texture = ImageTexture.create_from_image(img)
+			# 头像到了轻轻浮出来，别啪一下砸上去
+			icon.modulate.a = 0.0
+			var tw = icon.create_tween()
+			tw.tween_property(icon, \"modulate:a\", 1.0, 0.3).set_trans(Tween.TRANS_CUBIC)
 		else:
 			print(\"头像下载失败\")
 	)
@@ -136,6 +140,12 @@ func _load_videos_for_up(up_node: Control) -> void:
 	if not hbox or hbox.get_child_count() > 0:
 		return
 
+	# 视频还没回来，先垫几张骨架
+	for i in 5:
+		var s = preload(\"res://Scene/Skeleton.tscn\").instantiate()
+		s.kind = \"thumb\"
+		hbox.add_child(s)
+
 	if up_node.name == \"bilibili音乐周榜\":
 		BilibiliApi.search_bilibili(load_cards_callback.bind(hbox), up_node.text, 10, 0, 1, up_node.text)
 	elif GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\") == null:
@@ -144,8 +154,18 @@ func _load_videos_for_up(up_node: Control) -> void:
 		BilibiliApi.fetch_user_videos(up_node.name, load_cards_callback.bind(hbox))
 
 
+func _dismiss_row_skeletons(list_node: BoxContainer) -> void:
+	for child in list_node.get_children():
+		if child.has_meta(\"is_skeleton\"):
+			child.dismiss()
+
+
 func load_cards_callback(videos, list_node: BoxContainer) -> void:
-	if videos == null or not is_instance_valid(list_node):
+	if not is_instance_valid(list_node):
+		return
+	# 不管成没成，先撤骨架，失败就空着，别一直闪
+	_dismiss_row_skeletons(list_node)
+	if videos == null:
 		return
 	var video_list = []
 	if typeof(videos) == TYPE_DICTIONARY and videos.has(\"list\"):

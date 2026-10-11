@@ -105,15 +105,27 @@ func change_page(page_name: String) -> void:
 		current_page, \"offset_transform_position:y\",
 		long_position, 0.25
 	).set_trans(Tween.TRANS_CUBIC)
-	last_page_tween.finished.connect(current_page.hide, CONNECT_ONE_SHOT)
+	# 边滑边淡，切换不至于太生硬
+	last_page_tween.parallel().tween_property(
+		current_page, \"modulate:a\", 0.0, 0.22
+	).set_trans(Tween.TRANS_CUBIC)
+	var leaving_page := current_page
+	last_page_tween.finished.connect(func():
+		leaving_page.hide()
+		leaving_page.modulate.a = 1.0
+	, CONNECT_ONE_SHOT)
 	current_page = get_node(page_name)
 	current_page_name = page_name
 	current_page.show()
+	current_page.modulate.a = 0.0
 	current_page.offset_transform_position = Vector2(0, -long_position)  # ✅ 关键：从反方向起始
 	var current_page_tween = get_tree().create_tween()
 	current_page_tween.tween_property(
 		current_page, \"offset_transform_position:y\",
 		0.0, 0.25
+	).set_trans(Tween.TRANS_CUBIC)
+	current_page_tween.parallel().tween_property(
+		current_page, \"modulate:a\", 1.0, 0.25
 	).set_trans(Tween.TRANS_CUBIC)
 	current_page_tween.finished.connect(func(): is_switching = false)
 

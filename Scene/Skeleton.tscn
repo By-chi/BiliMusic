@@ -1,0 +1,175 @@
+[gd_scene load_steps=2 format=3 uid="uid://dy5skel0nq1w2e"]
+
+[sub_resource type="GDScript" id="GDScript_skel1"]
+script/source = "extends Control
+
+# 骨架屏：内置 row / thumb / deck，也可以随时注册新形态，或用一次性的。
+# 形态定义是纯数据：
+#   { \"size\": Vector2(最小尺寸), \"blocks\": [ [锚点Rect2, 偏移Rect2, 圆角, 透明度倍率], ... ] }
+#   锚点 Rect2 = (左, 上, 右, 下) 四边在控件里的比例位置(0~1)，偏移 Rect2 = 像素，
+#   和真卡片的锚点布局同一个原理，容器怎么拉伸都贴得住。
+# 用法：
+#   s.kind = \"row\"                          # 内置形态
+#   s.register_kind(\"mine\", {...})          # 注册（全局表，任何骨架实例上调都行）
+#   s.unregister_kind(\"mine\")               # 删除
+#   s.custom({...})                          # 一次性，不进注册表
+
+const SWEEP_W := 130.0
+
+static var _kinds := {
+	\"row\": {
+		\"size\": Vector2(0, 90),
+		\"blocks\": [
+			[Rect2(0, 0, 0, 0), Rect2(11, 10, 81, 80), 8],
+			[Rect2(0, 0, 1, 0), Rect2(96, 21, -30, 39), 4],
+			[Rect2(0, 0, 0, 0), Rect2(96, 51, 296, 65), 4, 0.6],
+		],
+	},
+	\"thumb\": {
+		\"size\": Vector2(197, 197),
+		\"blocks\": [
+			[Rect2(0, 0, 1, 1), Rect2(0, 0, 0, -30), 10],
+			[Rect2(0, 1, 1, 1), Rect2(0, -30, 0, 0), 0, 1.6],
+			[Rect2(0.3, 1, 0.7, 1), Rect2(0, -23, 0, -8), 3],
+		],
+	},
+	\"deck\": {
+		\"size\": Vector2(582.4, 364.0),
+		\"blocks\": [
+			[Rect2(0, 0, 0, 0), Rect2(8, 8, 198, 34), 6, 0.6],
+			[Rect2(0, 0, 1, 1), Rect2(8, 46, -8, -8), 12],
+		],
+	},
+}
+
+var _base_color := Color.WHITE
+var _def := {}
+
+var kind := \"\":
+	set(value):
+		kind = value
+		if value == \"\":
+			return
+		if _kinds.has(value):
+			_set_def(_kinds[value].duplicate(true))
+		else:
+			push_warning(\"Skeleton: 未注册的形态 '%s'，可用: %s\" % [value, \", \".join(_kinds.keys())])
+
+
+func _ready() -> void:
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	clip_contents = true
+	set_meta(\"is_skeleton\", true)
+	_rebuild()
+
+
+## 注册/覆盖一个形态（全局生效，随时可删）
+func register_kind(id: String, def: Dictionary) -> void:
+	_kinds[id] = def
+
+
+func unregister_kind(id: String) -> void:
+	_kinds.erase(id)
+
+
+## 一次性形态：只作用于当前这个骨架，不进注册表
+func custom(def: Dictionary) -> void:
+	kind = \"\"
+	_set_def(def.duplicate(true))
+
+
+func _set_def(def: Dictionary) -> void:
+	_def = def
+	custom_minimum_size = def.get(\"size\", Vector2.ZERO)
+	if is_inside_tree():
+		_rebuild()
+
+
+func _rebuild() -> void:
+	for child in get_children():
+		child.queue_free()
+	if _def.is_empty():
+		return
+
+	# 借主题字体色调当占位色，深浅皮肤都能自己贴住底色
+	var font_color := get_theme_color(\"font_color\", \"Label\")
+	_base_color = Color(font_color.r, font_color.g, font_color.b, 0.13)
+
+	for block in _def.get(\"blocks\", []):
+		_add_block(block)
+
+	_make_sweep(font_color.v <= 0.5)
+
+
+func _add_block(block: Array) -> void:
+	if block.size() < 2 or not (block[0] is Rect2) or not (block[1] is Rect2):
+		push_warning(\"Skeleton: 块应为 [锚点Rect2, 偏移Rect2, 圆角, 透明度倍率]\")
+		return
+	var sb := StyleBoxFlat.new()
+	var alpha_scale := float(block[3]) if block.size() > 3 else 1.0
+	sb.bg_color = Color(_base_color.r, _base_color.g, _base_color.b, _base_color.a * alpha_scale)
+	var radius := int(block[2]) if block.size() > 2 else 0
+	if radius > 0:
+		sb.set_corner_radius_all(radius)
+	var panel := Panel.new()
+	panel.add_theme_stylebox_override(\"panel\", sb)
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var anchors: Rect2 = block[0]
+	var offsets: Rect2 = block[1]
+	panel.anchor_left = anchors.position.x
+	panel.anchor_top = anchors.position.y
+	panel.anchor_right = anchors.size.x
+	panel.anchor_bottom = anchors.size.y
+	panel.offset_left = offsets.position.x
+	panel.offset_top = offsets.position.y
+	panel.offset_right = offsets.size.x
+	panel.offset_bottom = offsets.size.y
+	add_child(panel)
+
+
+# 一道高光从左到右慢慢扫过去，各行相位错开，免得齐刷刷像阅兵
+func _make_sweep(light_skin: bool) -> void:
+	var sweep_color := Color.BLACK if light_skin else Color.WHITE
+	var grad := Gradient.new()
+	grad.offsets = PackedFloat32Array([0.0, 0.5, 1.0])
+	grad.colors = PackedColorArray([
+		Color(sweep_color.r, sweep_color.g, sweep_color.b, 0.0),
+		Color(sweep_color.r, sweep_color.g, sweep_color.b, 0.07),
+		Color(sweep_color.r, sweep_color.g, sweep_color.b, 0.0),
+	])
+
+	var tex := GradientTexture2D.new()
+	tex.gradient = grad
+	tex.fill_from = Vector2(0, 0.5)
+	tex.fill_to = Vector2(1, 0.5)
+	tex.width = 128
+	tex.height = 4
+
+	var sweep := TextureRect.new()
+	sweep.name = \"Sweep\"
+	sweep.texture = tex
+	sweep.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	sweep.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sweep.anchor_top = 0.0
+	sweep.anchor_bottom = 1.0
+	sweep.offset_right = SWEEP_W
+	sweep.position.x = -SWEEP_W
+	add_child(sweep)
+
+	var tw := create_tween().set_loops()
+	tw.tween_interval(randf() * 0.4)
+	tw.tween_method(func(t: float):
+		sweep.position.x = lerpf(-SWEEP_W, size.x + 20.0, t)
+	, 0.0, 1.0, 0.8).set_trans(Tween.TRANS_SINE)
+	tw.tween_interval(0.45)
+
+
+## 数据到了就撤，别跟真卡片挤位置
+func dismiss(duration := 0.18) -> void:
+	var tw := create_tween()
+	tw.tween_property(self, \"modulate:a\", 0.0, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	tw.finished.connect(queue_free)
+"
+
+[node name="Skeleton" type="Control"]
+script = SubResource("GDScript_skel1")

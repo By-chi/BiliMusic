@@ -18,6 +18,7 @@ script/source = "extends Control
 @export var error: TextureRect
 @export var obstacle: Panel
 @export var search_bar: LineEdit
+@export var skeleton_box: VBoxContainer
 
 var current_execution_number := 0
 var current_count := 0
@@ -52,14 +53,48 @@ func _kill_active_tweens() -> void:
 			tw.kill()
 	active_tweens.clear()
 
+## 加载期间垫一排骨架，免得干瞪着转圈
+func _show_skeletons() -> void:
+	_dismiss_skeletons()
+	var rows: int = clampi(int(rsults_scroll.size.y / 100.0) + 1, 4, 12)
+	for i in rows:
+		var s = preload(\"res://Scene/Skeleton.tscn\").instantiate()
+		s.kind = \"row\"
+		skeleton_box.add_child(s)
+	skeleton_box.modulate.a = 0.0
+	skeleton_box.show()
+	var tw = create_tween()
+	tw.tween_property(skeleton_box, \"modulate:a\", 1.0, 0.15)
+
+func _dismiss_skeletons() -> void:
+	if not skeleton_box.visible:
+		return
+	skeleton_box.hide()
+	for child in skeleton_box.get_children():
+		child.queue_free()
+
+var _sub_label_tween: Tween
+
+## 副标题换字时轻轻带一下，别硬切
+func _set_sub_label(new_text: String) -> void:
+	if sub_label.text == new_text:
+		return
+	sub_label.text = new_text
+	if _sub_label_tween and _sub_label_tween.is_running():
+		_sub_label_tween.kill()
+	sub_label.modulate.a = 0.0
+	_sub_label_tween = sub_label.create_tween()
+	_sub_label_tween.tween_property(sub_label, \"modulate:a\", 1.0, 0.2).set_trans(Tween.TRANS_CUBIC)
+
 func clear_page() -> void:
 	_kill_active_tweens()
+	_dismiss_skeletons()
 	for child in rsults_list.get_children():
 		fade_out(child, 0.1)
 	await get_tree().create_timer(0.12).timeout
 	for i in rsults_list.get_child_count():
 		rsults_list.get_child(i).queue_free()
-	sub_label.text = tr(\"请搜索\")
+	_set_sub_label(tr(\"请搜索\"))
 	fade_out(loading, 0.1)
 func show_search_bar()->void:
 	var tween:=search_bar.create_tween()
@@ -86,8 +121,9 @@ func update_page(keyword: String) -> void:
 	if keyword == \"\":
 		clear_page()
 		return
-	sub_label.text = tr(\"搜索中\")
+	_set_sub_label(tr(\"搜索中\"))
 	fade_in(loading, 0.2)
+	_show_skeletons()
 
 	if keyword.begins_with(\"UID:\"):
 		var mid = keyword.substr(4)
@@ -117,17 +153,18 @@ func update_callback(videos, execution_number := 0) -> void:
 	current_count = video_list.size()
 	fade_out(loading, 0.2)
 	fade_out(obstacle, 0.2)
+	_dismiss_skeletons()
 	if current_count == 0:
 		fade_in(error, 0.3)
 		error.texture = preload(\"res://UI/Icon/nodat.png\")
-		sub_label.text = tr(\"未找任何歌曲\")
+		_set_sub_label(tr(\"未找任何歌曲\"))
 		return
 	if typeof(video_list) == TYPE_ARRAY and video_list.size() > 0 and typeof(video_list[0]) == TYPE_DICTIONARY and video_list[0].is_empty():
 		fade_in(error, 0.3)
 		error.texture = preload(\"res://UI/Icon/neterror.png\")
-		sub_label.text = tr(\"网络错误\")
+		_set_sub_label(tr(\"网络错误\"))
 		return
-	sub_label.text = tr(\"已找到\") + str(current_count) + tr(\"首歌曲\")
+	_set_sub_label(tr(\"已找到\") + str(current_count) + tr(\"首歌曲\"))
 	var total_needed = current_count
 	for i in current_count:
 		if execution_number != current_execution_number: return
@@ -214,7 +251,7 @@ func _on_v_box_container_item_rect_changed() -> void:
 
 [sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_bp3gr"]
 
-[node name="Page3" type="Control" unique_id=585043204 node_paths=PackedStringArray("rsults_list", "rsults_scroll", "page_edit", "sub_label", "SortModeButton", "TidsButton", "loading", "error", "obstacle", "search_bar")]
+[node name="Page3" type="Control" unique_id=585043204 node_paths=PackedStringArray("rsults_list", "rsults_scroll", "page_edit", "sub_label", "SortModeButton", "TidsButton", "loading", "error", "obstacle", "search_bar", "skeleton_box")]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -236,6 +273,7 @@ loading = NodePath("Loading")
 error = NodePath("Error")
 obstacle = NodePath("Obstacle")
 search_bar = NodePath("Search")
+skeleton_box = NodePath("SkeletonBox")
 
 [node name="SubLabel" type="Label" parent="." unique_id=345127570 groups=["color_font_color"]]
 layout_mode = 1
@@ -433,6 +471,20 @@ offset_left = 63.0
 offset_top = 146.0
 offset_right = -36.0
 offset_bottom = -82.0
+
+[node name="SkeletonBox" type="VBoxContainer" parent="." unique_id=618293047]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 146.0
+offset_right = -60.0
+offset_bottom = -82.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 10
 
 [node name="Loading" type="Control" parent="." unique_id=2119322998]
 visible = false
