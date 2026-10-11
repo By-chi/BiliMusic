@@ -69,7 +69,8 @@ public partial class LyricsPipeline : Node
         string outputDir,
         bool isAiSubtitle,
         string videoTitle = null,
-        string requestId = null)
+        string requestId = null,
+        string videoDesc = null)
     {
         if (string.IsNullOrEmpty(requestId))
             requestId = $"{Time.GetTicksMsec() % 1000000}_{GD.Randi() % 1000000000}";
@@ -106,13 +107,13 @@ public partial class LyricsPipeline : Node
                 else
                 {
                     GD.PrintErr("[Pipeline] 人工字幕解析为空，回退外部歌词");
-                    result = await FetchExternalAsync(m4sPath, trackName, outputDir, videoTitle);
+                    result = await FetchExternalAsync(m4sPath, trackName, outputDir, videoTitle, videoDesc);
                 }
             }
             else
             {
                 // ---- 优先级2/3 ----
-                result = await ProcessInternal(subtitleContent, m4sPath, trackName, outputDir, videoTitle);
+                result = await ProcessInternal(subtitleContent, m4sPath, trackName, outputDir, videoTitle, videoDesc);
             }
 
             EmitSignal(SignalName.SubtitleProcessed, result ?? "", requestId);
@@ -134,7 +135,8 @@ public partial class LyricsPipeline : Node
     /// </summary>
     public async void FetchAndAlignExternalAsync(
         string m4sPath, string trackName, string outputDir, string requestId,
-        string videoTitle = null)
+        string videoTitle = null,
+        string videoDesc = null)
     {
         if (string.IsNullOrEmpty(requestId))
             requestId = $"{Time.GetTicksMsec() % 1000000}_{GD.Randi() % 1000000000}";
@@ -175,7 +177,8 @@ public partial class LyricsPipeline : Node
         string m4sPath,
         string trackName,
         string outputDir,
-        string videoTitle)
+        string videoTitle,
+        string videoDesc)
     {
         var aiSubs = ParseBiliSubs(ToDict(subtitleContent));
         string aiFullText = aiSubs.Count > 0 ? string.Join("\n", aiSubs.Select(s => s.content)) : null;
@@ -187,7 +190,7 @@ public partial class LyricsPipeline : Node
 
         double audioDuration = GetAudioDuration();
 
-        var best = await SelectBestLyricAsync(trackName, aiFullText, audioDuration, videoTitle);
+        var best = await SelectBestLyricAsync(trackName, aiFullText, audioDuration, videoTitle, videoDesc);
         if (best == null)
         {
             // 无外部歌词可用：有AI字幕则直接输出AI原文（聊胜于无）
@@ -241,10 +244,11 @@ public partial class LyricsPipeline : Node
 
     /// <summary>纯外部获取（入口2的共用实现）</summary>
     private async Task<string> FetchExternalAsync(
-        string m4sPath, string trackName, string outputDir, string videoTitle)
+        string m4sPath, string trackName, string outputDir, string videoTitle,
+        string videoDesc = null)
     {
         double duration = GetAudioDuration();
-        var best = await SelectBestLyricAsync(trackName, null, duration, videoTitle);
+        var best = await SelectBestLyricAsync(trackName, null, duration, videoTitle, videoDesc);
         if (best == null)
         {
             GD.PrintErr("[Pipeline] ✗ 所有源均无有效歌词");
@@ -264,9 +268,10 @@ public partial class LyricsPipeline : Node
 
 
     private async Task<ScoredLyric> SelectBestLyricAsync(
-        string trackName, string aiFullText, double duration, string videoTitle)
+        string trackName, string aiFullText, double duration, string videoTitle,
+        string videoDesc = null)
     {
-        string artistHint = SongInfoExtractor.ExtractSingerHint(videoTitle ?? "");
+        string artistHint = SongInfoExtractor.ExtractSingerHint(videoTitle ?? "", videoDesc);
         if (!string.IsNullOrEmpty(artistHint))
             GD.Print($"[Pipeline] 歌手提示: {artistHint}（来自视频标题）");
 
@@ -289,7 +294,7 @@ public partial class LyricsPipeline : Node
 
         var scored = await LyricCandidateSelector.ScoreCandidatesAsync(
             candidates, MaxDownloadCandidates, duration > 0 ? duration : (double?)null,
-            TailThresholdSec, aiFullText, trackName, videoTitle);
+            TailThresholdSec, aiFullText, trackName, videoTitle, videoDesc);
 
         return scored.FirstOrDefault();
     }

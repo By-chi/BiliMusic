@@ -123,7 +123,7 @@ func _on_user_videos_response(_result, code, _headers, body, extra):
 	var vlist = list_data.get("list", {}).get("vlist", [])
 	var videos = []
 	for item in vlist:
-		videos.append({
+		var video := {
 			"link": item.get("bvid", ""),
 			"BV": item.get("bvid", ""),
 			"title": BilibiliHTMLDecoder.decode(item.get("title", "")),
@@ -132,7 +132,8 @@ func _on_user_videos_response(_result, code, _headers, body, extra):
 			"danmaku": item.get("video_review", 0),
 			"duration": item.get("length", ""),
 			"description": BilibiliHTMLDecoder.decode(item.get("description", ""))
-		})
+		}
+		videos.append(video)
 	callback.call(videos)
 
 # ---------------- 备用方案：medialist ----------------
@@ -199,7 +200,7 @@ func fetch_videos_medialist(mid: String, username: String, callback: Callable, p
 	for item in media_list:
 		var bvid_item = item.get("bv_id", "")
 		if bvid_item.is_empty(): continue
-		videos.append({
+		var video := {
 			"link": bvid_item,
 			"BV": bvid_item,
 			"title": BilibiliHTMLDecoder.decode(item.get("title", "")),
@@ -208,7 +209,8 @@ func fetch_videos_medialist(mid: String, username: String, callback: Callable, p
 			"danmaku": 0,
 			"duration": BilibiliBvCodec.format_duration(item.get("duration", 0)),
 			"description": BilibiliHTMLDecoder.decode(item.get("intro", ""))
-		})
+		}
+		videos.append(video)
 	callback.call(videos)
 
 func _search_one_video_bvid(username: String) -> String:
@@ -342,7 +344,7 @@ func _on_fav_items_received(_result: int, code: int, _headers: PackedStringArray
 			continue
 		var upper: Dictionary = m.get("upper", {})
 		var cnt: Dictionary = m.get("cnt_info", {})
-		result.append({
+		var entry := {
 			"link": m.get("bvid", ""),
 			"BV": m.get("bvid", ""),
 			"title": BilibiliHTMLDecoder.decode(m.get("title", "")),
@@ -352,7 +354,8 @@ func _on_fav_items_received(_result: int, code: int, _headers: PackedStringArray
 			"duration": int(m.get("duration", 0)),
 			"play": int(cnt.get("play", 0)),
 			"is_network": true,
-		})
+		}
+		result.append(entry)
 
 	callback.call({
 		"medias": result,

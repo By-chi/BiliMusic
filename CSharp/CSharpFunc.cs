@@ -403,6 +403,14 @@ public partial class CSharpFunc : Node
 	}
 
 	/// <summary>
+	/// 从标题+简介提取歌名（阶段2：标题优先，简介宽松兜底）
+	/// </summary>
+	public static string ExtractSongName(string title, string desc)
+	{
+		return SongInfoExtractor.ExtractSongName(title, desc);
+	}
+
+	/// <summary>
 	/// 从标题提取歌名和歌手（返回 Dictionary，keys: "song", "singer"）
 	/// </summary>
 	public static Godot.Collections.Dictionary<string, string> ExtractFeatures(string title)

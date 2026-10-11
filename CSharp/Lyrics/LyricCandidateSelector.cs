@@ -62,7 +62,8 @@ public static class LyricCandidateSelector
         double tailThresholdSec,
         string aiSubtitleText,
         string keyword = null,
-        string videoTitle = null)
+        string videoTitle = null,
+        string videoDesc = null)
     {
         var scored = new List<ScoredLyric>();
         int downloaded = 0, attempts = 0;
@@ -71,9 +72,9 @@ public static class LyricCandidateSelector
         string normKeyword = TextSimilarity.Normalize(keyword ?? "");
         bool hasAiSubtitle = !string.IsNullOrEmpty(aiSubtitleText);
 
-        string artistHint = SongInfoExtractor.ExtractSingerHint(videoTitle ?? "");
+        string artistHint = SongInfoExtractor.ExtractSingerHint(videoTitle ?? "", videoDesc);
         if (!string.IsNullOrEmpty(artistHint))
-            GD.Print($"[Selector] 歌手提示: {artistHint}（来自视频标题）");
+            GD.Print($"[Selector] 歌手提示: {artistHint}（来自视频标题/简介）");
 
         foreach (var (src, song) in candidates)
         {

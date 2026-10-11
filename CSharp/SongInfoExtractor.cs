@@ -264,6 +264,136 @@ public static class SongInfoExtractor
         }
     }
 
+    /// <summary>
+    /// 带简介版提取（阶段2）：标题提取优先，失败时从简介宽松兜底。
+    /// 简介模板（来自 180 条真实样本分析，按置信度排序）：
+    ///   1. 「歌曲：xxx」/「歌手：xxx」行（单曲视频最常见，信息最干净）
+    ///   2. 「歌名 歌手 链接 [歌名 - 歌手] url」行（网易云外链模板）
+    ///   3. 叙述句「《歌名》是xxx演唱的…」（百科式简介）
+    ///   4. 歌单时间戳行「0:00\t歌名」（取第一首）
+    /// 全部宽松匹配，只提取不校验词库，宁缺毋滥——解析不出就回退原标题行为。
+    /// </summary>
+    public static string ExtractSongName(string title, string desc)
+    {
+        var fromTitle = ExtractSongName(title);
+        if (!string.IsNullOrEmpty(fromTitle)) return fromTitle;
+        return ExtractSongNameFromDesc(desc);
+    }
+
+    /// <summary>带简介版歌手提示：标题扫描优先，失败时从简介「歌手：」等模板兜底</summary>
+    public static string ExtractSingerHint(string title, string desc)
+    {
+        var fromTitle = ExtractSingerHint(title);
+        if (!string.IsNullOrEmpty(fromTitle)) return fromTitle;
+        return ExtractSingerHintFromDesc(desc);
+    }
+
+    private static string ExtractSongNameFromDesc(string desc)
+    {
+        if (string.IsNullOrWhiteSpace(desc)) return "";
+        try
+        {
+            // 模板1/2：逐行找结构化字段（前几行内命中率最高，全扫也便宜）
+            foreach (var rawLine in desc.Split('\n'))
+            {
+                var line = rawLine.Trim();
+                if (line.Length == 0) continue;
+
+                // 模板1：「歌曲：xxx」，注意排除「歌曲传送门：▶ xxx」——要求冒号紧跟"歌曲"
+                var m = Regex.Match(line, @"^歌曲\s*[:：]\s*(.+)$");
+                if (m.Success)
+                {
+                    var v = CleanDescField(m.Groups[1].Value);
+                    if (IsPlausibleDescValue(v)) return v;
+                }
+
+                // 模板2：「歌名 歌手 链接 [歌名 - 歌手] https://…」
+                m = Regex.Match(line, @"^歌名\s*歌手\s*链接\s*\[([^\[\]]+?)\s*[-－—~]\s*([^\[\]]+?)\]");
+                if (m.Success)
+                {
+                    var v = CleanDescField(m.Groups[1].Value);
+                    if (IsPlausibleDescValue(v)) return v;
+                }
+            }
+
+            // 模板3：叙述句《歌名》…（是/由）…演唱（限同一句内，防止跨句误配）
+            var m3 = Regex.Match(desc, @"《([^《》\n]{1,60})》[^。\n]{0,40}?(?:是|由)[^。\n]{0,40}?(?:演唱|献唱|主唱|作词)");
+            if (m3.Success)
+            {
+                var v = CleanDescField(m3.Groups[1].Value);
+                if (IsPlausibleDescValue(v)) return v;
+            }
+
+            // 模板4：歌单时间戳行「0:00\t歌名」，取第一首
+            var m4 = Regex.Match(desc, @"(?m)^[ \t]*\d{1,2}:\d{2}(?::\d{2})?[ \t]+(\S[^\n]*)$");
+            if (m4.Success)
+            {
+                var v = CleanDescField(m4.Groups[1].Value);
+                if (IsPlausibleDescValue(v)) return v;
+            }
+        }
+        catch (Exception e)
+        {
+            GD.PrintErr($"ExtractSongNameFromDesc failed: {e.Message}");
+        }
+        return "";
+    }
+
+    private static string ExtractSingerHintFromDesc(string desc)
+    {
+        if (string.IsNullOrWhiteSpace(desc)) return "";
+        try
+        {
+            // 只信结构化字段（「歌手：」行、链接行方括号对）。
+            // 叙述句「《歌》是xxx作词作曲…」实测噪音大（易抓到编曲/作词串），
+            // 错误歌手提示会惩罚正确歌词候选，宁缺毋滥，不解析。
+            foreach (var rawLine in desc.Split('\n'))
+            {
+                var line = rawLine.Trim();
+                if (line.Length == 0) continue;
+
+                // 模板1：「歌手：xxx」
+                var m = Regex.Match(line, @"^歌手\s*[:：]\s*(.+)$");
+                if (m.Success)
+                {
+                    var v = CleanDescField(m.Groups[1].Value);
+                    if (IsPlausibleDescValue(v)) return v;
+                }
+
+                // 模板2：方括号对「[歌名 - 歌手]」取右侧
+                m = Regex.Match(line, @"^歌名\s*歌手\s*链接\s*\[([^\[\]]+?)\s*[-－—~]\s*([^\[\]]+?)\]");
+                if (m.Success)
+                {
+                    var v = CleanDescField(m.Groups[2].Value);
+                    if (IsPlausibleDescValue(v)) return v;
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            GD.PrintErr($"ExtractSingerHintFromDesc failed: {e.Message}");
+        }
+        return "";
+    }
+
+    /// <summary>简介字段清洗：\xa0→空格、剥首尾【】[]包裹、Trim</summary>
+    private static string CleanDescField(string v)
+    {
+        if (string.IsNullOrEmpty(v)) return "";
+        v = v.Replace('\u00A0', ' ');
+        v = Regex.Replace(v, @"^[【\[]+", "");
+        v = Regex.Replace(v, @"[】\]]+$", "");
+        return v.Trim();
+    }
+
+    /// <summary>宽松合理性：非空、长度 1~60、不是纯标点/纯数字（如时间戳残片）</summary>
+    private static bool IsPlausibleDescValue(string v)
+    {
+        if (string.IsNullOrEmpty(v) || v.Length > 60) return false;
+        if (Regex.IsMatch(v, @"^[\d\s:.\-–—/]+$")) return false; // 纯数字时间类
+        return Regex.IsMatch(v, @"\p{L}"); // 至少含一个字母/文字
+    }
+
     // 新增：纯评论/标题党拦截
     private static bool IsPureComment(string title)
     {

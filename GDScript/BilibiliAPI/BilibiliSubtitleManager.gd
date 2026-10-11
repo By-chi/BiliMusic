@@ -218,11 +218,12 @@ func _perform_correction(content: Dictionary, bvid: String, info: Dictionary, ca
 		callback.call({"type": "aligned_lrc", "path": cached})
 		return
 
-	var track_name: String = CSharpFunc.ExtractSongName(info.get("title", ""))
+	var desc: String = info.get("desc", info.get("description", ""))
+	var track_name: String = CSharpFunc.ExtractSongName(info.get("title", ""), desc)
 	var rid = str(Time.get_ticks_msec()) + "_" + str(randi())
 	_pending[rid] = {"callback": callback, "fallback": content, "save_path": save_path, "info": info, "cache_key": cache_key}
-	# 参数顺序：subtitleContent, m4sPath, trackName, outputDir, isAiSubtitle, videoTitle, requestId
-	_subtitle_correction.ProcessSubtitleAsync(content, audio, track_name, BilibiliConstants.LYRICS_CACHE_DIR, true, info.get("title", ""), rid)
+	# 参数顺序：subtitleContent, m4sPath, trackName, outputDir, isAiSubtitle, videoTitle, requestId, videoDesc
+	_subtitle_correction.ProcessSubtitleAsync(content, audio, track_name, BilibiliConstants.LYRICS_CACHE_DIR, true, info.get("title", ""), rid, desc)
 
 func _fallback_external(info: Dictionary, callback: Callable, save_path: String) -> void:
 	if not is_instance_valid(_subtitle_correction):
@@ -241,11 +242,13 @@ func _fallback_external(info: Dictionary, callback: Callable, save_path: String)
 		callback.call({"type": "aligned_lrc", "path": cached})
 		return
 
-	var track_name: String = CSharpFunc.ExtractSongName(info.get("title", ""))
+	var desc: String = info.get("desc", info.get("description", ""))
+	var track_name: String = CSharpFunc.ExtractSongName(info.get("title", ""), desc)
 	var rid = str(Time.get_ticks_msec()) + "_" + str(randi())
 	_pending[rid] = {"callback": callback, "fallback": {}, "save_path": save_path, "info": info, "cache_key": cache_key}
 	# 参数顺序：m4sPath, trackName, outputDir, requestId, videoTitle
-	_subtitle_correction.FetchAndAlignExternalAsync(audio, track_name, BilibiliConstants.LYRICS_CACHE_DIR, rid, info.get("title", ""))
+	# 参数顺序：m4sPath, trackName, outputDir, requestId, videoTitle, videoDesc
+	_subtitle_correction.FetchAndAlignExternalAsync(audio, track_name, BilibiliConstants.LYRICS_CACHE_DIR, rid, info.get("title", ""), desc)
 
 func handle_correction_result(request_id: String, lrc_path: String) -> void:
 	if not _pending.has(request_id):
