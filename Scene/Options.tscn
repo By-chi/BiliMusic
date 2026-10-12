@@ -5,11 +5,14 @@ script/source = "extends Control
 @export var OptionsTabContainer: TabContainer
 @export var ClearCoversCache: Button
 @export var ClearLyricsCache: Button
-@export var BuiltinThemes: Array[String]
-@export var BuiltinPiPThemes: Array[String]
+var BuiltinThemes: Array[String] = []      # 运行时自动扫描 res://BigWindowTheme/ 的子文件夹
+var BuiltinPiPThemes: Array[String] = []   # 运行时自动扫描 res://PiPTheme/ 的 .tscn 文件
 var _setting_controls: Dictionary = {}
 
 func _ready() -> void:
+	BuiltinThemes = _scan_dirs(\"res://BigWindowTheme/\", true)
+	BuiltinPiPThemes = _scan_files(\"res://PiPTheme/\", \".tscn\")
+
 	for scroll in OptionsTabContainer.get_children():
 		if not scroll is ScrollContainer:
 			continue
@@ -32,7 +35,7 @@ func _ready() -> void:
 				_setup_skin(control as OptionButton)
 			elif option.name == \"Custom_Big_Window_Theme\":
 				_setup_big_window_theme(control as OptionButton)
-			elif option.name == \"Custom_PiP_Theme\":  # 新增：PiP主题选项
+			elif option.name == \"Custom_PiP_Theme\":
 				_setup_pip_theme(control as OptionButton)
 			elif option.name == \"Language\":
 				_setup_language(option, control as OptionButton)
@@ -42,7 +45,58 @@ func _ready() -> void:
 			_setting_controls[option.name] = control
 	GdScriptFunc.traverse_iterative_no_text_ui(get_tree().root)
 	_update_cache_size()
-	
+
+
+
+# 扫描 base_path 下的子文件夹，返回排序后的文件夹名数组
+# check_main 用于大窗口主题：只有包含 main.tscn 的文件夹才算有效主题
+func _scan_dirs(base_path: String, check_main: bool = false) -> Array[String]:
+	var result: Array[String] = []
+	if not DirAccess.dir_exists_absolute(base_path):
+		return result
+	var dir = DirAccess.open(base_path)
+	if dir == null:
+		return result
+	dir.list_dir_begin()
+	var item = dir.get_next()
+	while item != \"\":
+		if dir.current_is_dir() and item != \".\" and item != \"..\" \\
+				and not item.ends_with(\".import\") and not item.ends_with(\".remap\"):
+			if check_main:
+				var main_path = base_path.path_join(item).path_join(\"main.tscn\")
+				if ResourceLoader.exists(main_path, \"PackedScene\"):
+					result.append(item)
+			else:
+				result.append(item)
+		item = dir.get_next()
+	dir.list_dir_end()
+	result.sort()
+	return result
+
+
+# 扫描 base_path 下的指定后缀文件，返回去掉扩展名的文件名数组（已排序）
+func _scan_files(base_path: String, ext: String) -> Array[String]:
+	var result: Array[String] = []
+	if not DirAccess.dir_exists_absolute(base_path):
+		return result
+	var dir = DirAccess.open(base_path)
+	if dir == null:
+		return result
+	dir.list_dir_begin()
+	var item = dir.get_next()
+	while item != \"\":
+		if not dir.current_is_dir() and item.ends_with(ext) \\
+				and not item.ends_with(ext + \".import\") and not item.ends_with(ext + \".remap\"):
+			# 校验场景可加载（导出后防止 remap 残留导致无效项）
+			if ResourceLoader.exists(base_path.path_join(item), \"PackedScene\"):
+				result.append(item.trim_suffix(ext))
+		item = dir.get_next()
+	dir.list_dir_end()
+	result.sort()
+	return result
+
+
+
 func _setup_language(option: Control, option_button: OptionButton) -> void:
 	# 使用有序数组，确保名称和代码一一对应
 	var lang_names = [\"中文\", \"English\", \"日本語\"]
@@ -87,6 +141,8 @@ func _setup_language(option: Control, option_button: OptionButton) -> void:
 		GdScriptFunc.traverse_iterative_no_text_ui(get_tree().root)
 		_update_cache_size()
 	)
+
+
 func _setup_account(option: Control, button: Button) -> void:
 	var sessdata = GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\")
 	if sessdata == null:
@@ -100,12 +156,34 @@ func _setup_account(option: Control, button: Button) -> void:
 		)
 	button.pressed.connect(_log_in_out.bind(option))
 
+func _log_in_out(option: Control) -> void:
+	var button = option.get_child(0)
+	if GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\") != null:
+		GdScriptFunc.set_data(\"AccountData\", \"SESSDATA\", null, true)
+		GdScriptFunc.set_data(\"AccountData\", \"bili_jct\", null, true)
+		GdScriptFunc.set_data(\"AccountData\", \"DedeUserID\", null, true)
+		GdScriptFunc.set_data(\"AccountData\", \"DedeUserID__ckMd5\", null, true)
+		GdScriptFunc.set_data(\"AccountData\", \"sid\", null, true)
+		button.text = tr(\"点击登陆\")
+		get_node(\"/root/Main\").icon.texture = preload(\"res://UI/DefaultprofilePicture.png\")
+	else:
+		BilibiliApi.start_qr_login(
+			func(success: bool):
+				if success:
+					button.text = tr(\"退出登陆\")
+					BilibiliApi.fetch_user_avatar(func(tex: ImageTexture):
+						if tex != null:
+							get_node(\"/root/Main\").icon.texture = tex
+					)
+		)
+
+
+
 func _setup_skin(option_button: OptionButton) -> void:
 	# 设置OptionButton字体大小
 	var option_popup = option_button.get_popup()
 	option_popup.add_theme_font_size_override(\"font_size\", 35)
-	
-	
+
 	var skin_dict: Dictionary = {}
 
 	var res_path = \"res://Skin/\"
@@ -172,15 +250,19 @@ func _setup_skin(option_button: OptionButton) -> void:
 		GdScriptFunc.update_skin_theme(chosen_name)  # 同样可能需要路径
 		GdScriptFunc.update_marks_theme_and_styles()
 	)
+
+
+
 func _setup_pip_theme(option_button: OptionButton) -> void:
 	# 设置OptionButton字体大小
 	var option_popup = option_button.get_popup()
 	option_popup.add_theme_font_size_override(\"font_size\", 35)
-	
+
 	const BUILTIN_DIR = \"res://PiPTheme/\"
 
 	var theme_dict: Dictionary = {}
-	for theme_name in BuiltinPiPThemes:  # 使用新导出的数组
+	# 内置主题来自 _ready 中自动扫描的 BuiltinPiPThemes
+	for theme_name in BuiltinPiPThemes:
 		theme_dict[theme_name] = BUILTIN_DIR.path_join(theme_name + \".tscn\")
 
 	var user_dir = \"user://PiPTheme/\"
@@ -229,17 +311,21 @@ func _setup_pip_theme(option_button: OptionButton) -> void:
 		var selected_path = sorted_paths[index]
 		GdScriptFunc.set_data(\"Options\", \"Custom_PiP_Theme\", selected_path, true)
 		var main = get_node(\"/root/Main\")
-		if main and main.bottom_menu and main.bottom_menu.play_window and main.bottom_menu.play_window_mode==\"PiP\":
+		if main and main.bottom_menu and main.bottom_menu.play_window and main.bottom_menu.play_window_mode == \"PiP\":
 			main.bottom_menu.play_window.update_pip_theme(selected_path)
 	)
+
+
+
 func _setup_big_window_theme(option_button: OptionButton) -> void:
 	# 设置OptionButton字体大小
 	var option_popup = option_button.get_popup()
 	option_popup.add_theme_font_size_override(\"font_size\", 35)
-	
+
 	const BUILTIN_DIR = \"res://BigWindowTheme/\"
 
 	var theme_dict: Dictionary = {}
+	# 内置主题来自 _ready 中自动扫描的 BuiltinThemes
 	for theme_name in BuiltinThemes:
 		var builtin_path = BUILTIN_DIR.path_join(theme_name).path_join(\"main.tscn\")
 		theme_dict[theme_name] = builtin_path
@@ -294,6 +380,9 @@ func _setup_big_window_theme(option_button: OptionButton) -> void:
 		if main and main.bottom_menu and main.bottom_menu.play_window and main.bottom_menu.play_window_mode == \"BigWindow\":
 			main.bottom_menu.play_window.update_performance_node(selected_path)
 	)
+
+
+
 func _setup_generic(option: Control, control: Node) -> void:
 	var key = option.name
 	match control.get_class():
@@ -312,7 +401,7 @@ func _setup_generic(option: Control, control: Node) -> void:
 			h_slider.drag_ended.connect(
 				func(value_changed: bool):
 					if value_changed:
-						_on_option_change(h_slider.value,option, h_slider)
+						_on_option_change(h_slider.value, option, h_slider)
 			)
 		_:
 			printerr(\"未知控件类型 %s 用于设置项 %s\" % [control.get_class(), key])
@@ -321,28 +410,7 @@ func _on_option_change(new_value: Variant, option: Control, control: Node) -> vo
 	var key = option.name
 	GdScriptFunc.set_data(\"Options\", key, new_value, true)
 
-func _log_in_out(option: Control) -> void:
-	var button = option.get_child(0)
-	if GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\") != null:
-		GdScriptFunc.set_data(\"AccountData\", \"SESSDATA\", null, true)
-		GdScriptFunc.set_data(\"AccountData\", \"bili_jct\", null, true)
-		GdScriptFunc.set_data(\"AccountData\", \"DedeUserID\", null, true)
-		GdScriptFunc.set_data(\"AccountData\", \"DedeUserID__ckMd5\", null, true)
-		GdScriptFunc.set_data(\"AccountData\", \"sid\", null, true)
-		button.text = tr(\"点击登陆\")
-		get_node(\"/root/Main\").icon.texture = preload(\"res://UI/DefaultprofilePicture.png\")
-	else:
-		BilibiliApi.start_qr_login(
-			func(success: bool):
-				if success:
-					button.text = tr(\"退出登陆\")
-					BilibiliApi.fetch_user_avatar(func(tex: ImageTexture):
-						if tex != null:
-							get_node(\"/root/Main\").icon.texture = tex
-					)
-		)
 
-# ==================== 缓存清理与统计 ====================
 
 func _on_clear_covers_cache_pressed() -> void:
 	# 不存在时静默返回，避免 ERROR 刷屏
@@ -360,7 +428,7 @@ func _on_clear_lyrics_cache_pressed() -> void:
 	delete_directory_contents(BilibiliConstants.LYRICS_CACHE_DIR)
 	_update_cache_size()
 
-func _on_clear_temp_audio_pressed() -> void:   # ★ 可选：新增\"清理临时音频\"按钮
+func _on_clear_temp_audio_pressed() -> void:
 	CachePaths.CleanTempAudio()
 	_update_cache_size()
 
@@ -424,8 +492,6 @@ script = SubResource("GDScript_nmc4f")
 OptionsTabContainer = NodePath("TabContainer")
 ClearCoversCache = NodePath("TabContainer/储存/VBoxContainer/ClearCoversCache")
 ClearLyricsCache = NodePath("TabContainer/储存/VBoxContainer/ClearLyricsCache")
-BuiltinThemes = Array[String](["RecordEdgeLines", "WaveCrease", "NCSVariant"])
-BuiltinPiPThemes = Array[String](["WaveCrease"])
 
 [node name="Label" type="Label" parent="." unique_id=1198818235]
 layout_mode = 0
