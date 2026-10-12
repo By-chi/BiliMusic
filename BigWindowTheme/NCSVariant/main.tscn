@@ -1,0 +1,587 @@
+[gd_scene format=3 uid="uid://or5sqm8q5s77"]
+
+[sub_resource type="GDScript" id="GDScript_snpjp"]
+script/source = "extends Control
+
+## NCSSpectrum —— 频谱瀑布图驱动 + 点阵匀速滑移 + 流体多色渐变 + 振幅缩放
+## 参数变化检测同步: 只有导出变量被修改的那一帧才写 shader, 平时零开销
+
+@export var background: ColorRect
+@export var name_label: Label
+@export var lyric_label: Label
+@export var glow_rect: ColorRect   # 不使用, 运行时隐藏
+
+@export var sphere_radius_base: float = 275.0
+@export var spectrum_mult_base: float = 230.0
+@export var displace_amt_base: float = 70.0
+@export var flow: Vector4 = Vector4(0.0, 0.033, 0.0, 0.015)
+@export var light_dir: Vector3 = Vector3(0.25, 0.45, 1.0)
+@export var ambient: float = 0.25
+
+@export var amp_scale_amount: float = 0.18   # 音量满时整体膨胀比例 (0.18 = 最多胀 18%)
+@export var amp_scale_smooth: float = 8.0    # 缩放平滑度, 越大跟随越紧
+
+@export var history_rows: int = 128      # 历史行数 (60行/秒 -> 约2秒历史)
+
+@export var spacing_px: float = 8.0      # 球面粒子间距 (投影像素)
+@export var dot_radius: float = 2.5      # 粒子半径 (像素)
+@export var opacity: float = 0.6         # 整体亮度
+@export var complexity: float = 3.0      # 噪声 octaves, 卡就降 2
+
+@export var spin_speed_deg: float = 8.0  # 度/秒, 正负控制方向
+
+@export var color_lat_mix: float = 0.25      # 纬度参与颜色场的比重
+
+@export var default_color: Color = Color(0.0118, 0.1412, 0.3412, 1.0)
+@export var name_font_size: int = 30
+@export var lyric_font_size: int = 24
+
+var bottomMenu: Panel
+
+var _mm: MultiMesh
+var _mmi: MultiMeshInstance2D
+var _quad: QuadMesh
+var _particle_mat: ShaderMaterial
+var _bands: int = 90
+var _spec_front: Image
+var _spec_back: Image
+var _spec_tex: ImageTexture
+var _spectrum_max := 400.0
+var _smooth: PackedFloat32Array = PackedFloat32Array()
+var _final_audio := 0.0
+var _min_dim := 1080.0
+var _count_key := -1
+var _spin := 0.0
+var _amp_scale := 1.0
+
+var _c_radius := INF
+var _c_mult := INF
+var _c_displace := INF
+var _c_flow := Vector4(INF, INF, INF, INF)
+var _c_light := Vector3(INF, INF, INF)
+var _c_ambient := INF
+var _c_dot := INF
+var _c_opacity := INF
+var _c_complexity := INF
+var _c_lat_mix := INF
+var _c_rows := -1
+
+var _lyric_times: Array[float] = []
+var _lyric_texts: Array[String] = []
+var _lyric_index := -1
+var _last_lyric_data = null
+var _current_link := \"\"
+var is_ECO_mode := false
+var _enter_tween: Tween
+var _lyric_pulse_tween: Tween
+
+
+func _ready() -> void:
+	_bands = AudioSpectrumCalculator.lineCount
+	_smooth.resize(_bands)
+	_smooth.fill(0.0)
+	glow_rect.visible = false
+	name_label.add_theme_font_size_override(\"font_size\", name_font_size)
+	lyric_label.add_theme_font_size_override(\"font_size\", lyric_font_size)
+	name_label.modulate.a = 0.0
+	lyric_label.modulate.a = 0.0
+	lyric_label.visible = false
+	_build_particles()
+	_apply_color(default_color)
+	resized.connect(_layout)
+	_layout()
+	Player.song_changed.connect(_on_song_changed)
+	Start()
+
+
+func _build_particles() -> void:
+	var shader: Shader = load(\"res://GDShader/ncs_particles.gdshader\")
+	_particle_mat = ShaderMaterial.new()
+	_particle_mat.shader = shader
+
+	var cols := mini(_bands, 512)
+	_spec_front = Image.create(cols, history_rows, false, Image.FORMAT_RGBA8)
+	_spec_front.fill(Color(0, 0, 0, 1))
+	_spec_back = Image.create(cols, history_rows, false, Image.FORMAT_RGBA8)
+	_spec_back.fill(Color(0, 0, 0, 1))
+	_spec_tex = ImageTexture.create_from_image(_spec_front)
+	_particle_mat.set_shader_parameter(\"spectrum_tex\", _spec_tex)
+	_particle_mat.set_shader_parameter(\"band_count\", float(cols))
+
+	_quad = QuadMesh.new()
+	_quad.size = Vector2(6.0, 6.0)
+	_mm = MultiMesh.new()
+	_mm.transform_format = MultiMesh.TRANSFORM_2D
+	_mm.mesh = _quad
+	_mmi = MultiMeshInstance2D.new()
+	_mmi.material = _particle_mat
+	_mmi.multimesh = _mm
+	add_child(_mmi)
+	move_child(_mmi, get_child_count() - 3)
+
+
+func _rebuild(count: int) -> void:
+	if count == _count_key:
+		return
+	_count_key = count
+	_mm.instance_count = 0
+	_mm.instance_count = count
+	for i in count:
+		_mm.set_instance_transform_2d(i, Transform2D())
+	_particle_mat.set_shader_parameter(\"particle_count\", float(count))
+
+
+func _layout() -> void:
+	var s := size
+	if s.x < 80.0 or s.y < 80.0:
+		return
+	_min_dim = minf(s.x, s.y)
+	_spectrum_max = _min_dim * 0.4
+	var k := _min_dim / 1080.0
+
+	var R := sphere_radius_base * k
+	var spacing := maxf(3.0, spacing_px * k)
+	var count := int(2.0 * PI * R * R / (spacing * spacing))
+	_rebuild(count)
+
+	var dr := maxf(1.2, dot_radius * k)
+	_quad.size = Vector2(2.0 * dr + 1.0, 2.0 * dr + 1.0)
+
+	_particle_mat.set_shader_parameter(\"screen_size\", s)
+	_particle_mat.set_shader_parameter(\"screen_center\", s * 0.5)
+	_particle_mat.set_shader_parameter(\"sphere_radius\", R)
+	_particle_mat.set_shader_parameter(\"spectrum_mult\", spectrum_mult_base * k)
+	_particle_mat.set_shader_parameter(\"displace_amt\", displace_amt_base * k)
+
+	name_label.position = Vector2(s.x * 0.5 - 350.0, s.y * 0.855)
+	name_label.size = Vector2(700.0, 46.0)
+	lyric_label.position = Vector2(s.x * 0.5 - 350.0, s.y * 0.905)
+	lyric_label.size = Vector2(700.0, 40.0)
+
+
+func _sync_params(delta: float) -> void:
+	var k := _min_dim / 1080.0
+
+	if not flow.is_equal_approx(_c_flow):
+		_c_flow = flow
+		_particle_mat.set_shader_parameter(\"flow\", flow)
+	if light_dir != _c_light:
+		_c_light = light_dir
+		_particle_mat.set_shader_parameter(\"light_dir\", light_dir)
+	if ambient != _c_ambient:
+		_c_ambient = ambient
+		_particle_mat.set_shader_parameter(\"ambient\", ambient)
+	if opacity != _c_opacity:
+		_c_opacity = opacity
+		_particle_mat.set_shader_parameter(\"opacity\", opacity)
+	if complexity != _c_complexity:
+		_c_complexity = complexity
+		_particle_mat.set_shader_parameter(\"complexity\", complexity)
+	if color_lat_mix != _c_lat_mix:
+		_c_lat_mix = color_lat_mix
+		_particle_mat.set_shader_parameter(\"color_lat_mix\", color_lat_mix)
+
+	if spectrum_mult_base != _c_mult:
+		_c_mult = spectrum_mult_base
+		_particle_mat.set_shader_parameter(\"spectrum_mult\", spectrum_mult_base * k)
+	if displace_amt_base != _c_displace:
+		_c_displace = displace_amt_base
+		_particle_mat.set_shader_parameter(\"displace_amt\", displace_amt_base * k)
+
+	if sphere_radius_base != _c_radius or spacing_px != _c_dot or dot_radius != _c_ambient * 0.0 and dot_radius != _c_dot:
+		if sphere_radius_base != _c_radius:
+			_c_radius = sphere_radius_base
+		if dot_radius != _c_dot:
+			_c_dot = dot_radius
+		_layout()
+	elif dot_radius != _c_dot:
+		_c_dot = dot_radius
+		_layout()
+
+	if history_rows != _c_rows:
+		_c_rows = history_rows
+		var cols := _spec_front.get_width()
+		_spec_front = Image.create(cols, history_rows, false, Image.FORMAT_RGBA8)
+		_spec_front.fill(Color(0, 0, 0, 1))
+		_spec_back = Image.create(cols, history_rows, false, Image.FORMAT_RGBA8)
+		_spec_back.fill(Color(0, 0, 0, 1))
+		_spec_tex = ImageTexture.create_from_image(_spec_front)
+		_particle_mat.set_shader_parameter(\"spectrum_tex\", _spec_tex)
+
+
+func _process(delta: float) -> void:
+	if is_ECO_mode:
+		return
+	_sync_params(delta)
+
+	var heights: PackedFloat32Array = AudioSpectrumCalculator.Update(delta, Player.sonance, _spectrum_max)
+	if heights.size() != _bands:
+		heights = _resample(heights, _bands)
+
+	# attack 快 release 慢 (仅当前行, 历史行保留原始演化)
+	var a_up := 1.0 - exp(-delta * 30.0)
+	var a_dn := 1.0 - exp(-delta * 10.0)
+	var sum := 0.0
+	for i in _bands:
+		var a := a_up if heights[i] > _smooth[i] else a_dn
+		_smooth[i] = lerpf(_smooth[i], heights[i], a)
+		sum += _smooth[i]
+	var cols := _spec_front.get_width()
+	var rows := _spec_front.get_height()
+	var dst := _spec_front
+	var src := _spec_back
+	dst.blit_rect(src, Rect2i(0, 0, cols, rows - 1), Vector2i(0, 1))
+	var inv := 1.0 / maxf(_spectrum_max, 1.0)
+	for x in cols:
+		var bi := int(float(x) / float(cols - 1) * float(_bands - 1))
+		var e := clampf(_smooth[bi] * inv, 0.0, 1.0)
+		dst.set_pixel(x, 0, Color(e, e, e, 1.0))
+	_spec_tex.update(dst)
+	_spec_front = src
+	_spec_back = dst
+	_final_audio = lerpf(_final_audio, clampf(sum / float(_bands) * inv, 0.0, 1.0), 1.0 - exp(-delta * 12.0))
+	_particle_mat.set_shader_parameter(\"final_audio\", _final_audio)
+	var target_scale := 1.0 + _final_audio * amp_scale_amount
+	_amp_scale = lerpf(_amp_scale, target_scale, 1.0 - exp(-delta * amp_scale_smooth))
+	_particle_mat.set_shader_parameter(\"amp_scale\", _amp_scale)
+	_spin += deg_to_rad(spin_speed_deg) * delta
+	_particle_mat.set_shader_parameter(\"spin_angle\", _spin)
+
+	if Player.sonance and lyric_label.visible:
+		_update_lyric()
+
+
+func update() -> void:
+	var video_info: Dictionary = Player.get_current_video_info()
+	if video_info.is_empty():
+		return
+	_current_link = video_info.get(\"link\", \"\")
+	name_label.text = CSharpFunc.ExtractSongName(video_info.get(\"title\", tr(\"未知\")))
+	if video_info.get(\"is_network\", true):
+		BilibiliApi.fetch_cover(_current_link, _set_texture, 1600, 1000)
+	elif FileAccess.file_exists(_current_link.get_basename() + \".jpg\"):
+		var image := Image.load_from_file(_current_link.get_basename() + \".jpg\")
+		_set_texture(\"\", ImageTexture.create_from_image(image))
+	else:
+		GdScriptFunc.generate_label_texture(
+			Color.WHITE, video_info.get(\"title\", tr(\"本地文件\")),
+			func(tex: Texture2D) -> void: _set_texture(\"\", tex),
+			null, 10, Color.BLACK, Vector2i(70, 70)
+		)
+	_load_lyrics(video_info)
+
+
+func _set_texture(_bvid: String, tex: Texture2D) -> void:
+	if tex == null:
+		return
+	var img: Image = tex.get_image()
+	if img == null:
+		_apply_color(default_color)
+		return
+	var colors: Array = CSharpFunc.ExtractThemeColors(img, 3, true, 0.15, _current_link)
+	# 按亮度排序, 组装 4 色调色板, 不足用亮度变体补齐
+	var sorted: Array = colors.duplicate()
+	sorted.sort_custom(func(a, b):
+		var ca: Color = a
+		var cb: Color = b
+		return ca.get_luminance() < cb.get_luminance())
+	var pal: Array[Color] = []
+	if sorted.size() > 0:
+		for c in sorted:
+			pal.append(c)
+	else:
+		pal.append(default_color)
+	while pal.size() < 4:
+		var base: Color = pal[pal.size() % maxi(pal.size(), 1)]
+		pal.append(base.lightened(0.25 * pal.size()))
+	_apply_palette(pal)
+
+
+func _apply_color(c: Color) -> void:
+	_apply_palette([c, c.lightened(0.2), c.darkened(0.15), c.lightened(0.4)])
+
+
+func _apply_palette(pal: Array[Color]) -> void:
+	_particle_mat.set_shader_parameter(\"palette0\", Vector3(pal[0].r, pal[0].g, pal[0].b))
+	_particle_mat.set_shader_parameter(\"palette1\", Vector3(pal[1].r, pal[1].g, pal[1].b))
+	_particle_mat.set_shader_parameter(\"palette2\", Vector3(pal[2].r, pal[2].g, pal[2].b))
+	_particle_mat.set_shader_parameter(\"palette3\", Vector3(pal[3].r, pal[3].g, pal[3].b))
+	_particle_mat.set_shader_parameter(\"palette_count\", 4.0)
+
+
+func Start() -> void:
+	if _enter_tween != null and _enter_tween.is_valid():
+		_enter_tween.kill()
+	_particle_mat.set_shader_parameter(\"enter\", 0.0)
+	name_label.modulate.a = 0.0
+	lyric_label.modulate.a = 0.0
+	_enter_tween = create_tween()
+	_enter_tween.set_parallel(true)
+	_enter_tween.tween_method(_set_enter, 0.0, 1.0, 0.7).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_enter_tween.tween_property(name_label, \"modulate:a\", 1.0, 0.35).set_delay(0.25)
+	if lyric_label.visible:
+		_enter_tween.tween_property(lyric_label, \"modulate:a\", 1.0, 0.4).set_delay(0.35)
+
+
+func _set_enter(value: float) -> void:
+	_particle_mat.set_shader_parameter(\"enter\", value)
+
+
+func Stop() -> void:
+	if _enter_tween != null and _enter_tween.is_valid():
+		_enter_tween.kill()
+	if _lyric_pulse_tween != null and _lyric_pulse_tween.is_valid():
+		_lyric_pulse_tween.kill()
+
+
+func set_ECO_mode(value: bool) -> void:
+	if is_ECO_mode == value:
+		return
+	is_ECO_mode = value
+	if value:
+		if _enter_tween != null and _enter_tween.is_valid() and _enter_tween.is_running():
+			_enter_tween.pause()
+		if is_inside_tree():
+			RenderingServer.viewport_set_active(get_viewport().get_viewport_rid(), false)
+		set_process(false)
+	else:
+		set_process(true)
+		if is_inside_tree():
+			RenderingServer.viewport_set_active(get_viewport().get_viewport_rid(), true)
+		if _enter_tween != null and _enter_tween.is_valid() and not _enter_tween.is_running():
+			_enter_tween.play()
+		_layout()
+
+
+func _on_song_changed(_video_info: Dictionary) -> void:
+	_last_lyric_data = null
+	_lyric_times.clear()
+	_lyric_texts.clear()
+	_lyric_index = -1
+	lyric_label.text = \"\"
+	lyric_label.visible = false
+	# 清空瀑布历史与平滑
+	_spec_front.fill(Color(0, 0, 0, 1))
+	_spec_back.fill(Color(0, 0, 0, 1))
+	_smooth.fill(0.0)
+	update()
+
+
+func _load_lyrics(video_info: Dictionary) -> void:
+	var subtitles = video_info.get(\"subtitles\", null)
+	if subtitles != null and not (subtitles is Array and subtitles.is_empty()) and not (subtitles is String and String(subtitles).strip_edges() == \"\"):
+		_last_lyric_data = subtitles
+		var new_times: Array[float] = []
+		var new_texts: Array[String] = []
+		_parse_subtitle_data(subtitles, new_times, new_texts)
+		_apply_lyrics(new_times, new_texts)
+		return
+	if video_info.get(\"is_network\", true) and GdScriptFunc.get_data(\"Options\", \"Automatically_obtain_subtitles\", false):
+		var requested_bvid: String = video_info.get(\"BV\", video_info.get(\"link\"))
+		BilibiliApi.fetch_subtitle_auto(requested_bvid, _on_subtitle_fetched.bind(requested_bvid))
+	else:
+		_lyric_times.clear()
+		_lyric_texts.clear()
+		_lyric_index = -1
+		lyric_label.text = \"\"
+		lyric_label.visible = false
+		_last_lyric_data = null
+
+
+func _on_subtitle_fetched(subtitle_data: Dictionary, requested_bvid: String) -> void:
+	var current_info: Dictionary = Player.get_current_video_info()
+	if current_info.is_empty() or current_info.get(\"BV\", current_info.get(\"link\")) != requested_bvid:
+		return
+	if subtitle_data.is_empty() or (not subtitle_data.has(\"body\") and not subtitle_data.has(\"path\")):
+		_lyric_times.clear()
+		_lyric_texts.clear()
+		_lyric_index = -1
+		lyric_label.text = \"\"
+		lyric_label.visible = false
+		return
+	var new_times: Array[float] = []
+	var new_texts: Array[String] = []
+	if subtitle_data.has(\"path\"):
+		var file := FileAccess.open(String(subtitle_data[\"path\"]), FileAccess.READ)
+		if file:
+			var lrc_text: String = file.get_as_text()
+			file.close()
+			_parse_lrc(lrc_text, new_times, new_texts)
+	else:
+		var body = subtitle_data[\"body\"]
+		if body is Array:
+			for entry in body:
+				new_times.append(entry.get(\"from\", 0.0))
+				new_texts.append(entry.get(\"content\", \"\"))
+	_apply_lyrics(new_times, new_texts)
+
+
+func _parse_subtitle_data(subtitles, out_times: Array, out_texts: Array) -> void:
+	if subtitles is String:
+		var file := FileAccess.open(String(subtitles), FileAccess.READ)
+		if file:
+			var lrc_text: String = file.get_as_text()
+			file.close()
+			_parse_lrc(lrc_text, out_times, out_texts)
+	elif subtitles is Array:
+		for entry in subtitles:
+			out_times.append(entry.get(\"from\", 0.0))
+			out_texts.append(entry.get(\"content\", \"\"))
+
+
+func _parse_lrc(lrc_text: String, out_times: Array, out_texts: Array) -> void:
+	var regex := RegEx.new()
+	regex.compile(\"\\\\[(\\\\d{1,3}):(\\\\d{2})(?:\\\\.(\\\\d{2,3}))?\\\\]\")
+	var lines := lrc_text.split(\"\\n\", false)
+	for line in lines:
+		var line_s := String(line).strip_edges()
+		if line_s == \"\":
+			continue
+		var matches := regex.search_all(line_s)
+		if matches.is_empty():
+			continue
+		var text_part := line_s
+		var m0: RegExMatch = matches[matches.size() - 1]
+		for m in matches:
+			text_part = text_part.replace(m.get_string(0), \"\")
+		var text := _capitalize_line(text_part.strip_edges())
+		if text == \"\":
+			continue
+		var minutes := int(m0.get_string(1))
+		var seconds := int(m0.get_string(2))
+		var frac_str: String = m0.get_string(3)
+		var frac := 0.0
+		if frac_str != \"\":
+			frac = float(frac_str) / pow(10.0, float(frac_str.length()))
+		out_times.append(float(minutes) * 60.0 + float(seconds) + frac)
+		out_texts.append(text)
+
+
+func _capitalize_line(line: String) -> String:
+	if line.length() == 0:
+		return line
+	return line[0].to_upper() + line.substr(1)
+
+
+func _apply_lyrics(times: Array, texts: Array) -> void:
+	if texts.is_empty():
+		_lyric_times.clear()
+		_lyric_texts.clear()
+		_lyric_index = -1
+		lyric_label.text = \"\"
+		lyric_label.visible = false
+		return
+	_lyric_times = times
+	_lyric_texts = texts
+	_lyric_index = -1
+	lyric_label.visible = true
+	lyric_label.modulate.a = 1.0
+
+
+func _update_lyric() -> void:
+	if _lyric_times.is_empty():
+		if lyric_label.visible:
+			lyric_label.text = \"\"
+			lyric_label.visible = false
+		return
+	var pos := Player.get_current_time_sec()
+	var idx := -1
+	for i in _lyric_times.size():
+		if _lyric_times[i] <= pos:
+			idx = i
+		else:
+			break
+	if idx != _lyric_index:
+		_lyric_index = idx
+		if idx >= 0 and idx < _lyric_texts.size() and _lyric_texts[idx] != \"\":
+			lyric_label.text = _lyric_texts[idx]
+			lyric_label.visible = true
+			_pulse_lyric()
+		else:
+			lyric_label.text = \"\"
+			lyric_label.visible = false
+
+
+func _pulse_lyric() -> void:
+	if _lyric_pulse_tween != null and _lyric_pulse_tween.is_valid():
+		_lyric_pulse_tween.kill()
+	lyric_label.scale = Vector2(0.97, 0.97)
+	_lyric_pulse_tween = lyric_label.create_tween()
+	_lyric_pulse_tween.tween_property(lyric_label, \"scale\", Vector2.ONE, 0.25).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+
+func _resample(src: PackedFloat32Array, target_count: int) -> PackedFloat32Array:
+	if src.size() == target_count or src.size() == 0:
+		return src
+	var res := PackedFloat32Array()
+	res.resize(target_count)
+	for i in target_count:
+		var fi := float(i) / float(target_count - 1) * float(src.size() - 1)
+		var i0 := int(fi)
+		var i1 := mini(i0 + 1, src.size() - 1)
+		var frac := fi - float(i0)
+		res[i] = lerpf(src[i0], src[i1], frac)
+	return res
+"
+
+[node name="Control2" type="Control" unique_id=1917904318 node_paths=PackedStringArray("background", "name_label", "lyric_label", "glow_rect")]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = SubResource("GDScript_snpjp")
+background = NodePath("Background")
+name_label = NodePath("Name")
+lyric_label = NodePath("Lyric")
+glow_rect = NodePath("Glow")
+sphere_radius_base = 300.0
+spectrum_mult_base = 200.0
+displace_amt_base = 100.0
+amp_scale_amount = 0.8
+dot_radius = 1.5
+opacity = 3.0
+complexity = 9.0
+
+[node name="Background" type="ColorRect" parent="." unique_id=859520240]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0, 0, 0, 1)
+
+[node name="Glow" type="ColorRect" parent="." unique_id=421030208]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0, 0, 0, 1)
+
+[node name="Name" type="Label" parent="." unique_id=1757380917]
+layout_mode = 0
+offset_left = 450.0
+offset_top = 830.0
+offset_right = 1150.0
+offset_bottom = 876.0
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 30
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Lyric" type="Label" parent="." unique_id=1567322102]
+layout_mode = 0
+offset_left = 450.0
+offset_top = 878.0
+offset_right = 1150.0
+offset_bottom = 918.0
+theme_override_colors/font_color = Color(1, 1, 1, 0.85)
+theme_override_font_sizes/font_size = 24
+horizontal_alignment = 1
+vertical_alignment = 1
