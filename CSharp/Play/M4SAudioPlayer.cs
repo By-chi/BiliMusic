@@ -43,6 +43,8 @@ public partial class M4SAudioPlayer : Node
     private readonly SemaphoreSlim _playLock = new(1, 1);
     private CancellationTokenSource _cts;
     private Task _currentPlayTask;
+    private SpectrumPreprocessor _spectrum;
+    public SpectrumData SpectrumData => _spectrum?.Data;
     public string CurrentAudioFilePath;
 
     // 网络流定点 Seek
@@ -74,6 +76,7 @@ public partial class M4SAudioPlayer : Node
 
     public override void _Ready()
     {
+        _spectrum = new SpectrumPreprocessor();
         CachePaths.CleanTempAudio();
         if (OperatingSystem.IsWindows()
             && GetFuncNode() is Node funcNode
@@ -410,6 +413,7 @@ public partial class M4SAudioPlayer : Node
         _requiredBufferBlocks = requiredBufferBlocks;
         _finishedEmitted = false;
         _simulatedPosition = startPosition;
+        _spectrum?.Reset(startPosition);
     }
 
     /// <summary>获取 playback 并挂起播放器等待预缓冲（起播/Seek 后不立即出声，避免静音卡顿）</summary>
@@ -716,6 +720,7 @@ public partial class M4SAudioPlayer : Node
             Thread.Sleep(2);
         }
         _pcmQueue.Enqueue(chunk);
+        _spectrum?.FeedPcm(chunk);
     }
     #endregion
 

@@ -1,4 +1,5 @@
 using Godot;
+using System;
 
 public partial class AudioSpectrumCalculator : Node
 {
@@ -22,8 +23,13 @@ public partial class AudioSpectrumCalculator : Node
     [Export] public float maxChangedSpeed = 3000.0f;
     [Export] public float dynamicUpdateInterval = 0.2f;
     [Export] public float dynamicThreshold = 3.0f;
-    private AudioStreamPlayer playerNode;
-    private AudioEffectSpectrumAnalyzerInstance analyzer;
+
+    public SpectrumData PrecomputedSpectrum;
+    public Func<double> PositionProvider;
+
+    private M4SAudioPlayer _boundPlayer;
+    private bool _currentlyPlaying;
+    private float _bindRetryTimer = 0f;
     private float[] smoothedBandEnergies;
     private float smoothedOverallEnergy = 0.0f;
     private float ampScale;
@@ -36,10 +42,6 @@ public partial class AudioSpectrumCalculator : Node
 
     public override void _Ready()
     {
-        // 获取第 1 个总线的第 0 个效果（需确保总线上有 SpectrumAnalyzer 效果）
-        var instance = AudioServer.GetBusEffectInstance(1, 0);
-        analyzer = instance as AudioEffectSpectrumAnalyzerInstance;
-        playerNode=GetNode<AudioStreamPlayer>("/root/Player");
         maxFrequency = AudioServer.GetMixRate() / 2.0f;
         ampScale = spectrumScale;
 
@@ -51,11 +53,11 @@ public partial class AudioSpectrumCalculator : Node
         targetMax = toHz;
     }
 
-    /// <summary>
-    /// 每帧调用，返回 lineCount 条频谱的高度值（已平滑、加权、粘连，并 clamp 到 [10, maxHeight]）
-    /// </summary>
     public float[] Update(float delta, bool isPlaying, float maxHeight)
     {
+        TryBind();
+
+        _currentlyPlaying = isPlaying;
         ComputeAlpha(delta);
         AutoAdjustAmpScale(isPlaying);
         UpdateDynamicRange(delta);
@@ -65,6 +67,50 @@ public partial class AudioSpectrumCalculator : Node
             heights = ApplyNeighborBlend(heights);
 
         return heights;
+    }
+
+    public void Bind(M4SAudioPlayer player)
+    {
+        if (player == null) return;
+        _boundPlayer = player;
+        PrecomputedSpectrum = player.SpectrumData;
+        PositionProvider = player.GetCurrentPosition;
+        GD.Print("[频谱绑定成功]（手动）");
+    }
+
+    private void TryBind()
+    {
+        if (_boundPlayer != null)
+            return;
+
+        _bindRetryTimer += 0.016f;
+        bool report = _bindRetryTimer > 2f;
+        if (report) _bindRetryTimer = 0f;
+
+        var player = FindPlayer(GetTree().Root);
+        if (player == null)
+        {
+            if (report) GD.Print("[频谱绑定失败] 场景树中找不到 M4SAudioPlayer 节点");
+            return;
+        }
+
+        _boundPlayer = player;
+        PrecomputedSpectrum = player.SpectrumData;
+        PositionProvider = player.GetCurrentPosition;
+        GD.Print("[频谱绑定成功] " + player.GetPath());
+    }
+
+    private static M4SAudioPlayer FindPlayer(Node root)
+    {
+        if (root is M4SAudioPlayer p)
+            return p;
+        foreach (var child in root.GetChildren())
+        {
+            var found = FindPlayer(child);
+            if (found != null)
+                return found;
+        }
+        return null;
     }
 
     private void ComputeAlpha(float delta)
@@ -84,10 +130,10 @@ public partial class AudioSpectrumCalculator : Node
 
     private float GetRawBandEnergy(float minFreq, float maxFreq)
     {
-        if (playerNode.VolumeLinear <= 0.0f)
+        if (!_currentlyPlaying || PrecomputedSpectrum == null || PositionProvider == null)
             return 0.0f;
-        Vector2 mag = analyzer.GetMagnitudeForFrequencyRange(minFreq, maxFreq)/playerNode.VolumeLinear;
-        return mag.X * mag.X + mag.Y * mag.Y;
+        double t = PositionProvider();
+        return PrecomputedSpectrum.GetBandEnergy(minFreq, maxFreq, t);
     }
 
     private void AutoAdjustAmpScale(bool isPlaying)
