@@ -1,4 +1,4 @@
-### BiliMusic
+# BiliMusic
 
 > 让音乐变得更方便 Make Music Simpler
 
@@ -6,34 +6,22 @@
 
 ### 主要功能
 
-- **从Bilibili直接播放**: 直接从哔哩哔哩平台访问和播放音乐内容
-- **跨平台支持**: 基于 Godot 开发，支持 Windows、macOS 和 Linux
-- **轻量级快速**: 高效的性能表现，使用 GDShader 优化渲染
-- **直观用户界面**: 用户友好的界面，专注于音乐发现和播放
-- **现代体验**: 专为音乐流媒体设计的当代设计风格
+- **丰富的视频流**: 支持访问哔哩哔哩平台中所有视频
+- **丰富的多平台支持**: 基于 `Godot`开发，支持 `Windows`、`macOS`
+- **丰富的多语言支持**: 支持`日语`、`中文`与`英语`
+- **丰富的皮肤**: 支持$5$种皮肤、$3$种主题
+- **快速的响应**: 高效的性能表现，使用 `GDShader` 优化渲染
+- **直观高效的缓存管理**: 支持在设置中释放歌曲缓存
 
 ### 项目截图
 <img src="docs/1.png" alt="播放器界面" width="700" height="700">
 <img src="docs/2.png" alt="收藏界面" width="700" height="700">
 
-### 技术栈
-```mermaid
-pie
-    "C#" : 53.7
-    "GDScript" : 45
-    "GDShader" : 1.3
-```
-
-### 系统需求
-
-- `Godot Engine 4.x mono` $\rightarrow$ `GDScript运行支持`
-- `.NET Runtime` $\rightarrow$ `C#运行支持`
-- `互联网连接` $\rightarrow$ `BiliBili访问支持`
-
 ### 安装
 
-#### 从源代码安装
+#### 从源代码
 > $!\space>$ 重要提示 $<\space!$
+> 
 > 当`调试项目`时，请更改项目中
 > `CSharp\Play\AudioConverter.cs`
 > `DebugFfmpegPath`与`DebugFfprobePath`常量字段为实际位置
@@ -49,7 +37,7 @@ pie
 git clone https://github.com/By-chi/BiliMusic.git
 cd BiliMusic
 ```
-2. 在 `Godot Engine 4.x mono` 中打开项目
+2. 在 `Godot Engine 4.7 mono` 中打开项目
 3. 构建并运行项目
 
 #### 从预编译二进制文件
@@ -58,50 +46,42 @@ cd BiliMusic
 ### 使用方法
 > $!\space>$ 重要提示 $<\space!$
 > 如非特殊需求，否则`强烈建议`使用哔哩哔哩账号登录，会带来更好的使用体验与更少的`412`风控报错!
-1. `启动 BiliMusic`
-2. `使用哔哩哔哩账号登录（如需要）`
-3. `浏览和搜索音乐`
+1. 启动 `BiliMusic`
+2. 使用`哔哩哔哩`账号登录（如需要）
+3. `浏览`和`搜索`音乐
 4. `点击播放、创建播放列表，享受音乐！`
 
 ### 配置
 
 可以在设置面板中调整配置选项。主要选项包括：
 
-- 音频质量偏好设置
+- 管理登陆账号
 - UI 主题选择
+- 多语言选择
+- 清除歌曲与封面缓存
 
 ### 开发
 
-#### 前置要求
-
-- Godot 4.x
-- .NET SDK（C# 开发）
-- Git
-
-#### 从源代码构建
-
-```bash
-# 克隆并导航到目录
-git clone https://github.com/By-chi/BiliMusic.git
-cd BiliMusic
-
-# 在 Godot 编辑器中打开并导出
+#### 技术栈
+```mermaid
+pie
+    "C#" : 53.7
+    "GDScript" : 45
+    "GDShader" : 1.3
 ```
 
-### 关于贡献
+#### 开发需求
+|名称|支持|下载链接|
+|---|---|---|
+|`Godot Engine 4.7 mono`|`GDScript`与`GDShader`支持|[Git下载](https://github.com/godotengine/godot)|
+|`.NET Runtime`|`C#`支持|[微软下载](https://dotnet.microsoft.com/zh-cn/download)|
+|`FFmpeg`|视频流支持|[Git下载](https://github.com/FFmpeg/FFmpeg)|
 
+#### 关于贡献
 欢迎贡献！可随时提交`Pull Requese`或为`bug`/`Feature`提交`Issues`。
 
-### 路线图
-
-- 移动应用版本
-- 离线下载支持
-- 高级播放列表管理
-- 与其他音乐平台集成
-
-### 性能指标
-
-- 平均内存占用: ~[300] MB
+#### 性能指标
+- 平均内存占用: ~$400$ MB
 
 ### 鸣谢
 
