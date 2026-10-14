@@ -92,6 +92,17 @@ var _cloud_item_w: float = 582.4                # 单张卡片宽
 var _cloud_item_h: float = 364.0                # 单张卡片高
 var _cloud_row_h: float = 374.0                 # 单行高 = item_h + gap
 var _cloud_gap: float = 10.0
+# ==================== 本地收藏夹虚拟滚动(镜像云模式:修复 issue#4) ====================
+# 数据驱动:本地文件夹只实例化可视区±缓冲区的卡片,滚出即销毁
+var _local_items: Array = []                # 本地文件夹全部数据(不创建节点)
+var _local_virtual_root: Control = null     # 唯一撑高度的根节点
+var _local_active: Dictionary = {}          # {index: Node} 当前可视区内的卡片
+var _local_cols: int = 1
+var _local_item_w: float = 582.4
+var _local_item_h: float = 364.0
+var _local_row_h: float = 374.0
+var _local_gap: float = 10.0
+const LOCAL_CARD_HEIGHT_LIST: float = 90.0
 # ---------------------------------
 
 # ===== 封面加载队列（串行，防 412） =====
@@ -159,16 +170,20 @@ func _connect_scroll_signals() -> void:
 
 
 func _on_cloud_scroll_changed(_value: float) -> void:
-	if not enable_cloud:
+	if enable_cloud:
+		if _is_in_cloud_folder:
+			_update_cloud_virtual_cards()
+		else:
+			_update_cloud_lazy_load()
 		return
-	if _is_in_cloud_folder:
-		_update_cloud_virtual_cards()
-	else:
-		_update_cloud_lazy_load()
+	# 本地收藏夹虚拟滚动
+	if _is_showing_favorites:
+		return
+	if not _current_fav_dir.is_empty():
+		_update_local_virtual_cards()
 
 
 # ==================== 云端文件夹列表：封面懒加载 ====================
-
 func _update_cloud_lazy_load() -> void:
 	var scroll: ScrollContainer = list_scroll_container if list_view_mode else thumbnails_scroll_container
 	var container: Container = list_container if list_view_mode else grid_container
@@ -466,6 +481,8 @@ func _update_buttons_state() -> void:
 	var download_enabled: bool = false
 	if not _is_showing_favorites and has_selection:
 		for node in selected_items:
+			if not is_instance_valid(node):
+				continue
 			if \"link\" in node and node.video_info.get(\"is_network\", true):
 				download_enabled = true
 				break
@@ -481,6 +498,8 @@ func _update_buttons_state() -> void:
 			ok_button.visible = true
 			var has_folder: bool = false
 			for node in selected_items:
+				if not is_instance_valid(node):
+					continue
 				if \"directory_name\" in node:
 					has_folder = true
 					break
@@ -540,6 +559,10 @@ func _clear_active_container() -> void:
 	_cloud_active.clear()
 	_cloud_virtual_root = null
 	_cloud_items.clear()
+	# 清理本地虚拟滚动状态
+	_local_active.clear()
+	_local_virtual_root = null
+	_local_items.clear()
 	# 恢复 GridContainer 列数（如果之前是虚拟模式）
 	if not list_view_mode and is_instance_valid(grid_container):
 		grid_container.columns = max(1, int(thumbnails_scroll_container.size.x / 600))
@@ -593,54 +616,10 @@ func _create_deck_node(dir_name: String) -> Node:
 
 func _lazy_update_video_cards() -> void:
 	_apply_container_visibility()
-	var new_videos: Array = GdScriptFunc.get_data(\"Favorites\", _current_fav_dir, [])
-
-	var container = list_container if list_view_mode else grid_container
-	var existing: Dictionary = {}
-	for child in container.get_children():
-		if child.get(\"link\") != null:
-			var expected_type = \"video_transverse\" if list_view_mode else \"video_thumb\"
-			if child.get_meta(\"card_type\", \"\") == expected_type:
-				existing[child.link] = child
-			else:
-				child.queue_free()
-
-	for video_data in new_videos:
-		var link = video_data[\"link\"]
-		if existing.has(link):
-			var card = existing[link]
-			card.video_info = video_data
-			card.title = video_data.get(\"title\", \"\")
-			card.author = video_data.get(\"author\", \"\")
-			card.description = video_data.get(\"description\", \"\")
-			card.block_play = true
-			var old_is_network = card.video_info.get(\"is_network\", true)
-			var new_is_network = video_data.get(\"is_network\", true)
-			if old_is_network != new_is_network:
-				card.reset()
-				if new_is_network:
-					BilibiliApi.fetch_cover(card.link, set_cover.bind(card), 70 if list_view_mode else 583, 70 if list_view_mode else 364)
-				elif FileAccess.file_exists(card.link.get_basename() + \".jpg\"):
-					var image = Image.load_from_file(card.link.get_basename() + \".jpg\")
-					_set_cover(ImageTexture.create_from_image(image), card)
-				else:
-					_load_local_cover(card)
-				if not list_view_mode:
-					card.custom_minimum_size = Vector2(582.4, 364.0)
-		else:
-			var card = _create_video_card_node(video_data)
-			container.add_child(card)
-			GdScriptFunc.apply_theme_and_styles_to_node(card)
-
-	for link in existing.keys():
-		var still_exists = false
-		for v in new_videos:
-			if v[\"link\"] == link:
-				still_exists = true
-				break
-		if not still_exists:
-			existing[link].queue_free()
-
+	if _current_fav_dir.is_empty():
+		return
+	# 本地虚拟滚动:数据数组整体替换,只重建可视区(虚拟化后重建成本仅限可视卡片)
+	_populate_local_virtual_view(GdScriptFunc.get_data(\"Favorites\", _current_fav_dir, []), _current_fav_dir)
 
 func _create_video_card_node(video_data: Dictionary, lazy_cover: bool = false) -> Node:
 	var video_card: Control
@@ -712,12 +691,157 @@ func _load_all_decks() -> void:
 
 
 func _load_all_video_cards() -> void:
-	var videos: Array = GdScriptFunc.get_data(\"Favorites\", _current_fav_dir, [])
-	var container = list_container if list_view_mode else grid_container
-	for v in videos:
-		var video_card = _create_video_card_node(v)
-		container.add_child(video_card)
-		GdScriptFunc.apply_theme_and_styles_to_node(video_card)
+	_populate_local_virtual_view(GdScriptFunc.get_data(\"Favorites\", _current_fav_dir, []), _current_fav_dir)
+
+# ==================== 本地收藏夹虚拟滚动 ====================
+func _populate_local_virtual_view(items: Array, folder_title: String) -> void:
+	_local_items = items
+	_local_active.clear()
+	if _local_virtual_root != null and is_instance_valid(_local_virtual_root):
+		_local_virtual_root.queue_free()
+	_local_virtual_root = null
+
+	var scroll: ScrollContainer = list_scroll_container if list_view_mode else thumbnails_scroll_container
+	var container: Container = list_container if list_view_mode else grid_container
+
+	if items.is_empty():
+		GdScriptFunc.set_progress_bar_value(100, folder_title, \"收藏夹为空\")
+		return
+
+	if list_view_mode:
+		_local_cols = 1
+		_local_item_h = LOCAL_CARD_HEIGHT_LIST
+		_local_item_w = 0.0   # 用容器宽
+	else:
+		_local_item_h = 364.0
+		_local_item_w = 582.4
+		_local_gap = 10.0
+		# 让 GridContainer 只排一列,虚拟根节点独占整行
+		grid_container.columns = 1
+		_local_cols = max(1, int(scroll.size.x / (_local_item_w + _local_gap)))
+
+	_local_row_h = _local_item_h + _local_gap
+	var rows: int = int(ceil(float(items.size()) / _local_cols))
+	var total_h: float = rows * _local_row_h
+
+	_local_virtual_root = Control.new()
+	_local_virtual_root.name = \"LocalVirtualRoot\"
+	_local_virtual_root.set_meta(\"virtual_root\", true)
+	_local_virtual_root.custom_minimum_size = Vector2(0, total_h)
+	_local_virtual_root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_local_virtual_root.mouse_filter = Control.MOUSE_FILTER_PASS
+	container.add_child(_local_virtual_root)
+
+	GdScriptFunc.set_progress_bar_value(100, folder_title, \"共 %d 个视频\" % items.size())
+
+	# 等布局稳定后触发首屏懒创建
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_update_local_virtual_cards()
+
+
+## 计算可视行范围,动态创建 / 销毁卡片
+func _update_local_virtual_cards() -> void:
+	if _local_virtual_root == null or not is_instance_valid(_local_virtual_root):
+		return
+	if _local_items.is_empty():
+		return
+
+	var scroll: ScrollContainer = list_scroll_container if list_view_mode else thumbnails_scroll_container
+	var first_row: int = int(floor(scroll.scroll_vertical / _local_row_h)) - CLOUD_BUFFER_ROWS
+	first_row = max(0, first_row)
+	var visible_rows: int = int(ceil(scroll.size.y / _local_row_h)) + 1 + 2 * CLOUD_BUFFER_ROWS
+	var last_row: int = min(_local_items.size() / max(_local_cols, 1), first_row + visible_rows)
+
+	var first_idx: int = first_row * _local_cols
+	var last_idx: int = min(_local_items.size() - 1, (last_row + 1) * _local_cols - 1)
+
+	# 1) 释放滚出可视区的卡片
+	var to_free: Array = []
+	for idx in _local_active.keys():
+		if idx < first_idx or idx > last_idx:
+			to_free.append(idx)
+	for idx in to_free:
+		var n = _local_active[idx]
+		if is_instance_valid(n):
+			n.queue_free()
+		_local_active.erase(idx)
+
+	# 2) 为进入范围的索引创建卡片
+	var container_width: float = _local_virtual_root.size.x
+	if container_width <= 0.0:
+		container_width = scroll.size.x - 20.0
+
+	for idx in range(first_idx, last_idx + 1):
+		if _local_active.has(idx):
+			continue
+		_create_local_virtual_card(idx, container_width)
+
+
+## 创建单张本地虚拟卡片(含淡入动画;封面立即加载,走 BilibiliCoverCache 内存 LRU)
+func _create_local_virtual_card(idx: int, container_width: float) -> void:
+	if idx < 0 or idx >= _local_items.size():
+		return
+
+	var row: int = idx / _local_cols
+	var col: int = idx % _local_cols
+	var w: float = _local_item_w
+
+	var pos_x: float
+	if list_view_mode:
+		w = container_width
+		pos_x = 0.0
+	else:
+		var total_w: float = _local_cols * _local_item_w + (_local_cols - 1) * _local_gap
+		var start_x: float = max(0.0, (container_width - total_w) / 2.0)
+		pos_x = start_x + col * (_local_item_w + _local_gap)
+
+	var pos_y: float = row * _local_row_h
+
+	var video_data: Dictionary = _local_items[idx]
+	var video_card := _create_video_card_node(video_data, false)
+	video_card.modulate = Color(0.9, 0.95, 1.0, 0.0)
+	video_card.set_meta(\"virtual_card\", true)
+
+	if list_view_mode:
+		video_card.position = Vector2(0.0, pos_y)
+		video_card.size = Vector2(w, _local_item_h)
+	else:
+		video_card.position = Vector2(pos_x, pos_y)
+		video_card.size = Vector2(w, _local_item_h)
+	video_card.custom_minimum_size = video_card.size
+
+	_local_virtual_root.add_child(video_card)
+	GdScriptFunc.apply_theme_and_styles_to_node(video_card)
+
+	var tween := create_tween()
+	tween.tween_property(video_card, \"modulate:a\", 1.0, 0.3).set_trans(Tween.TRANS_CUBIC)
+
+	_local_active[idx] = video_card
+
+
+## 窗口尺寸变化时重算本地虚拟布局
+func _rebuild_local_virtual_layout() -> void:
+	if _local_virtual_root == null or not is_instance_valid(_local_virtual_root):
+		return
+	if _local_items.is_empty():
+		return
+
+	var scroll: ScrollContainer = thumbnails_scroll_container
+	var new_cols: int = max(1, int(scroll.size.x / (_local_item_w + _local_gap)))
+	if new_cols != _local_cols:
+		_local_cols = new_cols
+		var rows: int = int(ceil(float(_local_items.size()) / _local_cols))
+		_local_virtual_root.custom_minimum_size = Vector2(0, rows * _local_row_h)
+
+	# 清空当前活跃卡片,让 _update_local_virtual_cards 重新按新布局创建
+	for idx in _local_active.keys():
+		var n = _local_active[idx]
+		if is_instance_valid(n):
+			n.queue_free()
+	_local_active.clear()
+
+	_update_local_virtual_cards.call_deferred()
 
 
 func _set_cover(texture: Texture2D, video_card: Control) -> void:
@@ -776,7 +900,18 @@ func _double_click_node(node: Node) -> void:
 
 func _update_selection_visual() -> void:
 	var container = list_container if list_view_mode else grid_container
+	var nodes: Array = []
 	for child in container.get_children():
+		if is_instance_valid(child) and not child.get_meta(\"virtual_root\", false):
+			nodes.append(child)
+	# 虚拟滚动模式:卡片挂在虚拟根下,补充激活字典中的卡片
+	for n in _cloud_active.values():
+		if is_instance_valid(n) and not nodes.has(n):
+			nodes.append(n)
+	for n in _local_active.values():
+		if is_instance_valid(n) and not nodes.has(n):
+			nodes.append(n)
+	for child in nodes:
 		if \"directory_name\" in child:
 			child.self_modulate = Color(0.753, 0.949, 1.0) if selected_items.has(child) else Color.WHITE
 		else:
@@ -791,7 +926,6 @@ func _update_selection_visual() -> void:
 				else:
 					child.self_modulate = Color.WHITE
 	_update_buttons_state()
-
 
 func _on_deck_pressed(deck: Node) -> void:
 	_handle_node_click(deck)
@@ -859,9 +993,17 @@ func _select_all() -> void:
 	selected_items.clear()
 	var container = list_container if list_view_mode else grid_container
 	for child in container.get_children():
+		if child.get_meta(\"virtual_root\", false):
+			continue
 		selected_items.append(child)
+	# 虚拟滚动模式:可视卡片挂在虚拟根下,补充激活字典中的卡片
+	for n in _cloud_active.values():
+		if is_instance_valid(n) and not selected_items.has(n):
+			selected_items.append(n)
+	for n in _local_active.values():
+		if is_instance_valid(n) and not selected_items.has(n):
+			selected_items.append(n)
 	_update_selection_visual()
-
 
 func _deselect_all() -> void:
 	selected_items.clear()
@@ -1128,6 +1270,8 @@ func _download_selected_cards() -> void:
 		return
 	var cards_to_download = []
 	for node in selected_items:
+		if not is_instance_valid(node):
+			continue
 		if \"link\" in node and node.video_info.get(\"is_network\", true):
 			cards_to_download.append(node)
 
@@ -1200,13 +1344,15 @@ func _on_thumbnails_scroll_resized() -> void:
 	if not thumbnails_scroll_container or list_view_mode:
 		return
 	if enable_cloud and _is_in_cloud_folder and _cloud_virtual_root != null:
-		# 虚拟滚动模式：重算列数 & 布局
+		# 虚拟滚动模式:重算列数 & 布局
 		_rebuild_cloud_virtual_layout()
+		return
+	# 本地文件夹虚拟滚动模式:重算列数 & 布局
+	if not enable_cloud and not _is_showing_favorites and _local_virtual_root != null:
+		_rebuild_local_virtual_layout()
 		return
 	grid_container.columns = max(1, int(thumbnails_scroll_container.size.x / 600))
 
-
-## 重新计算虚拟布局（窗口尺寸变化时调用）
 func _rebuild_cloud_virtual_layout() -> void:
 	if _cloud_virtual_root == null or not is_instance_valid(_cloud_virtual_root):
 		return
@@ -1233,6 +1379,8 @@ func _rebuild_cloud_virtual_layout() -> void:
 func _on_ok_pressed() -> void:
 	var selected_favs: Array[String] = []
 	for node in selected_items:
+		if not is_instance_valid(node):
+			continue
 		if \"directory_name\" in node:
 			selected_favs.append(node.directory_name)
 
@@ -1250,6 +1398,8 @@ func _on_cut_pressed() -> void:
 	_clipboard_type = \"cut\"
 	_clipboard_data.clear()
 	for node in selected_items:
+		if not is_instance_valid(node):
+			continue
 		var data = _serialize_node(node)
 		if not data.is_empty():
 			_clipboard_data.append(data)
@@ -1264,6 +1414,8 @@ func _on_copy_pressed() -> void:
 	_clipboard_type = \"copy\"
 	_clipboard_data.clear()
 	for node in selected_items:
+		if not is_instance_valid(node):
+			continue
 		var data = _serialize_node(node)
 		if not data.is_empty():
 			_clipboard_data.append(data)

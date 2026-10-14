@@ -40,7 +40,7 @@ func _on_qr_generated(_result: int, response_code: int, _headers: PackedStringAr
 	_poll_login_status(qrcode_key)
 
 func _display_qrcode(content: String) -> void:
-	qr_window = preload("res://Scene/Log_in.tscn").instantiate()
+	qr_window = load("res://Scene/Log_in.tscn").instantiate()
 	qr_window.close_requested.connect(_on_qr_window_closed)
 	_http.host.add_child(qr_window)
 	GdScriptFunc.apply_theme_and_styles_to_node(qr_window)

@@ -22,6 +22,14 @@ var _deferred_updates := []
 var _deferred_mutex := Mutex.new()
 var _by_link: Dictionary = {}   # link -> Array[exact_key]
 var _lru: Array = []            # FIFO 顺序
+# ---- 内存纹理 LRU(按字节预算:修复 issue#4) ----
+# 磁盘缓存命中仍每次重新解码创建新 ImageTexture;
+# 内存层加上后卡片复用同一纹理(滚动回来/切换视图不再重新解码)
+var _mem_tex: Dictionary = {}    # key(link_wxh) -> ImageTexture
+var _mem_order: Array = []       # LRU 顺序(最近使用在末尾)
+var _mem_bytes: int = 0
+const MEM_TEXTURE_BUDGET: int = 48 * 1024 * 1024  # 内存纹理上限 48MB(网格封面 583x364 约 0.85MB/张)
+
 
 func _init(api_request_func: Callable, download_request_func: Callable) -> void:
 	_api_request_func = api_request_func
@@ -166,7 +174,8 @@ func _on_cover_downloaded(result: int, response_code: int, _headers: PackedStrin
 		GdScriptFunc.safe_callback(bvid, null, callback)
 		return
 
-	var tex = ImageTexture.create_from_image(img)
+	var tex: ImageTexture = _get_mem_texture(_cache_key(bvid, img.get_width(), img.get_height()),
+		func() -> ImageTexture: return ImageTexture.create_from_image(img))
 	GdScriptFunc.safe_callback(bvid, tex, callback)
 
 	_save_mutex.lock()
@@ -312,6 +321,49 @@ func _evict() -> void:
 			DirAccess.remove_absolute(old_path)
 		_index.erase(item.key)
 
+# ==================== 内存纹理 LRU ====================
+## 取内存纹理(命中则 LRU 提升;未命中则创建并记账)
+## 淘汰只是丢掉缓存的引用;仍被卡片持有的纹理会等卡片释放后一并归还
+func _get_mem_texture(key: String, maker: Callable) -> ImageTexture:
+	if _mem_tex.has(key):
+		var hit: ImageTexture = _mem_tex[key]
+		if is_instance_valid(hit):
+			_mem_order.erase(key)
+			_mem_order.push_back(key)
+			return hit
+		_mem_tex.erase(key)
+		_mem_order.erase(key)
+	var tex: ImageTexture = maker.call()
+	if tex == null:
+		return null
+	_mem_tex[key] = tex
+	_mem_order.push_back(key)
+	_mem_bytes += tex.get_width() * tex.get_height() * 4
+	_evict_mem_textures()
+	return tex
+
+func _evict_mem_textures() -> void:
+	while _mem_bytes > MEM_TEXTURE_BUDGET and _mem_order.size() > 1:
+		var key: String = _mem_order.pop_front()
+		if not _mem_tex.has(key):
+			continue
+		var tex: ImageTexture = _mem_tex[key]
+		if is_instance_valid(tex):
+			_mem_bytes -= tex.get_width() * tex.get_height() * 4
+		_mem_tex.erase(key)
+
+func _bump_mem_texture(key: String) -> ImageTexture:
+	if not _mem_tex.has(key):
+		return null
+	var tex: ImageTexture = _mem_tex[key]
+	if is_instance_valid(tex):
+		_mem_order.erase(key)
+		_mem_order.push_back(key)
+		return tex
+	_mem_tex.erase(key)
+	_mem_order.erase(key)
+	return null
+
 func _process_one_task() -> void:
 	if _load_queue.is_empty():
 		return
@@ -321,6 +373,12 @@ func _process_one_task() -> void:
 	var cached_path: String = task.cached_path
 	var req_width: int = task.width
 	var req_height: int = task.height
+
+	# 内存纹理命中:直接返回,跳过磁盘读取和解码
+	var mem_tex: ImageTexture = _bump_mem_texture(_cache_key(link, req_width, req_height))
+	if mem_tex != null:
+		GdScriptFunc.safe_callback(link, mem_tex, callback)
+		return
 
 	if not FileAccess.file_exists(cached_path):
 		push_error("缓存文件丢失，重新下载 (%s)" % link)
@@ -360,7 +418,8 @@ func _process_one_task() -> void:
 	if img.get_width() != req_width or img.get_height() != req_height:
 		img = _resize_and_crop_center(img, req_width, req_height)
 
-	var tex = ImageTexture.create_from_image(img)
+	var tex: ImageTexture = _get_mem_texture(_cache_key(link, img.get_width(), img.get_height()),
+		func() -> ImageTexture: return ImageTexture.create_from_image(img))
 	GdScriptFunc.safe_callback(link, tex, callback)
 
 # 只缩不放

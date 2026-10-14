@@ -279,7 +279,7 @@ func open_right_click_menu_window(pos: Vector2, data: Array[Dictionary]) -> void
 
 
 func open_metadata_manager_window(directory_name: String, link: String) -> void:
-	var metadata_manager_window: Window = preload("res://Scene/MetadataManager.tscn").instantiate()
+	var metadata_manager_window: Window = load("res://Scene/MetadataManager.tscn").instantiate()
 	add_child(metadata_manager_window)
 	apply_theme_and_styles_to_node(metadata_manager_window)
 	metadata_manager_window.update(directory_name, link)
@@ -395,7 +395,7 @@ func _set_item_icon(menu: PopupMenu, idx: int, icon) -> void:
 func open_select_favorites_window() -> Array:
 	var window = Window.new()
 	add_child(window)
-	var favorites_page = preload("res://Scene/Favorites.tscn").instantiate()
+	var favorites_page = load("res://Scene/Favorites.tscn").instantiate()
 	favorites_page.offset_left = 10
 	window.add_child(favorites_page)
 	apply_theme_and_styles_to_node(window)
@@ -415,7 +415,7 @@ func open_select_favorites_window() -> Array:
 func open_normal_favorites_window() -> bool:
 	var window = Window.new()
 	add_child(window)
-	var favorites_page = preload("res://Scene/Favorites.tscn").instantiate()
+	var favorites_page = load("res://Scene/Favorites.tscn").instantiate()
 	favorites_page.offset_left = 10
 	window.add_child(favorites_page)
 	apply_theme_and_styles_to_node(window)
