@@ -559,10 +559,10 @@ func _clear_active_container() -> void:
 	_cloud_active.clear()
 	_cloud_virtual_root = null
 	_cloud_items.clear()
-	# 清理本地虚拟滚动状态
+	# 清理本地虚拟滚动状态(_local_items 可能与配置数组同引用,只换引用不清原地)
 	_local_active.clear()
 	_local_virtual_root = null
-	_local_items.clear()
+	_local_items = []
 	# 恢复 GridContainer 列数（如果之前是虚拟模式）
 	if not list_view_mode and is_instance_valid(grid_container):
 		grid_container.columns = max(1, int(thumbnails_scroll_container.size.x / 600))
@@ -695,7 +695,9 @@ func _load_all_video_cards() -> void:
 
 # ==================== 本地收藏夹虚拟滚动 ====================
 func _populate_local_virtual_view(items: Array, folder_title: String) -> void:
-	_local_items = items
+	# issue#6 修复:get_data 返回的是 ConfigFile 内数组的引用,必须存副本,
+	# 否则后续对 _local_items 的任何原地操作都会直接清空配置数据(且不置 dirty)
+	_local_items = items.duplicate()
 	_local_active.clear()
 	if _local_virtual_root != null and is_instance_valid(_local_virtual_root):
 		_local_virtual_root.queue_free()
