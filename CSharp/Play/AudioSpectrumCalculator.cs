@@ -23,6 +23,7 @@ public partial class AudioSpectrumCalculator : Node
     [Export] public float maxChangedSpeed = 3000.0f;
     [Export] public float dynamicUpdateInterval = 0.2f;
     [Export] public float dynamicThreshold = 3.0f;
+    [Export] public float perceptualBlend = 0.35f;
 
     public SpectrumData PrecomputedSpectrum;
     public Func<double> PositionProvider;
@@ -204,6 +205,9 @@ public partial class AudioSpectrumCalculator : Node
         float currentHigh = currentMax;
         float blockSize = (currentHigh - currentLow) / lineCount;
         float[] rawHeights = new float[lineCount];
+        float safeMaxHeight = Mathf.Max(maxHeight, 10.0f);
+        float spanDb = 10.0f * MathF.Log10(safeMaxHeight / 10.0f);
+        if (spanDb <= 1.0f) spanDb = 1.0f;
 
         for (int i = 0; i < lineCount; i++)
         {
@@ -227,7 +231,13 @@ public partial class AudioSpectrumCalculator : Node
             }
 
             float scaled = smoothed * ampScale * energyWeight;
-            rawHeights[i] = Mathf.Clamp(scaled, 10.0f, maxHeight);
+
+            float linearH = Mathf.Clamp(scaled, 10.0f, maxHeight);
+            float relDb = 10.0f * MathF.Log10(Mathf.Max(scaled, 1e-12f) / 10.0f);
+            float norm = Mathf.Clamp(relDb / spanDb, 0.0f, 1.0f);
+            float perceptualH = 10.0f + (safeMaxHeight - 10.0f) * norm;
+
+            rawHeights[i] = Mathf.Lerp(linearH, perceptualH, perceptualBlend);
         }
 
         return rawHeights;
