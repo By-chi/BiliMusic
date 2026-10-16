@@ -36,7 +36,7 @@ const PAGE_SCENES := {
 }
 const EPHEMERAL_PAGES := [\"Import\"]
 var _scene_cache := {}
-var _pending_scenes := {}
+var _prefetch_started := false
 
 func _apply_startup_settings() -> void:
 	var lang_codes = [\"zh\", \"en\", \"ja\"]
@@ -77,37 +77,34 @@ func _apply_startup_settings() -> void:
 		icon.texture = preload(\"res://UI/DefaultprofilePicture.png\")
 	else:
 		BilibiliApi.fetch_user_avatar(func(tex: ImageTexture):
-			if tex != null:
+			if tex != null and is_instance_valid(icon):
 				icon.texture = tex
 		)
 	GdScriptFunc.traverse_iterative_no_text_ui(get_tree().root)
 
 func _ensure_page(page_name: String) -> Control:
-	if not has_node(page_name):
-		var scene: PackedScene = _scene_cache.get(page_name)
-		if scene == null:
-			var path = PAGE_SCENES.get(page_name)
-			if path == null:
-				push_error(\"未知页面: %s\" % page_name)
-				return null
-			if _pending_scenes.has(page_name):
-				scene = ResourceLoader.load_threaded_get(path) as PackedScene
-				_pending_scenes.erase(page_name)
-			else:
-				scene = load(path) as PackedScene
-			if scene == null:
-				push_error(\"页面场景加载失败: %s\" % path)
-				return null
-			_scene_cache[page_name] = scene
-		var page: Control = scene.instantiate()
-		if page == null:
-			push_error(\"页面场景实例化失败: %s\" % page_name)
+	if has_node(page_name):
+		return get_node(page_name)
+	var scene: PackedScene = _scene_cache.get(page_name)
+	if scene == null:
+		var path = PAGE_SCENES.get(page_name)
+		if path == null:
+			push_error(\"未知页面: %s\" % page_name)
 			return null
-		page.name = page_name
-		page.visible = false
-		page.offset_transform_enabled = true
-		add_child(page)
-		move_child(page, get_node(\"BottomMenu\").get_index())
+		scene = load(path) as PackedScene
+		if scene == null:
+			push_error(\"页面场景加载失败: %s\" % path)
+			return null
+		_scene_cache[page_name] = scene
+	var page: Control = scene.instantiate()
+	if page == null:
+		push_error(\"页面场景实例化失败: %s\" % page_name)
+		return null
+	page.name = page_name
+	page.visible = false
+	page.offset_transform_enabled = true
+	add_child(page)
+	move_child(page, get_node(\"BottomMenu\").get_index())
 	return get_node(page_name)
 
 func play(card:BaseVideoCard)->void:
@@ -140,17 +137,6 @@ func _ready() -> void:
 	if current_page != null:
 		current_page.show()
 		current_page_name = \"Discover\"
-	for page_name in PAGE_SCENES:
-		if page_name == \"Discover\":
-			continue
-		if _scene_cache.has(page_name):
-			continue
-		var path: String = PAGE_SCENES[page_name]
-		var err := ResourceLoader.load_threaded_request(path, \"PackedScene\")
-		if err == OK:
-			_pending_scenes[page_name] = path
-		else:
-			push_error(\"场景后台加载请求失败: %s (%d)\" % [path, err])
 	_apply_startup_settings()
 	get_window().size_changed.connect(func():
 		var window := get_window()
@@ -169,26 +155,26 @@ func _ready() -> void:
 	for button in page_buttons:
 		if button != null and not button.pressed.is_connected(change_page.bind(button.name)):
 			button.connect(\"pressed\",change_page.bind(button.name))
+	_prefetch_pages()
 
-func _process(_delta: float) -> void:
-	if _pending_scenes.is_empty():
+func _prefetch_pages() -> void:
+	if _prefetch_started:
 		return
-	var done: Array[String] = []
-	for page_name in _pending_scenes.keys():
-		var path: String = _pending_scenes[page_name]
-		var status := ResourceLoader.load_threaded_get_status(path)
-		if status == ResourceLoader.THREAD_LOAD_LOADED:
-			var scene := ResourceLoader.load_threaded_get(path) as PackedScene
-			if scene != null:
-				_scene_cache[page_name] = scene
-			else:
-				push_error(\"场景后台加载返回空: %s\" % path)
-			done.append(page_name)
-		elif status == ResourceLoader.THREAD_LOAD_FAILED or status == ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:
-			push_error(\"场景后台加载失败: %s\" % path)
-			done.append(page_name)
-	for key in done:
-		_pending_scenes.erase(key)
+	_prefetch_started = true
+	for page_name in PAGE_SCENES:
+		if page_name == \"Discover\":
+			continue
+		if _scene_cache.has(page_name):
+			continue
+		await get_tree().process_frame
+		if not is_inside_tree():
+			return
+		var path: String = PAGE_SCENES[page_name]
+		var scene := load(path) as PackedScene
+		if scene != null:
+			_scene_cache[page_name] = scene
+		else:
+			push_error(\"页面场景预加载失败: %s\" % path)
 
 func show_search_bar()->void:
 	var tween:=search_bar.create_tween()
@@ -206,8 +192,6 @@ func change_page(page_name: String) -> void:
 	if is_switching:
 		return
 	if not PAGE_SCENES.has(page_name):
-		return
-	if _pending_scenes.has(page_name):
 		return
 	is_switching = true
 
