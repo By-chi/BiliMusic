@@ -125,24 +125,28 @@ func _on_cover_url_received(result: int, response_code: int, _headers: PackedStr
 
 	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
 		push_error("获取视频信息失败 (%s): %d" % [bvid, response_code])
+		GdScriptFunc.show_toast("获取视频信息失败: " + bvid)
 		next.call("")
 		return
 
 	var json = JSON.new()
 	if json.parse(body.get_string_from_utf8()) != OK:
 		push_error("JSON解析失败 (%s)" % bvid)
+		GdScriptFunc.show_toast("JSON解析失败: " + bvid)
 		next.call("")
 		return
 
 	var data = json.get_data()
 	if data.get("code") != 0:
 		push_error("API错误 (%s): %s" % [bvid, data.get("message")])
+		GdScriptFunc.show_toast("API错误: " + bvid)
 		next.call("")
 		return
 
 	var pic = data.get("data", {}).get("pic", "")
 	if pic.is_empty():
 		push_error("未找到封面URL (%s)" % bvid)
+		GdScriptFunc.show_toast("未找到封面URL: " + bvid)
 		next.call("")
 		return
 
@@ -165,12 +169,14 @@ func _on_cover_downloaded(result: int, response_code: int, _headers: PackedStrin
 
 	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
 		push_error("下载封面失败 (%s): %d" % [bvid, response_code])
+		GdScriptFunc.show_toast("下载封面失败: " + bvid)
 		GdScriptFunc.safe_callback(bvid, null, callback)
 		return
 
 	var img = Image.new()
 	if img.load_jpg_from_buffer(body) != OK and img.load_png_from_buffer(body) != OK:
 		push_error("图片解析失败 (%s)" % bvid)
+		GdScriptFunc.show_toast("图片解析失败: " + bvid)
 		GdScriptFunc.safe_callback(bvid, null, callback)
 		return
 

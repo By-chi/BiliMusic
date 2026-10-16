@@ -1027,12 +1027,14 @@ func _download_video(video_card: Control, on_finished: Callable = Callable()) ->
 
 	if video_info.get(\"is_network\", true) == false:
 		GdScriptFunc.set_progress_bar_value(100, \"\", tr(\"本地文件，无需下载\"))
+		GdScriptFunc.show_toast(\"本地文件，无需下载: \" + video_info.get(\"title\", \"\"))
 		if on_finished.is_valid(): on_finished.call()
 		return
 
 	var bvid: String = video_info.get(\"link\", \"\")
 	if bvid.is_empty():
 		GdScriptFunc.set_progress_bar_value(100, \"\", tr(\"下载失败：无效链接\"))
+		GdScriptFunc.show_toast(\"下载失败：无效链接\")
 		if on_finished.is_valid(): on_finished.call()
 		return
 
@@ -1041,6 +1043,7 @@ func _download_video(video_card: Control, on_finished: Callable = Callable()) ->
 		if full_info.is_empty():
 			push_error(\"获取视频信息失败: \" + bvid)
 			GdScriptFunc.set_progress_bar_value(100, \"\", tr(\"获取视频信息失败\"))
+			GdScriptFunc.show_toast(\"获取视频信息失败: \" + bvid)
 			if on_finished.is_valid(): on_finished.call()
 			return
 
@@ -1053,6 +1056,7 @@ func _download_video(video_card: Control, on_finished: Callable = Callable()) ->
 			if audio_result.is_empty():
 				push_error(\"下载音频失败: \" + bvid)
 				GdScriptFunc.set_progress_bar_value(100, title, tr(\"音频下载失败\"))
+				GdScriptFunc.show_toast(\"音频下载失败: \" + bvid)
 				if on_finished.is_valid(): on_finished.call()
 				return
 
@@ -1076,6 +1080,7 @@ func _download_video(video_card: Control, on_finished: Callable = Callable()) ->
 
 			if not updated:
 				push_error(\"未在收藏夹中找到对应条目: \" + bvid)
+				GdScriptFunc.show_toast(\"更新收藏夹失败: \" + bvid)
 				GdScriptFunc.set_progress_bar_value(100, title, tr(\"更新收藏夹失败\"))
 				if on_finished.is_valid(): on_finished.call()
 				return

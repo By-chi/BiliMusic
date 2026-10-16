@@ -28,6 +28,7 @@ func _on_search_response(_r, code, _h, body, extra):
 	var author_filter: String = extra[1] if extra.size() > 1 else ""
 	if code != 200:
 		push_error("[BilibiliAPI] 搜索请求失败: %d" % code)
+		GdScriptFunc.show_toast("搜索请求失败: " + str(code))
 		callback.call([{}]); return
 	var raw = body.get_string_from_utf8()
 	if raw.strip_edges().begins_with("<"):

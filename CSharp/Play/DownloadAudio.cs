@@ -128,8 +128,10 @@ public partial class DownloadAudio : Node
 
             http.SetDownloadFile(tempPath);
             Error err = http.Request(url, headers);
-            if (err != Error.Ok)
+            if (err != Error.Ok){
+                GetNode("/root/GdScriptFunc").Call("show_toast", $"请求发送失败: {err}");
                 throw new Exception($"请求发送失败: {err}");
+            }
 
             var result = await ToSignal(http, HttpRequest.SignalName.RequestCompleted);
             long responseCode = (long)result[1];
@@ -166,8 +168,10 @@ public partial class DownloadAudio : Node
         try
         {
             Error err = viewHttp.Request(viewUrl, commonHeaders);
-            if (err != Error.Ok)
+            if (err != Error.Ok){
+                GetNode("/root/GdScriptFunc").Call("show_toast", $"视频详情请求失败: {err}");
                 throw new Exception($"视频详情请求失败: {err}");
+            }
 
             var viewResult = await ToSignal(viewHttp, HttpRequest.SignalName.RequestCompleted);
             long viewCode = (long)viewResult[1];
@@ -190,8 +194,10 @@ public partial class DownloadAudio : Node
             try
             {
                 err = playHttp.Request(playUrl, commonHeaders);
-                if (err != Error.Ok)
+                if (err != Error.Ok){
+                    GetNode("/root/GdScriptFunc").Call("show_toast", $"播放地址请求失败: {err}");
                     throw new Exception($"播放地址请求失败: {err}");
+                }
 
                 var playResult = await ToSignal(playHttp, HttpRequest.SignalName.RequestCompleted);
                 long playCode = (long)playResult[1];
@@ -241,8 +247,10 @@ public partial class DownloadAudio : Node
         try
         {
             Error err = infoHttp.Request(infoUrl, headers);
-            if (err != Error.Ok)
+            if (err != Error.Ok){
+                GetNode("/root/GdScriptFunc").Call("show_toast", $"音频详情请求失败: {err}");
                 throw new Exception($"音频详情请求失败: {err}");
+            }
 
             var infoResult = await ToSignal(infoHttp, HttpRequest.SignalName.RequestCompleted);
             long infoCode = (long)infoResult[1];
@@ -268,8 +276,10 @@ public partial class DownloadAudio : Node
             try
             {
                 err = playHttp.Request(playUrl, headers);
-                if (err != Error.Ok)
-                    throw new Exception($"播放地址请求失败: {err}");
+                if (err != Error.Ok){
+                    GetNode("/root/GdScriptFunc").Call("show_toast", $"播放地址请求失败: {err}");
+                    throw new Exception($"播放地址请求: {err}");
+                }
 
                 var playResult = await ToSignal(playHttp, HttpRequest.SignalName.RequestCompleted);
                 long playCode = (long)playResult[1];
@@ -355,9 +365,6 @@ public partial class DownloadAudio : Node
     /// </summary>
     public static Dictionary GetAudioInfoByBvSync(string bvid)
     {
-        if (string.IsNullOrWhiteSpace(bvid))
-            throw new ArgumentException("BV 号不能为空。", nameof(bvid));
-
         try
         {
             string viewUrl = $"https://api.bilibili.com/x/web-interface/view?bvid={bvid}";
@@ -387,7 +394,7 @@ public partial class DownloadAudio : Node
         }
         catch (Exception ex)
         {
-            throw new Exception($"同步获取视频音频信息失败: {ex.Message}", ex);
+            return [];
         }
     }
 
@@ -487,8 +494,10 @@ public partial class DownloadAudio : Node
         try
         {
             Error err = http.Request(viewUrl, headers);
-            if (err != Error.Ok)
+            if (err != Error.Ok){
+                GetNode("/root/GdScriptFunc").Call("show_toast", $"请求发送失败: {err}");
                 throw new Exception($"请求发送失败: {err}");
+            }
 
             var result = await ToSignal(http, HttpRequest.SignalName.RequestCompleted);
             long code = (long)result[1];

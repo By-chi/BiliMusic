@@ -52,6 +52,7 @@ func _on_import_pressed() -> void:
 						var err := DirAccess.copy_absolute(file, dst_path)
 						if err != OK:
 							push_error(\"复制文件失败: %s -> %s\" % [file, dst_path])
+							GdScriptFunc.show_toast(\"复制文件失败: \" + file)
 							continue
 
 					# ----- 复制同名封面图片（如果存在） -----

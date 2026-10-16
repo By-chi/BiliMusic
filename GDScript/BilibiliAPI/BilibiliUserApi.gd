@@ -260,6 +260,7 @@ func _on_fav_folders_received(_result: int, code: int, _headers: PackedStringArr
 	var callback: Callable = extra[0]
 	if code != 200:
 		push_error("[BilibiliUserApi] 获取收藏夹列表失败，HTTP %d" % code)
+		GdScriptFunc.show_toast("获取收藏夹列表失败，HTTP %d" % code)
 		callback.call([])
 		return
 
@@ -267,12 +268,14 @@ func _on_fav_folders_received(_result: int, code: int, _headers: PackedStringArr
 	var body_str = body.get_string_from_utf8()
 	if json.parse(body_str) != OK:
 		push_error("[BilibiliUserApi] 收藏夹列表 JSON 解析失败")
+		GdScriptFunc.show_toast("收藏夹列表 JSON 解析失败")
 		callback.call([])
 		return
 
 	var data = json.get_data()
 	if data.get("code", -1) != 0:
 		push_error("[BilibiliUserApi] 收藏夹列表 API 错误: %s" % data.get("message", ""))
+		GdScriptFunc.show_toast("收藏夹列表 API 错误: " + data.get("message", ""))
 		callback.call([])
 		return
 
@@ -317,6 +320,7 @@ func _on_fav_items_received(_result: int, code: int, _headers: PackedStringArray
 	var callback: Callable = extra[0]
 	if code != 200:
 		push_error("[BilibiliUserApi] 获取收藏夹内容失败，HTTP %d" % code)
+		GdScriptFunc.show_toast("获取收藏夹内容失败，HTTP %d" % code)
 		callback.call({"medias": [], "has_more": false, "total": 0})
 		return
 
@@ -324,12 +328,14 @@ func _on_fav_items_received(_result: int, code: int, _headers: PackedStringArray
 	var body_str = body.get_string_from_utf8()
 	if json.parse(body_str) != OK:
 		push_error("[BilibiliUserApi] 收藏夹内容 JSON 解析失败")
+		GdScriptFunc.show_toast("收藏夹内容 JSON 解析失败")
 		callback.call({"medias": [], "has_more": false, "total": 0})
 		return
 
 	var data = json.get_data()
 	if data.get("code", -1) != 0:
 		push_error("[BilibiliUserApi] 收藏夹内容 API 错误: %s" % data.get("message", ""))
+		GdScriptFunc.show_toast("收藏夹内容 API 错误: " + data.get("message", ""))
 		callback.call({"medias": [], "has_more": false, "total": 0})
 		return
 

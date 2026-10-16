@@ -684,6 +684,115 @@ func set_progress_bar_value(progress_value: int, title_str := "", text_str := ""
 	else:
 		State.main.progress_bar.self_modulate.a=1.0
 		State.main.progress_bar.offset_transform_scale.x=progress_value/100.0
+
+var _toasts: Dictionary = {}          # Window -> Array[PanelContainer](旧->新)
+
+func show_toast(message: String, duration := 2.0, host: Node = null) -> void:
+	var window := _toast_host_window(host)
+	if window == null:
+		return
+	var toast := PanelContainer.new()
+	toast.add_to_group("style_panel")
+	toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	toast.modulate.a = 0.0
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 24)
+	margin.add_theme_constant_override("margin_top", 10)
+	margin.add_theme_constant_override("margin_right", 24)
+	margin.add_theme_constant_override("margin_bottom", 10)
+	var label := Label.new()
+	label.add_to_group("color_font_color")
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.add_theme_font_size_override("font_size", 30)
+	label.text = message
+	margin.add_child(label)
+	toast.add_child(margin)
+	window.add_child(toast)
+	# 皮肤样式(style_panel 面板 + color_font_color 文字);无皮肤时给个兜底深色样式
+	if current_skin_name != "":
+		_apply_special_styles_recursive(toast, _load_special_styles_config("res://Skin/" + current_skin_name + "/"))
+	else:
+		var fallback := StyleBoxFlat.new()
+		fallback.bg_color = Color(0, 0, 0, 0.72)
+		fallback.set_corner_radius_all(8)
+		fallback.content_margin_left = 24.0
+		fallback.content_margin_top = 10.0
+		fallback.content_margin_right = 24.0
+		fallback.content_margin_bottom = 10.0
+		toast.add_theme_stylebox_override("panel", fallback)
+		label.add_theme_color_override("font_color", Color.WHITE)
+	_toast_add_to_window(window, toast)
+	_toast_layout_async(toast, window, duration)
+
+
+func _toast_host_window(host: Node) -> Window:
+	if host != null and is_instance_valid(host):
+		var w := host.get_window()
+		if w != null:
+			return w
+	if State.main != null and is_instance_valid(State.main):
+		return State.main.get_window()
+	return null
+
+
+func _toast_add_to_window(window: Window, toast: PanelContainer) -> void:
+	var list: Array = _toasts.get_or_add(window, [])
+	list.append(toast)
+	toast.tree_exited.connect(func():
+		if is_instance_valid(window):
+			_toast_relayout(window)
+	)
+	# 同屏最多 3 条,挤掉最旧的
+	while list.size() > 3:
+		var oldest = list.pop_front()
+		if is_instance_valid(oldest):
+			oldest.queue_free()
+	_toast_relayout(window)
+
+
+func _toast_relayout(window: Window) -> void:
+	if not _toasts.has(window):
+		return
+	var list: Array = _toasts[window]
+	# 清掉已失效的
+	for i in range(list.size() - 1, -1, -1):
+		if not is_instance_valid(list[i]):
+			list.remove_at(i)
+	if list.is_empty():
+		_toasts.erase(window)
+		return
+	# 从最旧(最靠下)往上排:底部留 60px 给进度条
+	var y := 60.0
+	for toast in list:
+		var t: PanelContainer = toast
+		y += t.size.y + 8.0
+		t.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+		t.offset_left = -t.size.x / 2.0
+		t.offset_right = t.size.x / 2.0
+		t.offset_top = -y
+		t.offset_bottom = -y + t.size.y
+
+
+func _toast_layout_async(toast: PanelContainer, window: Window, duration: float) -> void:
+	# 等一帧让 Label 完成排版测量,PanelContainer 收缩到内容大小
+	await get_tree().process_frame
+	if not is_instance_valid(toast):
+		return
+	toast.reset_size()
+	# 过宽的长文本:限宽自动换行(CJK 友好),按实际边距精确封顶 640
+	if toast.size.x > 640.0:
+		var lbl: Label = toast.get_child(0).get_child(0)
+		var chrome := toast.size.x - lbl.size.x
+		lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		lbl.custom_minimum_size = Vector2(maxf(80.0, 640.0 - chrome), 0.0)
+		toast.reset_size()
+	_toast_relayout(window)
+	var tween: Tween = toast.create_tween()
+	tween.tween_property(toast, "modulate:a", 1.0, 0.18)
+	tween.tween_interval(duration)
+	tween.tween_property(toast, "modulate:a", 0.0, 0.5).set_trans(Tween.TRANS_SINE)
+	tween.tween_callback(toast.queue_free)
+
 var current_skin_name: String = ""
 
 
@@ -702,6 +811,7 @@ func update_skin_theme(skin_name: String) -> void:
 			_apply_theme_to_tree(get_tree().root, main_theme)
 		else:
 			push_warning("[ThemeManager] 加载 main.theme 失败: ", main_theme_path)
+			GdScriptFunc.show_toast("加载 main.theme 失败: " + main_theme_path)
 	else:
 		push_warning("[ThemeManager] 未找到 main.theme: ", main_theme_path)
 
@@ -729,6 +839,7 @@ func apply_theme_from_path(path: String) -> bool:
 	var theme: Theme = ResourceLoader.load(path, "Theme", ResourceLoader.CACHE_MODE_REUSE)
 	if not theme:
 		push_error("[ThemeManager] 加载失败，文件不是有效的 Theme 资源: ", path)
+		GdScriptFunc.show_toast("加载 theme 失败: " + path)
 		return false
 	apply_theme(theme)
 	return true
@@ -793,6 +904,7 @@ func _load_special_styles_config(dir: String) -> Dictionary:
 	var file = FileAccess.open(config_path, FileAccess.READ)
 	if file == null:
 		push_error("[ThemeManager] 无法打开配置文件: ", config_path)
+		GdScriptFunc.show_toast("无法打开配置文件: " + config_path)
 		return {}
 	var content = file.get_as_text()
 	file.close()
@@ -804,10 +916,12 @@ func _load_special_styles_config(dir: String) -> Dictionary:
 		push_error(
 			"[ThemeManager] 解析 special_styles.json 失败: ", json.get_error_message(), " 内容: ", content
 		)
+		GdScriptFunc.show_toast("解析 special_styles.json 失败")
 		return {}
 	var data = json.data
 	if typeof(data) != TYPE_DICTIONARY:
 		push_error("[ThemeManager] 配置数据不是字典类型，实际类型: ", typeof(data))
+		GdScriptFunc.show_toast("解析 special_styles.json 失败")
 		return {}
 	return data
 

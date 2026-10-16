@@ -43,17 +43,20 @@ func _on_list_received(result: int, response_code: int, _headers: PackedStringAr
 
 	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
 		push_error("字幕列表获取失败 (%s)" % bvid)
+		GdScriptFunc.show_toast("字幕列表获取失败: " + bvid)
 		callback.call({})
 		return
 
 	var json = JSON.new()
 	if json.parse(body.get_string_from_utf8()) != OK:
 		push_error("JSON解析失败 (%s)" % bvid)
+		GdScriptFunc.show_toast("JSON解析失败: " + bvid)
 		callback.call({})
 		return
 	var root = json.get_data()
 	if root.get("code") != 0:
 		push_error("API错误 (%s): %s" % [bvid, root.get("message")])
+		GdScriptFunc.show_toast("API错误: " + bvid)
 		callback.call({})
 		return
 
@@ -120,18 +123,21 @@ func _try_download(index: int, candidates: Array, bvid: String, info: Dictionary
 	_download_request_func.call(url, func(result, code, _h, body, ext):
 		if code != 200:
 			push_warning("字幕下载失败 (%s) HTTP %d" % [bvid, code])
+			GdScriptFunc.show_toast("字幕下载失败: " + bvid)
 			_try_download(index + 1, candidates, bvid, info, callback, skip_correction, save_path)
 			return
 
 		var json = JSON.new()
 		if json.parse(body.get_string_from_utf8()) != OK:
 			push_warning("字幕JSON解析失败 (%s)" % bvid)
+			GdScriptFunc.show_toast("字幕JSON解析失败: " + bvid)
 			_try_download(index + 1, candidates, bvid, info, callback, skip_correction, save_path)
 			return
 
 		var content = json.get_data()
 		if typeof(content) != TYPE_DICTIONARY:
 			push_warning("字幕结构异常 (%s)" % bvid)
+			GdScriptFunc.show_toast("字幕结构异常: " + bvid)
 			_try_download(index + 1, candidates, bvid, info, callback, skip_correction, save_path)
 			return
 

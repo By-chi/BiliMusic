@@ -22,13 +22,18 @@ func _on_video_info_response(_r, code, _h, body, extra):
 	var callback: Callable = extra[1]
 	if code != 200:
 		push_error("[BilibiliAPI] 获取视频信息失败 (%s): %d" % [bvid, code])
+		GdScriptFunc.show_toast("获取视频信息失败: " + bvid)
 		callback.call({}); return
 	var json = JSON.new()
 	if json.parse(body.get_string_from_utf8()) != OK:
-		push_error("[BilibiliAPI] JSON解析失败 (%s)" % bvid); callback.call({}); return
+		push_error("[BilibiliAPI] JSON解析失败 (%s)" % bvid)
+		GdScriptFunc.show_toast("JSON解析失败: " + bvid)
+		callback.call({}); return
 	var data = json.get_data()
 	if data.get("code") != 0:
-		push_error("[BilibiliAPI] API错误 (%s): %s" % [bvid, data.get("message")]); callback.call({}); return
+		push_error("[BilibiliAPI] API错误 (%s): %s" % [bvid, data.get("message")])
+		GdScriptFunc.show_toast("API错误: " + bvid)
+		callback.call({}); return
 	var vd = data.get("data", {})
 	if vd.is_empty(): callback.call({}); return
 	var own = vd.get("owner", {})
@@ -119,6 +124,7 @@ func _try_fetch(bvid: String, cid: int, mode: String, fallback_mode: String, cal
 		_do_fetch(bvid, cid, fallback_mode, func(url2: String):
 			if url2.is_empty():
 				push_error("[BilibiliVideoApi] 两条路径均失败，无法获取音频地址")
+				GdScriptFunc.show_toast("无法获取音频地址: " + bvid)
 			callback.call(url2)
 		)
 	)
@@ -176,18 +182,21 @@ func _on_audio_url_response(_result: int, code: int, _headers: PackedStringArray
 
 	if code != 200:
 		push_error("[BilibiliVideoApi] [%s] 获取音频地址失败 HTTP %d" % [tag, code])
+		GdScriptFunc.show_toast("获取音频地址失败: " + tag+" HTTP " + str(code))
 		callback.call("")
 		return
 
 	var json = JSON.new()
 	if json.parse(body.get_string_from_utf8()) != OK:
 		push_error("[BilibiliVideoApi] [%s] JSON 解析失败" % tag)
+		GdScriptFunc.show_toast("JSON解析失败: " + tag+" HTTP " + str(code))
 		callback.call("")
 		return
 
 	var data = json.get_data()
 	if typeof(data) != TYPE_DICTIONARY or data.get("code", -1) != 0:
 		push_error("[BilibiliVideoApi] [%s] API 错误: %s" % [tag, data.get("message", "")])
+		GdScriptFunc.show_toast("API错误: " + tag+" HTTP " + str(code))
 		callback.call("")
 		return
 

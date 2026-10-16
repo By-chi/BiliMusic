@@ -63,6 +63,7 @@ func _on_user_info_received(info, node: Control, icon: TextureRect) -> void:
 		return
 	if not info:
 		print(\"获取用户信息失败:\", node.name)
+		GdScriptFunc.show_toast(\"获取用户信息失败: \" + node.name)
 		return
 
 	var font: Font = get_theme_font(\"font\", \"Label\")
@@ -93,6 +94,7 @@ func _load_avatar(face_url: String, icon: TextureRect) -> void:
 			tw.tween_property(icon, \"modulate:a\", 1.0, 0.3).set_trans(Tween.TRANS_CUBIC)
 		else:
 			print(\"头像下载失败\")
+			GdScriptFunc.show_toast(\"头像下载失败: \" + face_url)
 	)
 	img_request.request(face_url, BilibiliApi._get_image_headers(), HTTPClient.METHOD_GET)
 

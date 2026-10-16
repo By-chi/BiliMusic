@@ -94,11 +94,13 @@ func _ensure_page(page_name: String) -> Control:
 		scene = load(path) as PackedScene
 		if scene == null:
 			push_error(\"页面场景加载失败: %s\" % path)
+			GdScriptFunc.show_toast(\"页面场景加载失败: \" + path)
 			return null
 		_scene_cache[page_name] = scene
 	var page: Control = scene.instantiate()
 	if page == null:
 		push_error(\"页面场景实例化失败: %s\" % page_name)
+		GdScriptFunc.show_toast(\"页面场景实例化失败: \" + page_name)
 		return null
 	page.name = page_name
 	page.visible = false
@@ -175,6 +177,7 @@ func _prefetch_pages() -> void:
 			_scene_cache[page_name] = scene
 		else:
 			push_error(\"页面场景预加载失败: %s\" % path)
+			GdScriptFunc.show_toast(\"页面场景预加载失败: \" + path)
 
 func show_search_bar()->void:
 	var tween:=search_bar.create_tween()

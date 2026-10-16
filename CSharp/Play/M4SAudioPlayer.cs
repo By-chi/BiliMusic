@@ -87,7 +87,10 @@ public partial class M4SAudioPlayer : Node
                 Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.High;
                 GD.Print("[CSharpFunc] 进程优先级已设置为 High");
             }
-            catch (Exception ex) { GD.PrintErr($"[CSharpFunc] 设置进程优先级失败: {ex.Message}"); }
+            catch (Exception ex) {
+                GetNode("/root/GdScriptFunc").Call("show_toast", $"设置进程优先级失败: {ex.Message}");
+                GD.PrintErr($"[CSharpFunc] 设置进程优先级失败: {ex.Message}"); 
+            }
         }
     }
 
@@ -296,6 +299,7 @@ public partial class M4SAudioPlayer : Node
             catch (Exception ex)
             {
                 GD.PrintErr($"Seek 失败：{ex.Message}");
+                GetNode("/root/GdScriptFunc").Call("show_toast", $"Seek 失败：{ex.Message}");
                 EmitPlaybackError(ex.Message);
                 _isPlaying = false;
                 _isLoading = false;
@@ -484,6 +488,7 @@ public partial class M4SAudioPlayer : Node
                     if (!token.IsCancellationRequested)
                     {
                         GD.PrintErr($"下载失败: {ex.Message}");
+                        GetNode("/root/GdScriptFunc").Call("show_toast", $"下载失败: {ex.Message}");
                         EmitPlaybackError("下载失败: " + ex.Message);
                     }
                 }
@@ -508,8 +513,10 @@ public partial class M4SAudioPlayer : Node
                 catch (OperationCanceledException) { }
                 catch (Exception ex)
                 {
-                    if (!token.IsCancellationRequested)
+                    if (!token.IsCancellationRequested){
                         GD.PrintErr($"读取 PCM 失败: {ex.Message}");
+                        GetNode("/root/GdScriptFunc").Call("show_toast", $"读取 PCM 失败: {ex.Message}");
+                    }
                 }
             }, token);
 
@@ -539,6 +546,7 @@ public partial class M4SAudioPlayer : Node
         catch (Exception ex)
         {
             GD.PrintErr($"播放失败: {ex.Message}");
+            GetNode("/root/GdScriptFunc").Call("show_toast", $"播放失败: {ex.Message}");
             EmitPlaybackError(ex.Message);
         }
         finally
@@ -567,7 +575,8 @@ public partial class M4SAudioPlayer : Node
                     if (duration > 0) _currentAudioDuration = duration;
                     else GD.PrintErr("获取本地音频时长失败");
                 }
-                catch (Exception ex) { GD.PrintErr($"获取本地音频时长失败: {ex.Message}"); }
+                catch (Exception ex) { 
+                    GetNode("/root/GdScriptFunc").Call("show_toast", $"获取本地音频时长失败: {ex.Message}"); }
             }
 
             await Task.Run(async () =>
@@ -594,6 +603,7 @@ public partial class M4SAudioPlayer : Node
         catch (Exception ex)
         {
             GD.PrintErr($"本地播放失败: {ex.Message}");
+            GetNode("/root/GdScriptFunc").Call("show_toast", $"本地播放失败: {ex.Message}");
             EmitPlaybackError(ex.Message);
         }
         finally
@@ -663,7 +673,10 @@ public partial class M4SAudioPlayer : Node
                 {
                     var info = await Task.Run(() => DownloadAudio.GetAudioInfoByBvSync(identifier));
                     if (info == null || info.Count == 0)
+                    {
+                        GetNode("/root/GdScriptFunc").Call("show_toast", $"未获取到音频信息: {identifier}");
                         throw new Exception("未获取到音频信息");
+                    }
                     audioUrl = info["audioUrl"].AsString();
                     referer = info["referer"].AsString();
                 }

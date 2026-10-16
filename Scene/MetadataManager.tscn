@@ -134,6 +134,7 @@ func _on_cover_pick_pressed() -> void:
 		var img := Image.load_from_file(path)
 		if img == null:
 			GdScriptFunc.set_progress_bar_value(100, tr(\"失败\"), tr(\"无法读取所选图片\"))
+			GdScriptFunc.show_toast(\"无法读取所选图片\",2,self)
 			return
 		var cover_path := _cover_path_for(link_line_edit.text)
 		if cover_path.is_empty():
@@ -144,6 +145,7 @@ func _on_cover_pick_pressed() -> void:
 			GdScriptFunc.set_progress_bar_value(100, tr(\"完成\"), tr(\"封面已更新\"))
 		else:
 			GdScriptFunc.set_progress_bar_value(100, tr(\"失败\"), tr(\"封面保存失败\"))
+			GdScriptFunc.show_toast(\"封面保存失败\",2,self)
 	)
 	dialog.popup_centered(Vector2i(900, 600))
 
@@ -160,6 +162,7 @@ func _on_cover_download_pressed() -> void:
 	var link := link_line_edit.text
 	if link.is_empty() or not FileAccess.file_exists(link):
 		GdScriptFunc.set_progress_bar_value(100, tr(\"失败\"), tr(\"请先下载音频再下载封面\"))
+		GdScriptFunc.show_toast(\"请先下载音频再下载封面\",2,self)
 		return
 	var cover_path := _cover_path_for(link)
 	GdScriptFunc.set_progress_bar_value(10, tr(\"封面下载\"), tr(\"正在获取封面...\"))
@@ -173,8 +176,10 @@ func _on_cover_download_pressed() -> void:
 				GdScriptFunc.set_progress_bar_value(100, tr(\"完成\"), tr(\"封面已更新\"))
 			else:
 				GdScriptFunc.set_progress_bar_value(100, tr(\"失败\"), tr(\"封面保存失败\"))
+				GdScriptFunc.show_toast(\"封面保存失败\",2,self)
 		else:
 			GdScriptFunc.set_progress_bar_value(100, tr(\"失败\"), tr(\"封面获取失败\"))
+			GdScriptFunc.show_toast(\"封面获取失败\",2,self)
 	, 1280, 720)
 
 # ---------- 下载功能 ----------
@@ -190,6 +195,7 @@ func _on_link_download_pressed() -> void:
 	_download_audio_async(bv, func(audio_result: Dictionary):
 		if audio_result.is_empty():
 			GdScriptFunc.set_progress_bar_value(100, tr(\"失败\"), tr(\"音频下载失败\"))
+			GdScriptFunc.show_toast(\"音频下载失败\",2,self)
 			return
 
 		var new_link: String = audio_result[\"local_path\"]
@@ -321,6 +327,7 @@ func _save_changes() -> bool:
 			GdScriptFunc.set_data(\"Favorites\", directory_name, deck)
 			return true
 	GdScriptFunc.set_progress_bar_value(100, tr(\"失败\"), tr(\"未找到对应收藏条目，无法保存\"))
+	GdScriptFunc.show_toast(\"保存失败\", 2, self)
 	return false
 
 func _on_ok_pressed() -> void:

@@ -25,6 +25,7 @@ func start_login(login_callback: Callable) -> void:
 	)
 	if err != OK:
 		push_error("[BilibiliAPI] 二维码生成请求失败: %d" % err)
+		GdScriptFunc.show_toast("二维码生成请求失败")
 		http.queue_free()
 
 func _on_qr_generated(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
@@ -57,6 +58,7 @@ func _display_qrcode(content: String) -> void:
 			qr_window.get_node("QRImage").texture = tex
 		else:
 			push_error("[BilibiliAPI] 二维码图片加载失败")
+			GdScriptFunc.show_toast("二维码图片加载失败")
 	)
 	img_request.request(qr_api, PackedStringArray(), HTTPClient.METHOD_GET)
 
@@ -155,6 +157,7 @@ func _exchange_cookie(login_url: String) -> void:
 	var err = http.request(login_url, headers, HTTPClient.METHOD_GET)
 	if err != OK:
 		push_error("[BilibiliAPI] 请求失败: %d" % err)
+		GdScriptFunc.show_toast("登录请求失败")
 		_close_qr_window()
 		if on_qr_login_result:
 			on_qr_login_result.call(false)
