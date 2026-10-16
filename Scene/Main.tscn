@@ -27,7 +27,6 @@ script/source = "extends Panel
 @export var icon:TextureRect
 @export var progress_bar:Panel
 @export var search_bar:LineEdit
-# 页面场景表 —— 惰性实例化:首次进入页面才加载,避免启动时全部页面驻留内存
 const PAGE_SCENES := {
 	\"Discover\": \"res://Scene/Discover.tscn\",
 	\"Results\": \"res://Scene/Results.tscn\",
@@ -35,16 +34,11 @@ const PAGE_SCENES := {
 	\"Import\": \"res://Scene/Import.tscn\",
 	\"Options\": \"res://Scene/Options.tscn\",
 }
-# 无状态页面:离开即释放(重建零成本且不丢数据)。注意:Options 虽无界面状态,
-# 但每次实例化会重跑目录扫描+皮肤全树应用,非常卡,故同样保活
 const EPHEMERAL_PAGES := [\"Import\"]
 var _scene_cache := {}
+var _pending_scenes := {}
 
-# 启动期全局设置:语言/皮肤/头像与全树翻译刷新。
-# 这些原本由 Options 页静态实例化时的 _ready 副作用承担,页面惰性化后必须在启动时主动应用,
-# 否则要等用户点开 Options 才生效(语言/主题未加载、头像缺失)
 func _apply_startup_settings() -> void:
-	# --- 语言(与 _setup_language 相同的回退逻辑) ---
 	var lang_codes = [\"zh\", \"en\", \"ja\"]
 	var saved_code: String = GdScriptFunc.get_data(\"Options\", \"Language\", \"\")
 	var current_locale: String = TranslationServer.get_locale()
@@ -58,7 +52,6 @@ func _apply_startup_settings() -> void:
 		if not matched:
 			saved_code = lang_codes[0]
 	TranslationServer.set_locale(saved_code)
-	# --- 皮肤:保存值是路径,取末段文件夹名;为空则回退到扫描到的第一个 ---
 	var skin_name: String = GdScriptFunc.get_data(\"Options\", \"Skin\", \"\")
 	skin_name = skin_name.trim_suffix(\"/\").get_file()
 	if skin_name == \"\":
@@ -80,7 +73,6 @@ func _apply_startup_settings() -> void:
 			skin_name = skin_dirs[0]
 	if skin_name != \"\":
 		GdScriptFunc.update_skin_theme(skin_name)
-	# --- 头像(与 _setup_account 行为一致) ---
 	if GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\") == null:
 		icon.texture = preload(\"res://UI/DefaultprofilePicture.png\")
 	else:
@@ -88,21 +80,32 @@ func _apply_startup_settings() -> void:
 			if tex != null:
 				icon.texture = tex
 		)
-	# --- 全树翻译刷新(与原 Options._ready 结尾行为一致) ---
 	GdScriptFunc.traverse_iterative_no_text_ui(get_tree().root)
 
 func _ensure_page(page_name: String) -> Control:
 	if not has_node(page_name):
 		var scene: PackedScene = _scene_cache.get(page_name)
 		if scene == null:
-			scene = load(PAGE_SCENES[page_name])
+			var path = PAGE_SCENES.get(page_name)
+			if path == null:
+				push_error(\"未知页面: %s\" % page_name)
+				return null
+			if _pending_scenes.has(page_name):
+				scene = ResourceLoader.load_threaded_get(path) as PackedScene
+				_pending_scenes.erase(page_name)
+			else:
+				scene = load(path) as PackedScene
+			if scene == null:
+				push_error(\"页面场景加载失败: %s\" % path)
+				return null
 			_scene_cache[page_name] = scene
 		var page: Control = scene.instantiate()
+		if page == null:
+			push_error(\"页面场景实例化失败: %s\" % page_name)
+			return null
 		page.name = page_name
-		# 入树前先隐藏,避免实例化瞬间触发一次 visibility_changed(true)
 		page.visible = false
 		page.offset_transform_enabled = true
-		# 插到 BottomMenu 之前,保持页面在底栏/进度条之下的原有绘制顺序
 		add_child(page)
 		move_child(page, get_node(\"BottomMenu\").get_index())
 	return get_node(page_name)
@@ -128,18 +131,26 @@ func play(card:BaseVideoCard)->void:
 			bottom_menu._hide()
 			bottom_menu.play_window.show()
 			bottom_menu.play_window.update(card.list_name,card.cover,card.video_info)
+
 func _init() -> void:
 	State.main=self
+
 func _ready() -> void:
 	current_page = _ensure_page(\"Discover\")
-	current_page.show()
-	# 启动时预解析其余页面场景资源(仅解析,不实例化节点):
-	# 把磁盘 IO/tscn 解析成本从首次点击挪到启动,点击时只剩轻量的节点实例化
-	# (不用 load_threaded_* 线程方案:Mono 工程下线程加载有崩溃风险)
+	if current_page != null:
+		current_page.show()
+		current_page_name = \"Discover\"
 	for page_name in PAGE_SCENES:
-		if page_name != \"Discover\":
-			_scene_cache[page_name] = load(PAGE_SCENES[page_name])
-	# 启动期应用全局设置(语言/皮肤/头像)
+		if page_name == \"Discover\":
+			continue
+		if _scene_cache.has(page_name):
+			continue
+		var path: String = PAGE_SCENES[page_name]
+		var err := ResourceLoader.load_threaded_request(path, \"PackedScene\")
+		if err == OK:
+			_pending_scenes[page_name] = path
+		else:
+			push_error(\"场景后台加载请求失败: %s (%d)\" % [path, err])
 	_apply_startup_settings()
 	get_window().size_changed.connect(func():
 		var window := get_window()
@@ -156,23 +167,50 @@ func _ready() -> void:
 	)
 	get_window().min_size=Vector2i(1285,262)
 	for button in page_buttons:
-		button.connect(\"pressed\",change_page.bind(button.name))
+		if button != null and not button.pressed.is_connected(change_page.bind(button.name)):
+			button.connect(\"pressed\",change_page.bind(button.name))
+
+func _process(_delta: float) -> void:
+	if _pending_scenes.is_empty():
+		return
+	var done: Array[String] = []
+	for page_name in _pending_scenes.keys():
+		var path: String = _pending_scenes[page_name]
+		var status := ResourceLoader.load_threaded_get_status(path)
+		if status == ResourceLoader.THREAD_LOAD_LOADED:
+			var scene := ResourceLoader.load_threaded_get(path) as PackedScene
+			if scene != null:
+				_scene_cache[page_name] = scene
+			else:
+				push_error(\"场景后台加载返回空: %s\" % path)
+			done.append(page_name)
+		elif status == ResourceLoader.THREAD_LOAD_FAILED or status == ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:
+			push_error(\"场景后台加载失败: %s\" % path)
+			done.append(page_name)
+	for key in done:
+		_pending_scenes.erase(key)
+
 func show_search_bar()->void:
 	var tween:=search_bar.create_tween()
 	tween.tween_property(search_bar,\"offset_transform_scale:x\",1.0,0.3).set_trans(Tween.TRANS_CUBIC)
+
 func hide_search_bar()->void:
 	var tween:=search_bar.create_tween()
 	tween.tween_property(search_bar,\"offset_transform_scale:x\",0,0.3).set_trans(Tween.TRANS_CUBIC)
+
 var is_switching := false
 
 func change_page(page_name: String) -> void:
 	if page_name == current_page_name:
 		return
-	if is_switching:  # 防止动画中重复切换
+	if is_switching:
+		return
+	if not PAGE_SCENES.has(page_name):
+		return
+	if _pending_scenes.has(page_name):
 		return
 	is_switching = true
-	
-	# 页码映射（用字典代替两段 match）
+
 	var page_numbers := {
 		\"Discover\": 0,
 		\"Results\": 1,
@@ -190,7 +228,6 @@ func change_page(page_name: String) -> void:
 		current_page, \"offset_transform_position:y\",
 		long_position, 0.25
 	).set_trans(Tween.TRANS_CUBIC)
-	# 边滑边淡，切换不至于太生硬
 	last_page_tween.parallel().tween_property(
 		current_page, \"modulate:a\", 0.0, 0.22
 	).set_trans(Tween.TRANS_CUBIC)
@@ -201,11 +238,15 @@ func change_page(page_name: String) -> void:
 		if leaving_page.name in EPHEMERAL_PAGES:
 			leaving_page.queue_free()
 	, CONNECT_ONE_SHOT)
-	current_page = _ensure_page(page_name)
+	var next_page := _ensure_page(page_name)
+	if next_page == null:
+		is_switching = false
+		return
+	current_page = next_page
 	current_page_name = page_name
 	current_page.show()
 	current_page.modulate.a = 0.0
-	current_page.offset_transform_position = Vector2(0, -long_position)  # ✅ 关键：从反方向起始
+	current_page.offset_transform_position = Vector2(0, -long_position)
 	var current_page_tween = get_tree().create_tween()
 	current_page_tween.tween_property(
 		current_page, \"offset_transform_position:y\",
@@ -218,6 +259,8 @@ func change_page(page_name: String) -> void:
 
 func _on_search_text_submitted(new_text: String) -> void:
 	var node:Control=_ensure_page(\"Results\")
+	if node == null:
+		return
 	node.search_bar.text=new_text
 	node.update_page(new_text)
 	change_page(\"Results\")

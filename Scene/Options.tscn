@@ -1,484 +1,238 @@
 [gd_scene format=3 uid="uid://g3lqi52kbx7q"]
 
 [sub_resource type="GDScript" id="GDScript_nmc4f"]
-script/source = "extends Control
-@export var OptionsTabContainer: TabContainer
-@export var ClearCoversCache: Button
-@export var ClearLyricsCache: Button
-var BuiltinThemes: Array[String] = []      # 运行时自动扫描 res://BigWindowTheme/ 的子文件夹
-var BuiltinPiPThemes: Array[String] = []   # 运行时自动扫描 res://PiPTheme/ 的 .tscn 文件
-var _setting_controls: Dictionary = {}
+script/source = "extends Panel
+@export var page_buttons:Array[Button]
+@export var current_page:Control
+@export var current_page_name:String
+@export var bottom_menu:Panel
+@export var ui_sound:AudioStreamPlayer
+@export var icon:TextureRect
+@export var progress_bar:Panel
+@export var search_bar:LineEdit
+const PAGE_SCENES := {
+	\"Discover\": \"res://Scene/Discover.tscn\",
+	\"Results\": \"res://Scene/Results.tscn\",
+	\"Favorites\": \"res://Scene/Favorites.tscn\",
+	\"Import\": \"res://Scene/Import.tscn\",
+	\"Options\": \"res://Scene/Options.tscn\",
+}
+const EPHEMERAL_PAGES := [\"Import\"]
+var _scene_cache := {}
 
-func _ready() -> void:
-	BuiltinThemes = _scan_dirs(\"res://BigWindowTheme/\", true)
-	BuiltinPiPThemes = _scan_files(\"res://PiPTheme/\", \".tscn\")
-
-	for scroll in OptionsTabContainer.get_children():
-		if not scroll is ScrollContainer:
-			continue
-		var vbox = scroll.get_child(0)
-		if not vbox:
-			continue
-		for option in vbox.get_children():
-			var control: Node = null
-			if option is CheckButton:
-				control = option
-			elif option.get_child_count() > 0:
-				control = option.get_child(0)
-			else:
-				printerr(\"设置项 %s 没有可用的子控件\" % option.name)
-				continue
-
-			if option.name == \"Account\":
-				_setup_account(option, control)
-			elif option.name == \"Skin\":
-				_setup_skin(control as OptionButton)
-			elif option.name == \"Custom_Big_Window_Theme\":
-				_setup_big_window_theme(control as OptionButton)
-			elif option.name == \"Custom_PiP_Theme\":
-				_setup_pip_theme(control as OptionButton)
-			elif option.name == \"Language\":
-				_setup_language(option, control as OptionButton)
-			else:
-				_setup_generic(option, control)
-
-			_setting_controls[option.name] = control
-	GdScriptFunc.traverse_iterative_no_text_ui(get_tree().root)
-	_update_cache_size()
-
-
-
-# 扫描 base_path 下的子文件夹，返回排序后的文件夹名数组
-# check_main 用于大窗口主题：只有包含 main.tscn 的文件夹才算有效主题
-func _scan_dirs(base_path: String, check_main: bool = false) -> Array[String]:
-	var result: Array[String] = []
-	if not DirAccess.dir_exists_absolute(base_path):
-		return result
-	var dir = DirAccess.open(base_path)
-	if dir == null:
-		return result
-	dir.list_dir_begin()
-	var item = dir.get_next()
-	while item != \"\":
-		if dir.current_is_dir() and item != \".\" and item != \"..\" \\
-				and not item.ends_with(\".import\") and not item.ends_with(\".remap\"):
-			if check_main:
-				var main_path = base_path.path_join(item).path_join(\"main.tscn\")
-				if ResourceLoader.exists(main_path, \"PackedScene\"):
-					result.append(item)
-			else:
-				result.append(item)
-		item = dir.get_next()
-	dir.list_dir_end()
-	result.sort()
-	return result
-
-
-# 扫描 base_path 下的指定后缀文件，返回去掉扩展名的文件名数组（已排序）
-func _scan_files(base_path: String, ext: String) -> Array[String]:
-	var result: Array[String] = []
-	if not DirAccess.dir_exists_absolute(base_path):
-		return result
-	var dir = DirAccess.open(base_path)
-	if dir == null:
-		return result
-	dir.list_dir_begin()
-	var item = dir.get_next()
-	while item != \"\":
-		if not dir.current_is_dir() and item.ends_with(ext) \\
-				and not item.ends_with(ext + \".import\") and not item.ends_with(ext + \".remap\"):
-			# 校验场景可加载（导出后防止 remap 残留导致无效项）
-			if ResourceLoader.exists(base_path.path_join(item), \"PackedScene\"):
-				result.append(item.trim_suffix(ext))
-		item = dir.get_next()
-	dir.list_dir_end()
-	result.sort()
-	return result
-
-
-
-func _setup_language(option: Control, option_button: OptionButton) -> void:
-	# 使用有序数组，确保名称和代码一一对应
-	var lang_names = [\"中文\", \"English\", \"日本語\"]
+func _apply_startup_settings() -> void:
 	var lang_codes = [\"zh\", \"en\", \"ja\"]
-
-	option_button.clear()
-	var option_popup = option_button.get_popup()
-	option_popup.add_theme_font_size_override(\"font_size\", 35)
-	for lang_name in lang_names:
-		option_button.add_item(lang_name)
-
-	# 读取保存的语言代码，若没有则使用系统语言
-	var saved_code = GdScriptFunc.get_data(\"Options\", \"Language\", \"\")
-	var current_locale = TranslationServer.get_locale()
-	var final_code = saved_code
-
-	# 确定最终语言代码（确保在列表中）
-	if final_code == \"\" or not (final_code in lang_codes):
-		var matched = false
+	var saved_code: String = GdScriptFunc.get_data(\"Options\", \"Language\", \"\")
+	var current_locale: String = TranslationServer.get_locale()
+	if saved_code == \"\" or not (saved_code in lang_codes):
+		var matched := false
 		for code in lang_codes:
 			if code == current_locale:
-				final_code = code
+				saved_code = code
 				matched = true
 				break
 		if not matched:
-			final_code = lang_codes[0]  # 默认第一个（中文）
-
-	# 计算选中索引
-	var idx = lang_codes.find(final_code)
-	if idx == -1:
-		idx = 0
-		final_code = lang_codes[idx]
-
-	option_button.selected = idx
-	TranslationServer.set_locale(final_code)
-
-	# 连接切换信号（保存并立即生效）
-	option_button.item_selected.connect(func(index: int):
-		var selected_code = lang_codes[index]
-		GdScriptFunc.set_data(\"Options\", \"Language\", selected_code, true)
-		TranslationServer.set_locale(selected_code)
-		GdScriptFunc.traverse_iterative_no_text_ui(get_tree().root)
-		_update_cache_size()
-	)
-
-
-func _setup_account(option: Control, button: Button) -> void:
-	var sessdata = GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\")
-	if sessdata == null:
-		button.text = tr(\"点击登陆\")
-		get_node(\"/root/Main\").icon.texture = preload(\"res://UI/DefaultprofilePicture.png\")
+			saved_code = lang_codes[0]
+	TranslationServer.set_locale(saved_code)
+	var skin_name: String = GdScriptFunc.get_data(\"Options\", \"Skin\", \"\")
+	skin_name = skin_name.trim_suffix(\"/\").get_file()
+	if skin_name == \"\":
+		var skin_dirs: Array[String] = []
+		for base in [\"res://Skin/\", \"user://Skin/\"]:
+			if DirAccess.dir_exists_absolute(base):
+				var dir = DirAccess.open(base)
+				if dir:
+					dir.list_dir_begin()
+					var item = dir.get_next()
+					while item != \"\":
+						if dir.current_is_dir() and item != \".\" and item != \"..\":
+							if not skin_dirs.has(item):
+								skin_dirs.append(item)
+						item = dir.get_next()
+					dir.list_dir_end()
+		skin_dirs.sort()
+		if skin_dirs.size() > 0:
+			skin_name = skin_dirs[0]
+	if skin_name != \"\":
+		GdScriptFunc.update_skin_theme(skin_name)
+	if GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\") == null:
+		icon.texture = preload(\"res://UI/DefaultprofilePicture.png\")
 	else:
-		button.text = tr(\"退出登陆\")
 		BilibiliApi.fetch_user_avatar(func(tex: ImageTexture):
-			if tex != null:
-				get_node(\"/root/Main\").icon.texture = tex
+			if tex != null and is_instance_valid(icon):
+				icon.texture = tex
 		)
-	button.pressed.connect(_log_in_out.bind(option))
+	GdScriptFunc.traverse_iterative_no_text_ui(get_tree().root)
 
-func _log_in_out(option: Control) -> void:
-	var button = option.get_child(0)
-	if GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\") != null:
-		GdScriptFunc.set_data(\"AccountData\", \"SESSDATA\", null, true)
-		GdScriptFunc.set_data(\"AccountData\", \"bili_jct\", null, true)
-		GdScriptFunc.set_data(\"AccountData\", \"DedeUserID\", null, true)
-		GdScriptFunc.set_data(\"AccountData\", \"DedeUserID__ckMd5\", null, true)
-		GdScriptFunc.set_data(\"AccountData\", \"sid\", null, true)
-		button.text = tr(\"点击登陆\")
-		get_node(\"/root/Main\").icon.texture = preload(\"res://UI/DefaultprofilePicture.png\")
-	else:
-		BilibiliApi.start_qr_login(
-			func(success: bool):
-				if success:
-					button.text = tr(\"退出登陆\")
-					BilibiliApi.fetch_user_avatar(func(tex: ImageTexture):
-						if tex != null:
-							get_node(\"/root/Main\").icon.texture = tex
-					)
-		)
+func _ensure_page(page_name: String) -> Control:
+	if has_node(page_name):
+		return get_node(page_name)
+	var scene: PackedScene = _scene_cache.get(page_name)
+	if scene == null:
+		var path = PAGE_SCENES.get(page_name)
+		if path == null:
+			push_error(\"未知页面: %s\" % page_name)
+			return null
+		scene = load(path) as PackedScene
+		if scene == null:
+			push_error(\"页面场景加载失败: %s\" % path)
+			return null
+		_scene_cache[page_name] = scene
+	var page: Control = scene.instantiate()
+	if page == null:
+		push_error(\"页面场景实例化失败: %s\" % page_name)
+		return null
+	page.name = page_name
+	page.visible = false
+	page.offset_transform_enabled = true
+	add_child(page)
+	move_child(page, get_node(\"BottomMenu\").get_index())
+	return get_node(page_name)
 
+func play(card:BaseVideoCard)->void:
+	Player.play_by_video_info(card.video_info)
+	var i:=0
+	while card.cover == null&&i!=1000:
+		await get_tree().process_frame
+		i+=1
+	match State.play_ui_mode:
+		0:
+			bottom_menu._show()
+			if bottom_menu.play_window!=null:
+				bottom_menu.play_window.hide()
+			bottom_menu.play_button.button_pressed=true
+			bottom_menu.title=card.title
+			bottom_menu.progress_bar.value=0
+			bottom_menu.author=card.author
+			bottom_menu.cover=card.cover
+			bottom_menu.list_name=card.list_name
+		1:
+			bottom_menu._hide()
+			bottom_menu.play_window.show()
+			bottom_menu.play_window.update(card.list_name,card.cover,card.video_info)
 
+func _init() -> void:
+	State.main=self
 
-func _setup_skin(option_button: OptionButton) -> void:
-	# 设置OptionButton字体大小
-	var option_popup = option_button.get_popup()
-	option_popup.add_theme_font_size_override(\"font_size\", 35)
-
-	var skin_dict: Dictionary = {}
-
-	var res_path = \"res://Skin/\"
-	var res_dirs: Array = []
-	if DirAccess.dir_exists_absolute(res_path):
-		var dir = DirAccess.open(res_path)
-		if dir:
-			dir.list_dir_begin()
-			var item = dir.get_next()
-			while item != \"\":
-				if dir.current_is_dir() and item != \".\" and item != \"..\":
-					res_dirs.append(item)
-				item = dir.get_next()
-			dir.list_dir_end()
-	res_dirs.sort()
-	for d in res_dirs:
-		skin_dict[d] = res_path.path_join(d) + \"/\"
-
-	var user_path = \"user://Skin/\"
-	if DirAccess.dir_exists_absolute(user_path):
-		var dir = DirAccess.open(user_path)
-		if dir:
-			dir.list_dir_begin()
-			var item = dir.get_next()
-			while item != \"\":
-				if dir.current_is_dir() and item != \".\" and item != \"..\":
-					# 外部同名文件夹覆盖内部
-					skin_dict[item] = user_path.path_join(item) + \"/\"
-				item = dir.get_next()
-			dir.list_dir_end()
-
-	# 转换为并行数组
-	var skin_names: Array = []
-	var skin_paths: Array = []
-	for skin_name in skin_dict:
-		skin_names.append(skin_name)
-		skin_paths.append(skin_dict[skin_name])
-
-	skin_names.sort()
-	var sorted_paths: Array = []
-	for skin_name in skin_names:
-		sorted_paths.append(skin_dict[skin_name])
-
-	for d in skin_names:
-		option_button.add_item(d)
-
-	# 恢复上次选中的皮肤
-	var saved_path = GdScriptFunc.get_data(\"Options\", \"Skin\", \"\")
-	if saved_path == \"\" and skin_names.size() > 0:
-		saved_path = sorted_paths[0]
-	var idx = sorted_paths.find(saved_path)
-	if idx == -1:
-		idx = 0
-	option_button.selected = idx
-	var selected_name = skin_names[idx] if idx < skin_names.size() else \"\"
-	var selected_path = sorted_paths[idx] if idx < skin_paths.size() else \"\"
-	if selected_path != \"\":
-		GdScriptFunc.update_skin_theme(selected_name)  # 如果你需要传递路径，需修改该函数
-
-	option_button.item_selected.connect(func(index: int):
-		var chosen_path = sorted_paths[index]
-		GdScriptFunc.set_data(\"Options\", \"Skin\", chosen_path, true)
-		var chosen_name = skin_names[index]
-		GdScriptFunc.update_skin_theme(chosen_name)  # 同样可能需要路径
-		GdScriptFunc.update_marks_theme_and_styles()
+func _ready() -> void:
+	current_page = _ensure_page(\"Discover\")
+	if current_page != null:
+		current_page.show()
+		current_page_name = \"Discover\"
+	get_window().size_changed.connect(func():
+		var window := get_window()
+		if window.mode == Window.MODE_WINDOWED:
+			GdScriptFunc.set_data(\"Window\",\"Size\",window.size)
+			GdScriptFunc.set_data(\"Window\",\"Position\",window.position,true)
 	)
-
-
-
-func _setup_pip_theme(option_button: OptionButton) -> void:
-	# 设置OptionButton字体大小
-	var option_popup = option_button.get_popup()
-	option_popup.add_theme_font_size_override(\"font_size\", 35)
-
-	const BUILTIN_DIR = \"res://PiPTheme/\"
-
-	var theme_dict: Dictionary = {}
-	# 内置主题来自 _ready 中自动扫描的 BuiltinPiPThemes
-	for theme_name in BuiltinPiPThemes:
-		theme_dict[theme_name] = BUILTIN_DIR.path_join(theme_name + \".tscn\")
-
-	var user_dir = \"user://PiPTheme/\"
-	if DirAccess.dir_exists_absolute(user_dir):
-		var dir = DirAccess.open(user_dir)
-		if dir:
-			dir.list_dir_begin()
-			var file = dir.get_next()
-			while file != \"\":
-				if not dir.current_is_dir() and file.ends_with(\".tscn\"):
-					var theme_name = file.trim_suffix(\".tscn\")
-					var theme_path = user_dir.path_join(file)
-					theme_dict[theme_name] = theme_path   # 外部覆盖
-				file = dir.get_next()
-			dir.list_dir_end()
-
-	var theme_names: Array = []
-	var theme_paths: Array = []
-	for theme_name in theme_dict:
-		theme_names.append(theme_name)
-		theme_paths.append(theme_dict[theme_name])
-
-	if theme_names.is_empty():
-		option_button.add_item(\"暂无可用主题\")
-		option_button.disabled = true
-		return
-
-	var sorted = theme_names.duplicate()
-	sorted.sort()
-	option_button.clear()
-	for theme_name in sorted:
-		option_button.add_item(theme_name)
-
-	var sorted_paths: Array = []
-	for theme_name in sorted:
-		sorted_paths.append(theme_dict[theme_name])
-
-	var saved_path = GdScriptFunc.get_data(\"Options\", \"Custom_PiP_Theme\", \"\")
-	var idx = sorted_paths.find(saved_path)
-	if idx == -1:
-		idx = 0
-	option_button.selected = idx
-
-	# 选择新主题时同步更新已打开的 PiP 窗口
-	option_button.item_selected.connect(func(index: int):
-		var selected_path = sorted_paths[index]
-		GdScriptFunc.set_data(\"Options\", \"Custom_PiP_Theme\", selected_path, true)
-		var main = get_node(\"/root/Main\")
-		if main and main.bottom_menu and main.bottom_menu.play_window and main.bottom_menu.play_window_mode == \"PiP\":
-			main.bottom_menu.play_window.update_pip_theme(selected_path)
+	get_window().close_requested.connect(func():
+		var window := get_window()
+		if window.mode == Window.MODE_WINDOWED:
+			GdScriptFunc.set_data(\"Window\",\"Size\",window.size)
+			GdScriptFunc.set_data(\"Window\",\"Position\",window.position,true)
+		get_tree().quit()
 	)
+	get_window().min_size=Vector2i(1285,262)
+	for button in page_buttons:
+		if button != null and not button.pressed.is_connected(change_page.bind(button.name)):
+			button.connect(\"pressed\",change_page.bind(button.name))
+	_startup_sequence()
 
-
-
-func _setup_big_window_theme(option_button: OptionButton) -> void:
-	# 设置OptionButton字体大小
-	var option_popup = option_button.get_popup()
-	option_popup.add_theme_font_size_override(\"font_size\", 35)
-
-	const BUILTIN_DIR = \"res://BigWindowTheme/\"
-
-	var theme_dict: Dictionary = {}
-	# 内置主题来自 _ready 中自动扫描的 BuiltinThemes
-	for theme_name in BuiltinThemes:
-		var builtin_path = BUILTIN_DIR.path_join(theme_name).path_join(\"main.tscn\")
-		theme_dict[theme_name] = builtin_path
-
-	var user_dir = \"user://BigWindowTheme/\"
-	if DirAccess.dir_exists_absolute(user_dir):
-		var dir = DirAccess.open(user_dir)
-		if dir:
-			dir.list_dir_begin()
-			var file = dir.get_next()
-			while file != \"\":
-				if dir.current_is_dir() and file != \".\" and file != \"..\":
-					var main_path = user_dir.path_join(file).path_join(\"main.tscn\")
-					if FileAccess.file_exists(main_path):
-						theme_dict[file] = main_path   # 外部覆盖内置
-				file = dir.get_next()
-			dir.list_dir_end()
-
-	# 生成有序列表
-	var theme_names: Array = []
-	var theme_paths: Array = []
-	for theme_name in theme_dict:
-		theme_names.append(theme_name)
-		theme_paths.append(theme_dict[theme_name])
-
-	if theme_names.is_empty():
-		option_button.add_item(\"暂无可用主题\")
-		option_button.disabled = true
+func _startup_sequence() -> void:
+	await get_tree().process_frame
+	if not is_inside_tree():
 		return
-
-	var sorted = theme_names.duplicate()
-	sorted.sort()
-	option_button.clear()
-	for theme_name in sorted:
-		option_button.add_item(theme_name)
-
-	var sorted_paths: Array = []
-	for theme_name in sorted:
-		sorted_paths.append(theme_dict[theme_name])
-
-	var saved_path = GdScriptFunc.get_data(\"Options\", \"Custom_Big_Window_Theme\", \"\")
-	var idx = sorted_paths.find(saved_path)
-	if idx == -1:
-		idx = 0
-	option_button.selected = idx
-
-	# 选择新主题时同时更新已打开的大窗口
-	option_button.item_selected.connect(func(index: int):
-		var selected_path = sorted_paths[index]
-		GdScriptFunc.set_data(\"Options\", \"Custom_Big_Window_Theme\", selected_path, true)
-		var main = get_node(\"/root/Main\")
-		if main and main.bottom_menu and main.bottom_menu.play_window and main.bottom_menu.play_window_mode == \"BigWindow\":
-			main.bottom_menu.play_window.update_performance_node(selected_path)
-	)
-
-
-
-func _setup_generic(option: Control, control: Node) -> void:
-	var key = option.name
-	match control.get_class():
-		\"CheckButton\":
-			var check = control as CheckButton
-			check.button_pressed = GdScriptFunc.get_data(\"Options\", key, check.button_pressed)
-			check.toggled.connect(_on_option_change.bind(option, check))
-		\"LineEdit\":
-			var line_edit = control as LineEdit
-			line_edit.text = GdScriptFunc.get_data(\"Options\", key, line_edit.text)
-			line_edit.focus_exited.connect(_on_option_change.bind(option, line_edit))
-			line_edit.text_submitted.connect(_on_option_change.bind(option, line_edit))
-		\"HSlider\":
-			var h_slider = control as HSlider
-			h_slider.value = GdScriptFunc.get_data(\"Options\", key, h_slider.value)
-			h_slider.drag_ended.connect(
-				func(value_changed: bool):
-					if value_changed:
-						_on_option_change(h_slider.value, option, h_slider)
-			)
-		_:
-			printerr(\"未知控件类型 %s 用于设置项 %s\" % [control.get_class(), key])
-
-func _on_option_change(new_value: Variant, option: Control, control: Node) -> void:
-	var key = option.name
-	GdScriptFunc.set_data(\"Options\", key, new_value, true)
-
-
-
-func _on_clear_covers_cache_pressed() -> void:
-	# 不存在时静默返回，避免 ERROR 刷屏
-	if not DirAccess.dir_exists_absolute(BilibiliConstants.CACHE_DIR):
-		_update_cache_size()
-		return
-	delete_directory_contents(BilibiliConstants.CACHE_DIR)
-	# 缓存索引仍在 config.cfg 里，文件被删后索引条目会在下次访问时自动失效（BilibiliCoverCache 已有兜底逻辑）
-	_update_cache_size()
-
-func _on_clear_lyrics_cache_pressed() -> void:
-	if not DirAccess.dir_exists_absolute(BilibiliConstants.LYRICS_CACHE_DIR):
-		_update_cache_size()
-		return
-	delete_directory_contents(BilibiliConstants.LYRICS_CACHE_DIR)
-	_update_cache_size()
-
-func _on_clear_temp_audio_pressed() -> void:
-	CachePaths.CleanTempAudio()
-	_update_cache_size()
-
-func delete_directory_contents(path: String) -> bool:
-	var dir = DirAccess.open(path)
-	if dir == null:
-		# 目录不存在不算错误，直接返回成功
-		if not DirAccess.dir_exists_absolute(path):
-			return true
-		printerr(\"无法打开目录: \", path)
-		return false
-	dir.list_dir_begin()
-	var file_name = dir.get_next()
-	while file_name != \"\":
-		var child_path = path.path_join(file_name)
-		if dir.current_is_dir():
-			if file_name != \".\" and file_name != \"..\":
-				if delete_directory_contents(child_path):
-					DirAccess.remove_absolute(child_path)
+	_apply_startup_settings()
+	for page_name in PAGE_SCENES:
+		if page_name == \"Discover\":
+			continue
+		if _scene_cache.has(page_name):
+			continue
+		await get_tree().process_frame
+		if not is_inside_tree():
+			return
+		var path: String = PAGE_SCENES[page_name]
+		var scene := load(path) as PackedScene
+		if scene != null:
+			_scene_cache[page_name] = scene
 		else:
-			DirAccess.remove_absolute(child_path)
-		file_name = dir.get_next()
-	dir.list_dir_end()
-	return true
+			push_error(\"页面场景预加载失败: %s\" % path)
 
-func _get_dir_size_mb(path: String) -> float:
-	if not DirAccess.dir_exists_absolute(path):
-		return 0.0
-	return CSharpFunc.GetDirectorySize(ProjectSettings.globalize_path(path))
+func show_search_bar()->void:
+	var tween:=search_bar.create_tween()
+	tween.tween_property(search_bar,\"offset_transform_scale:x\",1.0,0.3).set_trans(Tween.TRANS_CUBIC)
 
-func _update_cache_size() -> void:
-	var cover_size := _get_dir_size_mb(BilibiliConstants.CACHE_DIR)
-	ClearCoversCache.text = tr(\"清理封面缓存(%.2fMB)\") % cover_size
-	if cover_size <= 0:
-		ClearCoversCache.disabled = true
-	else:
-		ClearCoversCache.disabled = false
+func hide_search_bar()->void:
+	var tween:=search_bar.create_tween()
+	tween.tween_property(search_bar,\"offset_transform_scale:x\",0,0.3).set_trans(Tween.TRANS_CUBIC)
 
-	var lyrics_size := _get_dir_size_mb(BilibiliConstants.LYRICS_CACHE_DIR)
-	ClearLyricsCache.text = tr(\"清理歌词缓存(%.2fMB)\") % lyrics_size
-	if lyrics_size <= 0:
-		ClearLyricsCache.disabled = true
-	else:
-		ClearLyricsCache.disabled = false
+var is_switching := false
 
-func _on_visibility_changed() -> void:
-	_update_cache_size()
+func change_page(page_name: String) -> void:
+	if page_name == current_page_name:
+		return
+	if is_switching:
+		return
+	if not PAGE_SCENES.has(page_name):
+		return
+	is_switching = true
+
+	var page_numbers := {
+		\"Discover\": 0,
+		\"Results\": 1,
+		\"Favorites\": 2,
+		\"Import\": 3,
+		\"Options\": 4,
+	}
+	var last_page_number: int = page_numbers.get(current_page_name, -1)
+	var current_page_number: int = page_numbers.get(page_name, -1)
+	var long_position := current_page.size.y + 300
+	if last_page_number < current_page_number:
+		long_position = -long_position
+	var last_page_tween = get_tree().create_tween()
+	last_page_tween.tween_property(
+		current_page, \"offset_transform_position:y\",
+		long_position, 0.25
+	).set_trans(Tween.TRANS_CUBIC)
+	last_page_tween.parallel().tween_property(
+		current_page, \"modulate:a\", 0.0, 0.22
+	).set_trans(Tween.TRANS_CUBIC)
+	var leaving_page := current_page
+	last_page_tween.finished.connect(func():
+		leaving_page.hide()
+		leaving_page.modulate.a = 1.0
+		if leaving_page.name in EPHEMERAL_PAGES:
+			leaving_page.queue_free()
+	, CONNECT_ONE_SHOT)
+	var next_page := _ensure_page(page_name)
+	if next_page == null:
+		is_switching = false
+		return
+	current_page = next_page
+	current_page_name = page_name
+	current_page.show()
+	current_page.modulate.a = 0.0
+	current_page.offset_transform_position = Vector2(0, -long_position)
+	var current_page_tween = get_tree().create_tween()
+	current_page_tween.tween_property(
+		current_page, \"offset_transform_position:y\",
+		0.0, 0.25
+	).set_trans(Tween.TRANS_CUBIC)
+	current_page_tween.parallel().tween_property(
+		current_page, \"modulate:a\", 1.0, 0.25
+	).set_trans(Tween.TRANS_CUBIC)
+	current_page_tween.finished.connect(func(): is_switching = false)
+
+func _on_search_text_submitted(new_text: String) -> void:
+	var node:Control=_ensure_page(\"Results\")
+	if node == null:
+		return
+	node.search_bar.text=new_text
+	node.update_page(new_text)
+	change_page(\"Results\")
 "
 
-[node name="Page" type="Control" unique_id=585043204 node_paths=PackedStringArray("OptionsTabContainer", "ClearCoversCache", "ClearLyricsCache")]
+[node name="Page" type="Control" unique_id=585043204]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -489,9 +243,6 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 1
 script = SubResource("GDScript_nmc4f")
-OptionsTabContainer = NodePath("TabContainer")
-ClearCoversCache = NodePath("TabContainer/储存/VBoxContainer/ClearCoversCache")
-ClearLyricsCache = NodePath("TabContainer/储存/VBoxContainer/ClearLyricsCache")
 
 [node name="Label" type="Label" parent="." unique_id=1198818235]
 layout_mode = 0
