@@ -9,7 +9,7 @@
 - **丰富的视频流**: 支持访问哔哩哔哩平台中所有视频
 - **丰富的多平台支持**: 基于 `Godot`开发，支持 `Windows`、`macOS`
 - **丰富的多语言支持**: 支持`日语`、`中文`与`英语`
-- **丰富的皮肤**: 支持$5$种皮肤、$3$种主题
+- **丰富的皮肤**: 支持5种皮肤、3种主题
 - **快速的响应**: 高效的性能表现，使用 `GDShader` 优化渲染
 - **直观高效的缓存管理**: 支持在设置中释放歌曲缓存
 
@@ -81,7 +81,7 @@ pie
 欢迎贡献！可随时提交`Pull Requese`或为`bug`/`Feature`提交`Issues`。
 
 #### 性能指标
-- 平均内存占用: ~$400$ MB
+- 平均内存占用: ~290 MB
 
 ### 鸣谢
 
@@ -92,9 +92,9 @@ pie
 
 如有问题、疑问或建议：
 
-- `邮箱`$:$ 
+- `邮箱`:
 - > [by.chi](mailto:by.chi@outlook.com)
 - > [GeekApple](mailto:huangyuguang2013@163.com)
-- `Bug`$:$
+- `Bug`:
 - > [GitHub Issues](https://github.com/By-chi/BiliMusic/issues)
 - > [Pull Requests](https://github.com/By-chi/BiliMusic/pulls)
