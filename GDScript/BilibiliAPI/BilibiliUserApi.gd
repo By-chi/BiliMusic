@@ -200,13 +200,17 @@ func fetch_videos_medialist(mid: String, username: String, callback: Callable, p
 	for item in media_list:
 		var bvid_item = item.get("bv_id", "")
 		if bvid_item.is_empty(): continue
+		var cnt_info: Dictionary = item.get("cnt_info", {})
+		var play_val: int = int(cnt_info["play"]) if cnt_info.has("play") else -1
+		var danmaku_val: int = int(cnt_info["danmaku"]) if cnt_info.has("danmaku") else -1
+
 		var video := {
 			"link": bvid_item,
 			"BV": bvid_item,
 			"title": BilibiliHTMLDecoder.decode(item.get("title", "")),
-			"author": item.get("upper", {}).get("name", username),
-			"play": 0,
-			"danmaku": 0,
+			"author": BilibiliHTMLDecoder.decode(item.get("upper", {}).get("name", username)),
+			"play": play_val,
+			"danmaku": danmaku_val,
 			"duration": BilibiliBvCodec.format_duration(item.get("duration", 0)),
 			"description": BilibiliHTMLDecoder.decode(item.get("intro", ""))
 		}

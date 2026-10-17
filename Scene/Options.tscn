@@ -478,7 +478,7 @@ func _on_visibility_changed() -> void:
 	_update_cache_size()
 "
 
-[node name="Page" type="Control" unique_id=585043204]
+[node name="Page" type="Control" unique_id=585043204 node_paths=PackedStringArray("OptionsTabContainer", "ClearCoversCache", "ClearLyricsCache")]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -489,6 +489,9 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 1
 script = SubResource("GDScript_nmc4f")
+OptionsTabContainer = NodePath("TabContainer")
+ClearCoversCache = NodePath("TabContainer/储存/VBoxContainer/ClearCoversCache")
+ClearLyricsCache = NodePath("TabContainer/储存/VBoxContainer/ClearLyricsCache")
 
 [node name="Label" type="Label" parent="." unique_id=1198818235]
 layout_mode = 0
