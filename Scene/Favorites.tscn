@@ -46,6 +46,8 @@ const CLOUD_ICON_ENABLED = preload(\"res://UI/Icon/EnabledCloud.svg\")
 const CLOUD_BUFFER_ROWS: int = 3
 ## Deck 缩略图懒加载预加载余量
 const CLOUD_PRELOAD_MARGIN: float = 400.0
+## 虚拟滚动布局重建防抖时间（秒）：拖动窗口时只在停止后执行一次
+const VIRTUAL_RESIZE_DEBOUNCE: float = 0.2
 
 ## 云端还没回来之前，先垫几个骨架占着位
 func _fill_skeletons(container: Container, skeleton_kind: String, count: int) -> void:
@@ -104,6 +106,10 @@ var _local_row_h: float = 374.0
 var _local_gap: float = 10.0
 const LOCAL_CARD_HEIGHT_LIST: float = 90.0
 # ---------------------------------
+
+# ===== 虚拟布局 resize 防抖 =====
+var _virtual_resize_debounce: Timer = null
+# ================================
 
 # ===== 封面加载队列（串行，防 412） =====
 var _cover_queue: Array = []            # [{node, type}] type: \"deck\" | \"card\"
@@ -303,15 +309,11 @@ func _update_cloud_virtual_cards() -> void:
 		_create_virtual_card(idx, container_width)
 
 
-## 创建单张虚拟卡片（含淡入动画 + 封面入队）
-func _create_virtual_card(idx: int, container_width: float) -> void:
-	if idx < 0 or idx >= _cloud_items.size():
-		return
-
+## 只重算单张云端卡片的位置和尺寸（不动封面、不播动画）
+func _position_cloud_card(card: Control, idx: int, container_width: float) -> void:
 	var row: int = idx / _cloud_cols
 	var col: int = idx % _cloud_cols
 
-	# 计算卡片位置 / 尺寸
 	var pos_x: float = 0.0
 	var w: float = container_width
 	if _cloud_cols > 1:
@@ -322,6 +324,21 @@ func _create_virtual_card(idx: int, container_width: float) -> void:
 
 	var pos_y: float = row * _cloud_row_h
 
+	if list_view_mode:
+		card.position = Vector2(0, pos_y)
+		card.size = Vector2(container_width, _cloud_item_h)
+	else:
+		card.position = Vector2(pos_x, pos_y)
+		card.size = Vector2(w, _cloud_item_h)
+	card.custom_minimum_size = card.size
+
+
+## 创建单张虚拟卡片（含淡入动画 + 封面入队）
+## animate=false 时不播淡入（用于布局重建，避免 resize 时反复闪动画）
+func _create_virtual_card(idx: int, container_width: float, animate: bool = true) -> void:
+	if idx < 0 or idx >= _cloud_items.size():
+		return
+
 	# 构建数据
 	var local_info: Dictionary = GdScriptFunc.cloud_item_to_local(_cloud_items[idx])
 	local_info[\"is_cloud\"] = true
@@ -329,24 +346,19 @@ func _create_virtual_card(idx: int, container_width: float) -> void:
 
 	# 创建卡片（lazy_cover = true：不立刻拉封面）
 	var video_card := _create_video_card_node(local_info, true)
-	video_card.modulate = Color(0.9, 0.95, 1.0, 0.0)   # ★ 初始透明
 	video_card.set_meta(\"is_cloud\", true)
 
 	# 手动定位（父节点是普通 Control，不走 Container 布局）
-	if list_view_mode:
-		video_card.position = Vector2(0, pos_y)
-		video_card.size = Vector2(container_width, _cloud_item_h)
-	else:
-		video_card.position = Vector2(pos_x, pos_y)
-		video_card.size = Vector2(w, _cloud_item_h)
-	video_card.custom_minimum_size = video_card.size
+	_position_cloud_card(video_card, idx, container_width)
 
 	_cloud_virtual_root.add_child(video_card)
 	GdScriptFunc.apply_theme_and_styles_to_node(video_card)
 
-	# ★ 淡入动画
-	var tween := create_tween()
-	tween.tween_property(video_card, \"modulate:a\", 1.0, 0.3).set_trans(Tween.TRANS_CUBIC)
+	# ★ 淡入动画（仅首次进入可视区时播放）
+	if animate:
+		video_card.modulate = Color(0.9, 0.95, 1.0, 0.0)   # ★ 初始透明
+		var tween := create_tween()
+		tween.tween_property(video_card, \"modulate:a\", 1.0, 0.3).set_trans(Tween.TRANS_CUBIC)
 
 	# ★ 封面入队（串行 + RateLimiter 防 412）
 	_enqueue_cover_load(video_card, \"card\")
@@ -750,6 +762,9 @@ func _update_local_virtual_cards() -> void:
 		return
 
 	var scroll: ScrollContainer = list_scroll_container if list_view_mode else thumbnails_scroll_container
+	if not is_instance_valid(scroll):
+		return
+
 	var first_row: int = int(floor(scroll.scroll_vertical / _local_row_h)) - CLOUD_BUFFER_ROWS
 	first_row = max(0, first_row)
 	var visible_rows: int = int(ceil(scroll.size.y / _local_row_h)) + 1 + 2 * CLOUD_BUFFER_ROWS
@@ -780,11 +795,8 @@ func _update_local_virtual_cards() -> void:
 		_create_local_virtual_card(idx, container_width)
 
 
-## 创建单张本地虚拟卡片(含淡入动画;封面立即加载,走 BilibiliCoverCache 内存 LRU)
-func _create_local_virtual_card(idx: int, container_width: float) -> void:
-	if idx < 0 or idx >= _local_items.size():
-		return
-
+## 只重算单张本地卡片的位置和尺寸（不动封面、不播动画）
+func _position_local_card(card: Control, idx: int, container_width: float) -> void:
 	var row: int = idx / _local_cols
 	var col: int = idx % _local_cols
 	var w: float = _local_item_w
@@ -800,50 +812,175 @@ func _create_local_virtual_card(idx: int, container_width: float) -> void:
 
 	var pos_y: float = row * _local_row_h
 
+	if list_view_mode:
+		card.position = Vector2(0.0, pos_y)
+		card.size = Vector2(w, _local_item_h)
+	else:
+		card.position = Vector2(pos_x, pos_y)
+		card.size = Vector2(w, _local_item_h)
+	card.custom_minimum_size = card.size
+
+
+## 创建单张本地虚拟卡片(封面立即加载,走 BilibiliCoverCache 内存 LRU)
+## animate=false 时不播淡入动画(用于布局重建,避免 resize 时频繁闪动画)
+func _create_local_virtual_card(idx: int, container_width: float, animate: bool = true) -> void:
+	if idx < 0 or idx >= _local_items.size():
+		return
+
 	var video_data: Dictionary = _local_items[idx]
 	var video_card := _create_video_card_node(video_data, false)
-	video_card.modulate = Color(0.9, 0.95, 1.0, 0.0)
 	video_card.set_meta(\"virtual_card\", true)
 
-	if list_view_mode:
-		video_card.position = Vector2(0.0, pos_y)
-		video_card.size = Vector2(w, _local_item_h)
-	else:
-		video_card.position = Vector2(pos_x, pos_y)
-		video_card.size = Vector2(w, _local_item_h)
-	video_card.custom_minimum_size = video_card.size
+	# 手动定位（父节点是普通 Control，不走 Container 布局）
+	_position_local_card(video_card, idx, container_width)
 
 	_local_virtual_root.add_child(video_card)
 	GdScriptFunc.apply_theme_and_styles_to_node(video_card)
 
-	var tween := create_tween()
-	tween.tween_property(video_card, \"modulate:a\", 1.0, 0.3).set_trans(Tween.TRANS_CUBIC)
+	# ★ 淡入动画（仅首次进入可视区时播放，布局重建时不播）
+	if animate:
+		video_card.modulate = Color(0.9, 0.95, 1.0, 0.0)
+		var tween := create_tween()
+		tween.tween_property(video_card, \"modulate:a\", 1.0, 0.3).set_trans(Tween.TRANS_CUBIC)
 
 	_local_active[idx] = video_card
 
 
-## 窗口尺寸变化时重算本地虚拟布局
+## 窗口尺寸变化时重算本地虚拟布局（防抖：拖动过程中只在停止后执行一次）
 func _rebuild_local_virtual_layout() -> void:
 	if _local_virtual_root == null or not is_instance_valid(_local_virtual_root):
 		return
 	if _local_items.is_empty():
 		return
+	_start_virtual_resize_debounce()
 
-	var scroll: ScrollContainer = thumbnails_scroll_container
-	var new_cols: int = max(1, int(scroll.size.x / (_local_item_w + _local_gap)))
-	if new_cols != _local_cols:
-		_local_cols = new_cols
-		var rows: int = int(ceil(float(_local_items.size()) / _local_cols))
-		_local_virtual_root.custom_minimum_size = Vector2(0, rows * _local_row_h)
 
-	# 清空当前活跃卡片,让 _update_local_virtual_cards 重新按新布局创建
+## 防抖计时器：连续 resize 只在停止 VIRTUAL_RESIZE_DEBOUNCE 秒后触发一次重建
+func _start_virtual_resize_debounce() -> void:
+	if _virtual_resize_debounce == null:
+		_virtual_resize_debounce = Timer.new()
+		_virtual_resize_debounce.wait_time = VIRTUAL_RESIZE_DEBOUNCE
+		_virtual_resize_debounce.one_shot = true
+		add_child(_virtual_resize_debounce)
+		_virtual_resize_debounce.timeout.connect(_do_rebuild_virtual_layout)
+	_virtual_resize_debounce.start()   # 连续触发会不断重置计时
+
+
+## 防抖到期后统一分发：根据当前状态重建对应虚拟布局
+func _do_rebuild_virtual_layout() -> void:
+	if enable_cloud and _is_in_cloud_folder:
+		_do_rebuild_cloud_virtual_layout()
+	elif not enable_cloud and not _is_showing_favorites:
+		_do_rebuild_local_virtual_layout()
+
+
+## 本地虚拟布局实际重建：范围内存量卡片只重定位/重设尺寸（封面保留、不播动画）
+func _do_rebuild_local_virtual_layout() -> void:
+	if _local_virtual_root == null or not is_instance_valid(_local_virtual_root):
+		return
+	if _local_items.is_empty():
+		return
+
+	var scroll: ScrollContainer = list_scroll_container if list_view_mode else thumbnails_scroll_container
+	if not is_instance_valid(scroll):
+		return
+
+	_local_cols = max(1, int(scroll.size.x / (_local_item_w + _local_gap)))
+	var rows: int = int(ceil(float(_local_items.size()) / _local_cols))
+	_local_virtual_root.custom_minimum_size = Vector2(0, rows * _local_row_h)
+
+	var container_width: float = _local_virtual_root.size.x
+	if container_width <= 0.0:
+		container_width = scroll.size.x - 20.0
+
+	# 可视范围（与 _update_local_virtual_cards 同一套逻辑）
+	var view_top: float = float(scroll.scroll_vertical)
+	var view_bottom: float = view_top + scroll.size.y
+	var first_row: int = maxi(0, int(floor(view_top / _local_row_h)) - CLOUD_BUFFER_ROWS)
+	var last_row: int = mini(rows - 1, int(floor(view_bottom / _local_row_h)) + CLOUD_BUFFER_ROWS)
+	var first_idx: int = first_row * _local_cols
+	var last_idx: int = mini((last_row + 1) * _local_cols - 1, _local_items.size() - 1)
+
+	# 1) 范围内的存量卡片：只重定位/重设尺寸，不销毁、不重载封面
+	var to_free: Array = []
 	for idx in _local_active.keys():
+		if idx < first_idx or idx > last_idx:
+			to_free.append(idx)
+			continue
+		var n = _local_active[idx]
+		if is_instance_valid(n):
+			_position_local_card(n, idx, container_width)
+
+	# 2) 滚出范围的照常销毁
+	for idx in to_free:
 		var n = _local_active[idx]
 		if is_instance_valid(n):
 			n.queue_free()
-	_local_active.clear()
+		_local_active.erase(idx)
 
-	_update_local_virtual_cards.call_deferred()
+	# 3) 缺失的补建（不播动画）
+	for idx in range(first_idx, last_idx + 1):
+		if not _local_active.has(idx):
+			_create_local_virtual_card(idx, container_width, false)
+
+
+## 窗口尺寸变化时重算云端虚拟布局（防抖：拖动过程中只在停止后执行一次）
+func _rebuild_cloud_virtual_layout() -> void:
+	if _cloud_virtual_root == null or not is_instance_valid(_cloud_virtual_root):
+		return
+	if _cloud_items.is_empty():
+		return
+	_start_virtual_resize_debounce()
+
+
+## 云端虚拟布局实际重建：范围内存量卡片只重定位/重设尺寸（封面保留、不播动画）
+func _do_rebuild_cloud_virtual_layout() -> void:
+	if _cloud_virtual_root == null or not is_instance_valid(_cloud_virtual_root):
+		return
+	if _cloud_items.is_empty():
+		return
+
+	var scroll: ScrollContainer = list_scroll_container if list_view_mode else thumbnails_scroll_container
+	if not is_instance_valid(scroll):
+		return
+
+	_cloud_cols = max(1, int(scroll.size.x / (_cloud_item_w + _cloud_gap)))
+	var rows: int = int(ceil(float(_cloud_items.size()) / _cloud_cols))
+	_cloud_virtual_root.custom_minimum_size = Vector2(0, rows * _cloud_row_h)
+
+	var container_width: float = _cloud_virtual_root.size.x
+	if container_width <= 0.0:
+		container_width = scroll.size.x - 20.0
+
+	# 可视范围（与 _update_cloud_virtual_cards 同一套逻辑）
+	var view_top: float = float(scroll.scroll_vertical)
+	var view_bottom: float = view_top + scroll.size.y
+	var first_row: int = maxi(0, int(floor(view_top / _cloud_row_h)) - CLOUD_BUFFER_ROWS)
+	var last_row: int = mini(rows - 1, int(floor(view_bottom / _cloud_row_h)) + CLOUD_BUFFER_ROWS)
+	var first_idx: int = first_row * _cloud_cols
+	var last_idx: int = mini((last_row + 1) * _cloud_cols - 1, _cloud_items.size() - 1)
+
+	# 1) 范围内的存量卡片：只重定位/重设尺寸，不销毁、不重载封面
+	var to_free: Array = []
+	for idx in _cloud_active.keys():
+		if idx < first_idx or idx > last_idx:
+			to_free.append(idx)
+			continue
+		var n = _cloud_active[idx]
+		if is_instance_valid(n):
+			_position_cloud_card(n, idx, container_width)
+
+	# 2) 滚出范围的照常销毁
+	for idx in to_free:
+		var n = _cloud_active[idx]
+		if is_instance_valid(n):
+			n.queue_free()
+		_cloud_active.erase(idx)
+
+	# 3) 缺失的补建（不播动画）
+	for idx in range(first_idx, last_idx + 1):
+		if not _cloud_active.has(idx):
+			_create_virtual_card(idx, container_width, false)
 
 
 func _set_cover(texture: Texture2D, video_card: Control) -> void:
@@ -1357,36 +1494,14 @@ func _on_thumbnails_scroll_resized() -> void:
 	if not thumbnails_scroll_container or list_view_mode:
 		return
 	if enable_cloud and _is_in_cloud_folder and _cloud_virtual_root != null:
-		# 虚拟滚动模式:重算列数 & 布局
+		# 虚拟滚动模式:防抖后重算列数 & 布局（不销毁范围内卡片）
 		_rebuild_cloud_virtual_layout()
 		return
-	# 本地文件夹虚拟滚动模式:重算列数 & 布局
+	# 本地文件夹虚拟滚动模式:防抖后重算列数 & 布局（不销毁范围内卡片）
 	if not enable_cloud and not _is_showing_favorites and _local_virtual_root != null:
 		_rebuild_local_virtual_layout()
 		return
 	grid_container.columns = max(1, int(thumbnails_scroll_container.size.x / 600))
-
-func _rebuild_cloud_virtual_layout() -> void:
-	if _cloud_virtual_root == null or not is_instance_valid(_cloud_virtual_root):
-		return
-	if _cloud_items.is_empty():
-		return
-
-	var scroll: ScrollContainer = list_scroll_container if list_view_mode else thumbnails_scroll_container
-	var new_cols: int = max(1, int(scroll.size.x / (_cloud_item_w + _cloud_gap)))
-	if new_cols != _cloud_cols:
-		_cloud_cols = new_cols
-		var rows: int = int(ceil(float(_cloud_items.size()) / _cloud_cols))
-		_cloud_virtual_root.custom_minimum_size = Vector2(0, rows * _cloud_row_h)
-
-	# 清空当前活跃卡片，让 _update_cloud_virtual_cards 重新按新布局创建
-	for idx in _cloud_active.keys():
-		var n = _cloud_active[idx]
-		if is_instance_valid(n):
-			n.queue_free()
-	_cloud_active.clear()
-
-	_update_cloud_virtual_cards.call_deferred()
 
 
 func _on_ok_pressed() -> void:
