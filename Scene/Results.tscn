@@ -33,6 +33,16 @@ var page_number := 1:
 			page_number = value
 			update_page(current_keyword)
 
+func _ready() -> void:
+	rsults_scroll.anchor_left = 0.0
+	rsults_scroll.anchor_right = 1.0
+	rsults_scroll.anchor_top = 0.0
+	rsults_scroll.anchor_bottom = 1.0
+	rsults_scroll.offset_left = 0.0
+	rsults_scroll.offset_top = 0.0
+	rsults_scroll.offset_right = 0.0
+	rsults_scroll.offset_bottom = 0.0
+
 func fade_in(node: Control, duration: float = 0.2) -> Tween:
 	node.show()
 	node.modulate.a = 0.0
@@ -53,7 +63,6 @@ func _kill_active_tweens() -> void:
 			tw.kill()
 	active_tweens.clear()
 
-## 加载期间垫一排骨架，免得干瞪着转圈
 func _show_skeletons() -> void:
 	_dismiss_skeletons()
 	var rows: int = clampi(int(rsults_scroll.size.y / 100.0) + 1, 4, 12)
@@ -75,7 +84,6 @@ func _dismiss_skeletons() -> void:
 
 var _sub_label_tween: Tween
 
-## 副标题换字时轻轻带一下，别硬切
 func _set_sub_label(new_text: String) -> void:
 	if sub_label.text == new_text:
 		return
@@ -96,19 +104,19 @@ func clear_page() -> void:
 		rsults_list.get_child(i).queue_free()
 	_set_sub_label(tr(\"请搜索\"))
 	fade_out(loading, 0.1)
-func show_search_bar()->void:
-	var tween:=search_bar.create_tween()
-	tween.set_parallel()
-	tween.tween_property(search_bar,\"offset_transform_scale:x\",1.0,0.3).set_trans(Tween.TRANS_CUBIC)
-	tween.tween_property(rsults_scroll,\"offset_transform_position:y\",0.0,0.3).set_trans(Tween.TRANS_CUBIC)
-	tween.tween_property(rsults_scroll,\"size:y\",673.0,0.3).set_trans(Tween.TRANS_CUBIC)
-	
-func hide_search_bar()->void:
-	var tween:=search_bar.create_tween()
-	tween.set_parallel()
-	tween.tween_property(search_bar,\"offset_transform_scale:x\",0,0.3).set_trans(Tween.TRANS_CUBIC)
-	tween.tween_property(rsults_scroll,\"offset_transform_position:y\",-60.0,0.3).set_trans(Tween.TRANS_CUBIC)
-	tween.tween_property(rsults_scroll,\"size:y\",733.0,0.3).set_trans(Tween.TRANS_CUBIC)
+
+func show_search_bar() -> void:
+	var tween := search_bar.create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(search_bar, \"offset_transform_scale:x\", 1.0, 0.3).set_trans(Tween.TRANS_CUBIC)
+	tween.tween_property(rsults_scroll, \"offset_top\", 146, 0.3).set_trans(Tween.TRANS_CUBIC)
+
+func hide_search_bar() -> void:
+	var tween := search_bar.create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(search_bar, \"offset_transform_scale:x\", 0.0, 0.3).set_trans(Tween.TRANS_CUBIC)
+	tween.tween_property(rsults_scroll, \"offset_top\", 20, 0.3).set_trans(Tween.TRANS_CUBIC)
+
 func update_page(keyword: String) -> void:
 	current_execution_number = randi()
 	_kill_active_tweens()
@@ -224,11 +232,9 @@ func _on_page_text_submitted(new_text: String) -> void:
 	else: page_edit.text = str(page_number)
 func _on_tids_item_selected(_index: int) -> void: update_page(current_keyword)
 
-
 func _on_search_text_submitted(new_text: String) -> void:
-	State.main.search_bar.text=new_text
+	State.main.search_bar.text = new_text
 	update_page(new_text)
-
 
 func _on_visibility_changed() -> void:
 	if visible:
@@ -236,17 +242,19 @@ func _on_visibility_changed() -> void:
 	else:
 		hide_search_bar()
 		State.main.show_search_bar()
-		on_show=false
-var on_show:=false
+		on_show = false
+
+var on_show := false
+
 func _on_v_box_container_item_rect_changed() -> void:
-	if rsults_list.position.y>-80&&!on_show:
+	if rsults_list.position.y > -80 && !on_show:
 		State.main.hide_search_bar()
 		show_search_bar()
-		on_show=true
-	elif rsults_list.position.y<=-80&&on_show:
+		on_show = true
+	elif rsults_list.position.y <= -80 && on_show:
 		hide_search_bar()
 		State.main.show_search_bar()
-		on_show=false
+		on_show = false
 "
 
 [sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_bp3gr"]
@@ -287,9 +295,8 @@ text = "请搜索"
 [node name="Search" type="LineEdit" parent="." unique_id=1860902725]
 layout_mode = 1
 anchors_preset = -1
-anchor_top = -0.012
 anchor_right = 0.97900003
-offset_top = 36.812
+offset_top = 26.0
 offset_right = -466.34302
 offset_bottom = 66.936005
 grow_horizontal = 2
