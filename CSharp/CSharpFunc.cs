@@ -419,6 +419,17 @@ public partial class CSharpFunc : Node
 	}
 
 	/// <summary>
+	/// 融合版特征提取：bgm_info（官方识别，歌名最高置信）+ 标题/简介启发式。
+	/// bgmMusicTitle 由调用方自行获取后传入，未识别时传 "" 即完全回退原标题/简介链路。
+	/// 结果经 resultCallback 送回，参数为 Dictionary：{ "song": ..., "singer": ..., "source": ... }
+	/// （"bgm" / "bgm_conflict" / "title"）
+	///
+	/// GDScript 用法：
+	///   CSharpFunc.ExtractFeaturesWithBgm(title, desc, music_title, func(features): ...)
+	/// </summary>
+	public static Godot.Collections.Dictionary ExtractFeaturesWithBgm(string title, string desc, string bgmMusicTitle)=>SongInfoExtractor.ExtractFeaturesWithBgm(title, desc, bgmMusicTitle);
+
+	/// <summary>
 	/// 批量处理多个标题
 	/// </summary>
 	public static Godot.Collections.Array<Godot.Collections.Dictionary<string, string>> ExtractBatch(Godot.Collections.Array<string> titles)

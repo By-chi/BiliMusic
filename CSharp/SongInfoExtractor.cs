@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -860,4 +861,175 @@ public static class SongInfoExtractor
             arr.Add(ExtractFeatures(t));
         return arr;
     }
+    private static readonly char[] BgmSeparators = { '-', '－', '—', '–', '~', '～' };
+
+    public static (string song, string singer) ExtractFromBgmInfo(string musicTitle)
+    {
+        if (string.IsNullOrWhiteSpace(musicTitle)) return ("", "");
+        var t = musicTitle.Trim().Replace('\u00A0', ' ');
+
+        // 先剥常见动词前缀（"发现"等），不影响后续形态
+        t = Regex.Replace(t, @"^(发现|正在播放|猜你喜欢)\s*", "").Trim();
+        if (t.Length == 0) return ("", "");
+
+        // 形态1：书名号 "《歌名》"
+        var m = Regex.Match(t, @"《([^《》]{1,80})》");
+        if (m.Success)
+            return (m.Groups[1].Value.Trim(), "");
+
+        // 形态2：尾缀括号 "歌名（歌手）" / "Lazer Boomerang (R3cover)"
+        m = Regex.Match(t, @"^(.{1,60}?)\s*[（(]\s*([^（()）]{1,40}?)\s*[)）]\s*$");
+        if (m.Success)
+            return (m.Groups[1].Value.Trim(), m.Groups[2].Value.Trim());
+
+        // 形态3：分隔符拆分（支持紧凑连字符 "R3cover-Lazer Boomerang"）
+        var splits = GetBgmSplits(t);
+        if (splits.Count > 0)
+        {
+            // 3a) 某一侧命中歌手词库 → 方向精确判定（"歌手A/歌手B" 多人形式也算）
+            foreach (var (left, right, _) in splits)
+            {
+                bool ls = MatchesKnownSinger(left);
+                bool rs = MatchesKnownSinger(right);
+                if (ls && !rs) return (right, left); // 歌手-歌名
+                if (rs && !ls) return (left, right); // 歌名-歌手
+            }
+
+            // 3b) 某一侧命中歌名词库 → 反推方向
+            foreach (var (left, right, _) in splits)
+            {
+                bool ln = MatchesKnownSong(left);
+                bool rn = MatchesKnownSong(right);
+                if (ln && !rn) return (left, right);
+                if (rn && !ln) return (right, left);
+            }
+
+            // 3c) 词库均未命中，按分隔风格启发：
+            //     带空格 "A - B" → 维持 "歌名 - 歌手"（B站曲库主流格式）
+            //     紧凑 "A-B"（如 R3cover-Lazer Boomerang）→ 视为 "歌手-歌名"
+            var spaced = splits.Find(s => s.spaced);
+            if (spaced.left != null)
+                return (spaced.left, spaced.right);
+            if (splits.Count == 1)
+                return (splits[0].right, splits[0].left);
+
+            // 多个紧凑分隔符且词库无命中 → 连字符大概率是歌名本身的一部分，不拆
+            return (t, "");
+        }
+
+        // 形态4：无任何结构，整体作为歌名
+        return (t, "");
+    }
+
+    /// <summary>
+    /// 枚举标题中所有可行的分隔符切分点。
+    /// 跳过两侧都是数字的连字符（日期/编号，如 2023-05、Part-1）；
+    /// 左右任一侧Trim后不足2字符的切分点丢弃。
+    /// spaced = 分隔符两侧都有空格（" - "）。
+    /// </summary>
+    private static List<(string left, string right, bool spaced)> GetBgmSplits(string t)
+    {
+        var result = new List<(string, string, bool)>();
+        for (int i = 0; i < t.Length; i++)
+        {
+            if (!BgmSeparators.Contains(t[i])) continue;
+
+            bool digitBothSides = i > 0 && i < t.Length - 1
+                && char.IsDigit(t[i - 1]) && char.IsDigit(t[i + 1]);
+            if (digitBothSides) continue;
+
+            string left = t[..i].Trim();
+            string right = t[(i + 1)..].Trim();
+            if (left.Length < 2 || right.Length < 2) continue;
+
+            bool spaced = i > 0 && char.IsWhiteSpace(t[i - 1])
+                       && i < t.Length - 1 && char.IsWhiteSpace(t[i + 1]);
+            result.Add((left, right, spaced));
+        }
+        return result;
+    }
+
+    /// <summary>整串或多人群形式（"歌手A/歌手B"）命中歌手词库</summary>
+    private static bool MatchesKnownSinger(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return false;
+        EnsureSamplesLoaded();
+        if (KnownSingers == null) return false;
+        if (KnownSingers.Contains(s)) return true;
+        var parts = s.Split(new[] { '/', '、', '&', ',' }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var p in parts)
+            if (KnownSingers.Contains(p.Trim())) return true;
+        return false;
+    }
+
+    /// <summary>命中歌名词库</summary>
+    private static bool MatchesKnownSong(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return false;
+        EnsureSamplesLoaded();
+        return KnownSongNames != null && KnownSongNames.Contains(s);
+    }
+
+    /// <summary>
+	///   P1. bgm_info 官方识别（最高置信，歌名直取）
+	///   P2. 简介模板提取（须不含「的小曲」——标题党/梗命名过滤）
+	///   P3. 标题启发式提取（须不含「的小曲」）
+	///   P4. 标题兜底（容忍「的小曲」类结果，宁要有噪音的歌名也不要空）
+	/// 歌手：官方 music_title 若含歌手则与标题提示交叉验证，
+	///       否则走 ExtractSingerHint(title, desc)（标题扫描优先、简介字段兜底）。
+	/// source 标记："bgm" / "bgm_conflict" / "desc" / "title" / "title_fallback"
+	/// </summary>
+	public static Godot.Collections.Dictionary ExtractFeaturesWithBgm(
+		string title, string desc, string bgmMusicTitle)
+	{
+		const string MemeFilter = "小曲";
+
+		var (bgmSong, bgmSinger) = ExtractFromBgmInfo(bgmMusicTitle);
+		var hint = ExtractSingerHint(title, desc);
+
+		string song = "";
+		string singer = hint ?? "";
+		string source = "title";
+
+		if (!string.IsNullOrEmpty(bgmSong))
+		{
+			// ── P1：B站官方识别，最高置信 ──
+			song = bgmSong;
+			if (!string.IsNullOrEmpty(bgmSinger))
+			{
+				bool crossOk = string.IsNullOrEmpty(hint) || IsKnownSingerMatch(bgmSinger, hint);
+				singer = bgmSinger;
+				source = crossOk ? "bgm" : "bgm_conflict";
+			}
+			else
+			{
+				source = "bgm";
+			}
+		}
+		else
+		{
+			string descSong = ExtractSongNameFromDesc(desc);
+			if (!string.IsNullOrEmpty(descSong) && !descSong.Contains(MemeFilter))
+			{
+				song = descSong;
+				source = "desc";
+			}
+			else
+			{
+				string titleSong = ExtractSongName(title);
+				if (!string.IsNullOrEmpty(titleSong))
+				{
+					song = titleSong;
+					source = titleSong.Contains(MemeFilter) ? "title_fallback" : "title";
+				}
+			}
+		}
+
+		return new Godot.Collections.Dictionary
+		{
+			["song"] = song,
+			["singer"] = singer,
+			["source"] = source
+		};
+	}
 }

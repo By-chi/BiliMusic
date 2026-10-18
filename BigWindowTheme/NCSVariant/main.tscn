@@ -256,7 +256,11 @@ func update() -> void:
 	if video_info.is_empty():
 		return
 	_current_link = video_info.get(\"link\", \"\")
-	name_label.text = CSharpFunc.ExtractSongName(video_info.get(\"title\", tr(\"未知\")))
+	BilibiliApi.fetch_bgm_info(video_info.get(\"BV\"),func(info:Dictionary):
+		printt(video_info.get(\"title\", tr(\"未知\")),video_info.get(\"description\",\"\"),info.get(\"music_title\",\"\"))
+		name_label.text=CSharpFunc.ExtractFeaturesWithBgm(video_info.get(\"title\", tr(\"未知\")),video_info.get(\"description\",\"\"),info.get(\"music_title\",\"\")).get(\"song\",\"未知\")
+	)
+	
 	if video_info.get(\"is_network\", true):
 		BilibiliApi.fetch_cover(_current_link, _set_texture, 1600, 1000)
 	elif FileAccess.file_exists(_current_link.get_basename() + \".jpg\"):

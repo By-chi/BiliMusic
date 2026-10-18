@@ -215,3 +215,6 @@ func fetch_all_fav_items(media_id: int, callback: Callable) -> void:
 
 func fetch_audio_url(bvid: String, cid: int, callback: Callable) -> void:
 	_video.fetch_audio_url(bvid, cid, callback)
+## 回调参数：{ music_id, music_title, jump_url }，未识别时为 {}
+func fetch_bgm_info(bvid: String, callback: Callable, page: int = 1) -> void:
+	_video.fetch_bgm_info(bvid, callback, page)

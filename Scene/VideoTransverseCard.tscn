@@ -233,10 +233,10 @@ toggle_mode = true
 icon_alignment = 1
 expand_icon = true
 
-[connection signal="mouse_entered" from="." to="." method="_on_mouse_entered"]
-[connection signal="mouse_exited" from="." to="." method="_on_mouse_exited"]
 [connection signal="button_down" from="." to="." method="_on_button_down"]
 [connection signal="button_up" from="." to="." method="_on_button_up"]
+[connection signal="mouse_entered" from="." to="." method="_on_mouse_entered"]
+[connection signal="mouse_exited" from="." to="." method="_on_mouse_exited"]
 [connection signal="pressed" from="." to="." method="_on_pressed"]
 [connection signal="pressed" from="Share" to="." method="_on_share_pressed"]
 [connection signal="toggled" from="Share" to="." method="_on_share_toggled"]

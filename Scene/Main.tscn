@@ -335,7 +335,7 @@ extends Panel
 @export var playlist_restrict_all_button: Button
 @export var playlist_status_label: Label
 
-const PLAYLIST_PLAY_ICON := preload(\"res://UI/Icon/playing.svg\")
+const PLAYLIST_PLAY_ICON := preload(\"res://UI/Icon/Playing.svg\")
 const RESTRICT_ICON := preload(\"res://UI/Icon/Disabled.svg\")
 
 const MENU_ICON_SIZE := 20

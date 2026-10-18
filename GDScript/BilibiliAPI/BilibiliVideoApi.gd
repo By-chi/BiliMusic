@@ -221,3 +221,97 @@ func _on_audio_url_response(_result: int, code: int, _headers: PackedStringArray
 			best = a
 	var base_url: String = best.get("baseUrl", best.get("base_url", ""))
 	callback.call(base_url)
+var _bgm_cache := {}  # music_id -> bgm 字典，跨视频同曲复用
+
+
+func fetch_bgm_info(bvid: String, callback: Callable, page: int = 1) -> void:
+	# 优先走已有视频信息缓存
+	if _video_info_cache.has(bvid):
+		_do_fetch_bgm_with_info(_video_info_cache[bvid], callback, page)
+		return
+	fetch_info(bvid, func(info: Dictionary):
+		if info.is_empty():
+			callback.call({})
+			return
+		_video_info_cache[bvid] = info
+		_do_fetch_bgm_with_info(info, callback, page)
+	)
+
+
+func _do_fetch_bgm_with_info(info: Dictionary, callback: Callable, page: int) -> void:
+	var bvid: String = info.get("link", "")
+	var cid := int(info.get("cid", 0))
+	# 多分 P：从 pages 中取目标分 P 的 cid
+	if page > 1:
+		var pages: Array = info.get("pages", [])
+		for p in pages:
+			if int(p.get("page", 0)) == page:
+				cid = int(p.get("cid", 0))
+				break
+	if cid <= 0:
+		callback.call({})
+		return
+	_do_fetch_bgm(bvid, cid, callback)
+
+
+func _do_fetch_bgm(bvid: String, cid: int, callback: Callable) -> void:
+	var url := "https://api.bilibili.com/x/player/wbi/v2?bvid=%s&cid=%d" % [bvid, cid]
+	var headers := _http.with_origin(
+		_http.get_headers(),
+		"https://www.bilibili.com/video/" + bvid,
+		"https://www.bilibili.com"
+	)
+	_http.request_with_sign(url, _on_bgm_info_response,
+		{"bvid": bvid, "callback": callback}, HTTPClient.METHOD_GET, headers)
+
+
+func _on_bgm_info_response(_r, code: int, _h: PackedStringArray, body: PackedByteArray, extra: Variant) -> void:
+	var callback: Callable = Callable()
+	var bvid := ""
+	if extra is Dictionary:
+		bvid = str(extra.get("bvid", ""))
+		var cb = extra.get("callback")
+		if cb is Callable:
+			callback = cb
+	if not callback.is_valid():
+		return
+
+	if code != 200:
+		push_error("[BilibiliVideoApi] BGM 信息获取失败 HTTP %d (%s)" % [code, bvid])
+		callback.call({})
+		return
+	var json := JSON.new()
+	if json.parse(body.get_string_from_utf8()) != OK:
+		callback.call({})
+		return
+	var data = json.get_data()
+	if typeof(data) != TYPE_DICTIONARY or data.get("code", -1) != 0:
+		push_error("[BilibiliVideoApi] BGM API 错误: %s (%s)" % [data.get("message", ""), bvid])
+		callback.call({})
+		return
+
+	var bgm = data.get("data", {}).get("bgm_info", {})
+	# 键缺失时 .get 返回默认 {}；键存在但值为 null 时需 typeof 过滤
+	if typeof(bgm) != TYPE_DICTIONARY or bgm.is_empty():
+		callback.call({})
+		return
+
+	var music_id := str(bgm.get("music_id", ""))
+	var jump_url := str(bgm.get("jump_url", ""))
+	if jump_url.begins_with("//"):
+		jump_url = "https:" + jump_url
+
+	var result := {
+		"music_id": music_id,
+		"music_title": str(bgm.get("music_title", "")),
+		"jump_url": jump_url
+	}
+	# 以 music_id 为缓存键（同曲跨视频复用，不受标题前缀格式影响）
+	if not music_id.is_empty():
+		_bgm_cache[music_id] = result
+	callback.call(result)
+
+
+## 按 music_id 查本地缓存（先 fetch_bgm_info 后可复用）
+func get_cached_bgm(music_id: String) -> Dictionary:
+	return _bgm_cache.get(music_id, {})

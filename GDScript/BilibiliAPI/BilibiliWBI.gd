@@ -40,3 +40,4 @@ static func sign_url(url: String, img_key: String, sub_key: String) -> String:
 	final_parts.append("w_rid=" + w_rid)
 
 	return "https://api.bilibili.com" + base + "?" + "&".join(final_parts)
+ 
