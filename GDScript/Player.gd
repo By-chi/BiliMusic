@@ -98,23 +98,47 @@ func _init_shuffle_order():
 func _change_song_shuffle(is_next: bool):
 	if playlist.is_empty():
 		return
-	if is_next:
-		if shuffle_pos + 1 < shuffle_order.size():
-			shuffle_pos += 1
-			current_index = shuffle_order[shuffle_pos]
+	# 跳过被暂时限制的条目(列表小窗勾选),全受限时落在原地
+	var attempts := playlist.size() + 1
+	while attempts > 0:
+		if is_next:
+			if shuffle_pos + 1 < shuffle_order.size():
+				shuffle_pos += 1
+			else:
+				var last_song = shuffle_order[shuffle_pos]
+				shuffle_order = _generate_shuffle_order_exclude_first(last_song)
+				shuffle_pos = 0
 		else:
-			var last_song = shuffle_order[shuffle_pos]
-			shuffle_order = _generate_shuffle_order_exclude_first(last_song)
-			shuffle_pos = 0
-			current_index = shuffle_order[0]
-	else:
-		if shuffle_pos > 0:
-			shuffle_pos -= 1
-			current_index = shuffle_order[shuffle_pos]
-		else:
-			shuffle_pos = shuffle_order.size() - 1
-			current_index = shuffle_order[shuffle_pos]
+			if shuffle_pos > 0:
+				shuffle_pos -= 1
+			else:
+				shuffle_pos = shuffle_order.size() - 1
+		current_index = shuffle_order[shuffle_pos]
+		if not _is_index_disabled(current_index):
+			break
+		attempts -= 1
 	sonance = true
+
+
+func _is_index_disabled(index: int) -> bool:
+	if index < 0 or index >= playlist.size():
+		return false
+	var item = playlist[index]
+	if item is Dictionary:
+		return State.playlist_disabled.has(str(item.get("link", "")))
+	return false
+
+
+func _advance_index(from: int, direction: int) -> int:
+	var size := playlist.size()
+	if size == 0:
+		return from
+	var i := from
+	for _step in size:
+		i = (i + direction + size) % size
+		if not _is_index_disabled(i):
+			return i
+	return from
 
 
 func next_song():
@@ -122,7 +146,7 @@ func next_song():
 		PlayMode.SHUFFLE:
 			_change_song_shuffle(true)
 		_:
-			current_index = (current_index + 1) % playlist.size()
+			current_index = _advance_index(current_index, 1)
 	_apply_current_song()
 	song_skipped.emit("next")
 
@@ -132,7 +156,7 @@ func prev_song():
 		PlayMode.SHUFFLE:
 			_change_song_shuffle(false)
 		_:
-			current_index = (current_index - 1 + playlist.size()) % playlist.size()
+			current_index = _advance_index(current_index, -1)
 	_apply_current_song()
 	song_skipped.emit("prev")
 

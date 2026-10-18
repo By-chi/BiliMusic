@@ -16,6 +16,7 @@
 [ext_resource type="Texture2D" uid="uid://d25kb6a85uar6" path="res://UI/Icon/next.svg" id="16_4w0o7"]
 [ext_resource type="Texture2D" uid="uid://d2nw6ay41tyxf" path="res://UI/Icon/Expand.svg" id="19_uq86q"]
 [ext_resource type="Texture2D" uid="uid://by7rcndagy6l7" path="res://UI/Icon/PiP.svg" id="20_uq86q"]
+[ext_resource type="Texture2D" uid="uid://0yoqpcurrlhu" path="res://UI/Icon/ListView.svg" id="21_plview"]
 
 [sub_resource type="GDScript" id="GDScript_aan6j"]
 script/source = "extends Panel
@@ -111,8 +112,10 @@ func _ensure_page(page_name: String) -> Control:
 
 func play(card:BaseVideoCard)->void:
 	Player.play_by_video_info(card.video_info)
+	update_bottom_menu(card.title,card.author,card.cover,card.list_name,card.video_info)
+func update_bottom_menu(title:String,author:String,cover:Texture2D,list_name:String,video_info:Dictionary)->void:
 	var i:=0
-	while card.cover == null&&i!=1000:
+	while cover == null&&i!=1000:
 		await get_tree().process_frame
 		i+=1
 	match State.play_ui_mode:
@@ -121,16 +124,15 @@ func play(card:BaseVideoCard)->void:
 			if bottom_menu.play_window!=null:
 				bottom_menu.play_window.hide()
 			bottom_menu.play_button.button_pressed=true
-			bottom_menu.title=card.title
+			bottom_menu.title=title
 			bottom_menu.progress_bar.value=0
-			bottom_menu.author=card.author
-			bottom_menu.cover=card.cover
-			bottom_menu.list_name=card.list_name
+			bottom_menu.author=author
+			bottom_menu.cover=cover
+			bottom_menu.list_name=list_name
 		1:
 			bottom_menu._hide()
 			bottom_menu.play_window.show()
-			bottom_menu.play_window.update(card.list_name,card.cover,card.video_info)
-
+			bottom_menu.play_window.update(list_name,cover,video_info)
 func _init() -> void:
 	State.main=self
 
@@ -326,6 +328,36 @@ extends Panel
 @export var repeat_one_icon: Texture2D
 @export var list_loop_icon: Texture2D
 @export var shuffle_icon: Texture2D
+@export var playlist_button: Button
+@export var playlist_panel: Panel
+@export var playlist_rows: VBoxContainer
+@export var playlist_trash: Panel
+@export var playlist_restrict_all_button: Button
+@export var playlist_status_label: Label
+
+const PLAYLIST_PLAY_ICON := preload(\"res://UI/Icon/playing.svg\")
+const RESTRICT_ICON := preload(\"res://UI/Icon/Disabled.svg\")
+
+const MENU_ICON_SIZE := 20
+var _menu_play_icon: Texture2D = null
+var _menu_restrict_icon: Texture2D = null
+
+func _menu_icons() -> void:
+	if _menu_play_icon == null:
+		_menu_play_icon = _scaled_icon(PLAYLIST_PLAY_ICON, MENU_ICON_SIZE)
+		_menu_restrict_icon = _scaled_icon(RESTRICT_ICON, MENU_ICON_SIZE)
+const RESTRICT_ON_COLOR := Color.WHITE
+const RESTRICT_OFF_COLOR := Color(0.151, 0.151, 0.151, 1.0)
+var _playlist_row_boxes: Array = []
+var _playlist_dragging: bool = false
+var _playlist_drag_index: int = -1
+var _playlist_drag_link: String = \"\"
+var _playlist_press_pos: Vector2 = Vector2.ZERO
+var _playlist_ghost: PanelContainer = null
+var _playlist_sb_normal: StyleBoxFlat = null
+var _playlist_sb_current: StyleBoxFlat = null
+var _playlist_sb_trash: StyleBoxFlat = null
+var _playlist_sb_trash_hot: StyleBoxFlat = null
 var list_name:
 	set(value):
 		if list_name!=value:
@@ -377,13 +409,19 @@ func update_callback(video_info:Dictionary)->void:
 	progress_bar.value=0
 	title = video_info.get(\"title\",tr(\"无题\"))
 	author = video_info.get(\"author\",tr(\"佚名\"))
+	var link := str(video_info.get(\"link\", \"\"))
 	if video_info.get(\"is_network\", true):
-		BilibiliApi.fetch_cover(video_info[\"link\"], set_cover, 70, 70)
+		BilibiliApi.fetch_cover(link, func(_bvid, texture: Texture2D):
+			_cache_cover(link, texture)
+			set_cover(link, texture)
+		, 70, 70)
 	elif FileAccess.file_exists(video_info[\"link\"].get_basename()+\".jpg\"):
 		var image = Image.load_from_file(video_info[\"link\"].get_basename()+\".jpg\")
 		_set_cover(ImageTexture.create_from_image(image))
 	else:
 		GdScriptFunc.generate_label_texture(Color.WHITE,video_info.get(\"title\", tr(\"本地文件\")),_set_cover,null,10,Color.BLACK,Vector2i(70,70))
+	if playlist_button != null and playlist_button.button_pressed and not _playlist_dragging:
+		_rebuild_playlist_rows()
 # UI逻辑
 func _on_progress_drag_ended(value_changed: bool):
 	if !value_changed: return
@@ -436,6 +474,503 @@ func _on_volume_mouse_exit_timer_timeout():
 func _on_volume_slider_drag_ended(_value_changed: bool):
 	volume_exit_timer.start()
 	GdScriptFunc.set_data(\"PlayerData\", \"Volume\", volume)
+var _cover_cache: Dictionary = {}
+
+const COVER_CACHE_MAX := 100
+
+func _cache_cover(link: String, texture: Texture2D) -> void:
+	if link == \"\" or texture == null:
+		return
+	if _cover_cache.has(link):
+		return
+	if _cover_cache.size() >= COVER_CACHE_MAX and not _cover_cache.is_empty():
+		_cover_cache.erase(_cover_cache.keys()[0])   # 淘汰最早的
+	_cover_cache[link] = texture
+
+# 同步获取缓存的封面，可能返回 null
+func get_cached_cover(video_info: Dictionary) -> Texture2D:
+	var link := str(video_info.get(\"link\", \"\"))
+	if _cover_cache.has(link):
+		return _cover_cache[link]
+	# 本地文件可以直接同步加载
+	if not video_info.get(\"is_network\", true):
+		var jpg := str(video_info.get(\"link\", \"\")).get_basename() + \".jpg\"
+		if FileAccess.file_exists(jpg):
+			var tex := ImageTexture.create_from_image(Image.load_from_file(jpg))
+			_cover_cache[link] = tex
+			return tex
+	return null
+
+# 异步请求封面：优先取缓存，没有则拉取，完成后通过 callback 返回 Texture2D（可能为 null）
+func request_cover(video_info: Dictionary, callback: Callable = Callable()) -> void:
+	var link := str(video_info.get(\"link\", \"\"))
+	var cached := get_cached_cover(video_info)
+	if cached != null:
+		if callback.is_valid():
+			callback.call(cached)
+		return
+	if video_info.get(\"is_network\", true):
+		BilibiliApi.fetch_cover(link, func(_bvid, texture: Texture2D):
+			_cache_cover(link, texture)
+			if callback.is_valid():
+				callback.call(texture)
+		, 70, 70)
+	else:
+		# 本地无 jpg，用标题生成占位封面并缓存
+		GdScriptFunc.generate_label_texture(Color.WHITE,
+			video_info.get(\"title\", tr(\"本地文件\")),
+			func(texture: Texture2D):
+				_cache_cover(link, texture)
+				if callback.is_valid():
+					callback.call(texture)
+		, null, 10, Color.BLACK, Vector2i(70, 70))
+func _on_playlist_list_toggled(pressed: bool) -> void:
+	if pressed:
+		_rebuild_playlist_rows()
+		var tween = playlist_panel.create_tween()
+		tween.tween_property(playlist_panel, \"scale\", Vector2.ONE, 0.3).set_trans(Tween.TRANS_CUBIC)
+	else:
+		if _playlist_dragging:
+			_playlist_clear_drag_visuals()
+			_playlist_dragging = false
+			_playlist_drag_index = -1
+			_playlist_drag_link = \"\"
+		var tween = playlist_panel.create_tween()
+		tween.tween_property(playlist_panel, \"scale\", Vector2(1e-05, 1e-05), 0.3).set_trans(Tween.TRANS_CUBIC)
+
+func _on_playlist_media_started(_info: Dictionary) -> void:
+	if playlist_button == null or not playlist_button.button_pressed or _playlist_dragging:
+		return
+	if _playlist_row_boxes.size() != State.default_current_playlist.size():
+		_rebuild_playlist_rows()
+	else:
+		_refresh_playlist_highlight()
+
+func _apply_restrict_button_color(btn: Button) -> void:
+	var color := RESTRICT_ON_COLOR if btn.button_pressed else RESTRICT_OFF_COLOR
+	btn.add_theme_color_override(\"icon_normal_color\", color)
+	btn.add_theme_color_override(\"icon_hover_color\", color)
+	btn.add_theme_color_override(\"icon_pressed_color\", color)
+	btn.add_theme_color_override(\"icon_hover_pressed_color\", color)
+	btn.add_theme_color_override(\"icon_focus_color\", color)
+
+func _on_playlist_restrict_toggled(checked: bool, row: PanelContainer) -> void:
+	var info: Dictionary = row.get_meta(\"video_info\")
+	var link := str(info.get(\"link\", \"\"))
+	if checked:
+		State.playlist_disabled[link] = true
+	else:
+		State.playlist_disabled.erase(link)
+	var hbox: HBoxContainer = row.get_child(0)
+	var btn := hbox.get_child(0) as Button
+	if btn != null:
+		_apply_restrict_button_color(btn)
+	_apply_playlist_row_visual(row)
+	_update_playlist_status()
+	_update_playlist_restrict_button_text()
+
+func _on_playlist_restrict_all_pressed() -> void:
+	var any_free := false
+	for item in State.default_current_playlist:
+		if not State.playlist_disabled.has(str(item.get(\"link\", \"\"))):
+			any_free = true
+			break
+	for item in State.default_current_playlist:
+		var link := str(item.get(\"link\", \"\"))
+		if any_free:
+			State.playlist_disabled[link] = true
+		else:
+			State.playlist_disabled.erase(link)
+	_rebuild_playlist_rows()
+	playlist_status_label.text = tr(\"已限制全部\") if any_free else tr(\"已解除限制\")
+
+func _on_playlist_row_gui_input(event: InputEvent, row: PanelContainer) -> void:
+	if _playlist_dragging:
+		return
+	if event is InputEventMouseButton:
+		if event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+			_open_row_menu(row)
+			return
+		if event.button_index == MOUSE_BUTTON_LEFT:
+			if event.pressed:
+				_playlist_press_pos = event.global_position
+			elif not _playlist_dragging:
+				if _playlist_press_pos != Vector2.ZERO and event.global_position.distance_to(_playlist_press_pos) < 10.0:
+					var video_info: Dictionary = row.get_meta(\"video_info\")
+					Player.play_by_video_info(video_info)
+					var cached_tex := get_cached_cover(video_info)
+					if cached_tex != null:
+						State.main.update_bottom_menu(video_info.title, video_info.author, cached_tex, \"\", video_info)
+					else:
+						request_cover(video_info, func(texture: Texture2D):
+							if texture != null:
+								State.main.update_bottom_menu(video_info.title, video_info.author, texture, \"\", video_info)
+						)
+					_playlist_press_pos = Vector2.ZERO
+	elif event is InputEventMouseMotion and (event.button_mask & MOUSE_BUTTON_MASK_LEFT):
+		if _playlist_press_pos != Vector2.ZERO and event.global_position.distance_to(_playlist_press_pos) >= 10.0:
+			_playlist_begin_drag(row)
+
+func _open_row_menu(row: PanelContainer) -> void:
+	_menu_icons()
+	var info: Dictionary = row.get_meta(\"video_info\")
+	var link := str(info.get(\"link\", \"\"))
+	var restricted: bool = State.playlist_disabled.has(link)
+	var data: Array[Dictionary] = [
+		{
+			\"label\": tr(\"播放\"),
+			\"icon\": _menu_play_icon,
+			\"enabled\": true,
+			\"action\": func(_d): Player.play_by_video_info(info),
+		},
+		{
+			\"label\": tr(\"解除限制\") if restricted else tr(\"限制播放\"),
+			\"icon\": _menu_restrict_icon,
+			\"action\": func(_d): _menu_set_restricted(link, not restricted),
+		},
+		{\"type\": \"separator\"},
+		{
+			\"label\": tr(\"收藏该曲目\"),
+			\"enabled\": true,
+			\"action\": func(_d): _menu_collect_entry(info),
+		},
+		{
+			\"label\": tr(\"收藏整个列表\"),
+			\"enabled\": true,
+			\"action\": func(_d): _collect_playlist_to_favorites(),
+		},
+		{\"type\": \"separator\"},
+		{
+			\"label\": tr(\"复制链接\"),
+			\"enabled\": info.get(\"is_network\", true),
+			\"action\": func(_d):
+				DisplayServer.clipboard_set(link)
+				playlist_status_label.text = tr(\"链接已复制\"),
+		},
+		{
+			\"label\": tr(\"从列表删除\"),
+			\"enabled\": true,
+			\"action\": func(_d):
+				_playlist_delete_entry(link)
+				playlist_status_label.text = tr(\"已删除\"),
+		},
+	]
+	GdScriptFunc.open_right_click_menu_window(DisplayServer.mouse_get_position(), data)
+func _scaled_icon(texture: Texture2D, target_w: int) -> Texture2D:
+	if texture == null or texture.get_width() <= target_w:
+		return texture
+	var img := texture.get_image()
+	var ratio := float(target_w) / texture.get_width()
+	img.resize(target_w, int(texture.get_height() * ratio), Image.INTERPOLATE_LANCZOS)
+	return ImageTexture.create_from_image(img)
+
+
+func _menu_set_restricted(link: String, restricted: bool) -> void:
+	if restricted:
+		State.playlist_disabled[link] = true
+	else:
+		State.playlist_disabled.erase(link)
+	_rebuild_playlist_rows()
+
+func _menu_collect_entry(info: Dictionary) -> void:
+	var link := str(info.get(\"link\", \"\"))
+	# 弹出收藏夹选择窗口，让用户勾选目标目录
+	var selected_dirs = await GdScriptFunc.open_select_favorites_window()
+	if selected_dirs == null or selected_dirs.is_empty():
+		return
+	var added := 0
+	var skipped := 0
+	for dir_name in selected_dirs:
+		if FavoritesIndex.contains_in_dir(link, dir_name):
+			skipped += 1
+			continue
+		var list: Array = GdScriptFunc.get_data(\"Favorites\", dir_name, [])
+		list.append(info.duplicate(true))
+		GdScriptFunc.set_data(\"Favorites\", dir_name, list)
+		added += 1
+	GdScriptFunc.flush()
+	var text := tr(\"已收藏 %d 首\") % added
+	if skipped > 0:
+		text += tr(\"，跳过已收藏 %d 首\") % skipped
+	playlist_status_label.text = text
+
+
+func _collect_playlist_to_favorites() -> void:
+	var selected_dirs = await GdScriptFunc.open_select_favorites_window()
+	if selected_dirs == null or selected_dirs.is_empty():
+		return
+	var added := 0
+	var skipped := 0
+	for dir_name in selected_dirs:
+		var favorites: Array = GdScriptFunc.get_data(\"Favorites\", dir_name, [])
+		var dir_added := 0
+		for item in State.default_current_playlist:
+			var link := str(item.get(\"link\", \"\"))
+			if FavoritesIndex.contains_in_dir(link, dir_name):
+				skipped += 1
+				continue
+			favorites.append(item.duplicate(true))
+			dir_added += 1
+			added += 1
+		if dir_added > 0:
+			GdScriptFunc.set_data(\"Favorites\", dir_name, favorites)
+	GdScriptFunc.flush()
+	var text := tr(\"已收藏 %d 首\") % added
+	if skipped > 0:
+		text += tr(\"，跳过已收藏 %d 首\") % skipped
+	playlist_status_label.text = text
+func _input(event: InputEvent) -> void:
+	if not _playlist_dragging:
+		return
+	if event is InputEventMouseMotion:
+		_playlist_update_drag(event.position)
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		_playlist_end_drag(event.position)
+
+func _playlist_begin_drag(row: PanelContainer) -> void:
+	_playlist_dragging = true
+	_playlist_drag_index = _playlist_row_boxes.find(row)
+	var info: Dictionary = row.get_meta(\"video_info\")
+	_playlist_drag_link = str(info.get(\"link\", \"\"))
+	_playlist_ghost = PanelContainer.new()
+	_playlist_ghost.add_theme_stylebox_override(\"panel\", _playlist_current_stylebox())
+	_playlist_ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_playlist_ghost.z_index = 10
+	_playlist_ghost.modulate = Color(1, 1, 1, 0.8)
+	var ghost_title := Label.new()
+	ghost_title.text = str(info.get(\"title\", tr(\"无题\")))
+	ghost_title.clip_text = true
+	ghost_title.custom_minimum_size = Vector2(320, 0)
+	ghost_title.add_theme_font_size_override(\"font_size\", 24)
+	_playlist_ghost.add_child(ghost_title)
+	playlist_panel.add_child(_playlist_ghost)
+	_playlist_update_drag(playlist_panel.get_local_mouse_position())
+	row.modulate.a = 0.25
+	playlist_trash.visible = true
+
+func _playlist_update_drag(mouse_pos: Vector2) -> void:
+	if _playlist_ghost != null:
+		_playlist_ghost.position = playlist_panel.get_local_mouse_position() + Vector2(14, 14)
+	_playlist_set_trash_hot(playlist_trash.get_global_rect().has_point(mouse_pos))
+
+func _playlist_end_drag(mouse_pos: Vector2) -> void:
+	var trash_hit: bool = playlist_trash.get_global_rect().has_point(mouse_pos)
+	var old_index := _playlist_drag_index
+	var link := _playlist_drag_link
+	var new_index := -1
+	if not trash_hit:
+		new_index = _playlist_insert_index_at(mouse_pos)
+	_playlist_clear_drag_visuals()
+	_playlist_dragging = false
+	_playlist_drag_index = -1
+	_playlist_drag_link = \"\"
+	if trash_hit:
+		_playlist_delete_entry(link)
+		playlist_status_label.text = tr(\"已删除\")
+		return
+	if old_index == -1 or new_index == -1:
+		_rebuild_playlist_rows()
+		return
+	var final_idx := new_index if new_index < old_index else new_index - 1
+	var moved := false
+	if final_idx != old_index:
+		var entry = State.default_current_playlist.pop_at(old_index)
+		State.default_current_playlist.insert(final_idx, entry)
+		_playlist_sync_player_order()
+		moved = true
+	_rebuild_playlist_rows()
+	if moved:
+		playlist_status_label.text = tr(\"顺序已更新\")
+
+func _playlist_clear_drag_visuals() -> void:
+	if _playlist_ghost != null and is_instance_valid(_playlist_ghost):
+		_playlist_ghost.queue_free()
+	_playlist_ghost = null
+	playlist_trash.visible = false
+	_playlist_set_trash_hot(false)
+	for row in _playlist_row_boxes:
+		if is_instance_valid(row):
+			row.modulate.a = 1.0
+
+func _playlist_insert_index_at(mouse_pos: Vector2) -> int:
+	var idx := _playlist_row_boxes.size()
+	for i in _playlist_row_boxes.size():
+		var rect: Rect2 = _playlist_row_boxes[i].get_global_rect()
+		if mouse_pos.y < rect.position.y + rect.size.y * 0.5:
+			idx = i
+			break
+	return idx
+
+func _playlist_delete_entry(link: String) -> void:
+	State.default_current_playlist = State.default_current_playlist.filter(
+		func(item): return str(item.get(\"link\", \"\")) != link
+	)
+	State.playlist_disabled.erase(link)
+	for i in range(Player.playlist.size() - 1, -1, -1):
+		if str(Player.playlist[i].get(\"link\", \"\")) == link:
+			Player.playlist.remove_at(i)
+			break
+	if Player.current_index >= Player.playlist.size():
+		Player.current_index = max(0, Player.playlist.size() - 1)
+	_rebuild_playlist_rows()
+
+func _playlist_sync_player_order() -> void:
+	if Player.playlist.size() != State.default_current_playlist.size():
+		return
+	var link_set := {}
+	for item in State.default_current_playlist:
+		link_set[str(item.get(\"link\", \"\"))] = true
+	for item in Player.playlist:
+		if not link_set.has(str(item.get(\"link\", \"\"))):
+			return
+	Player.playlist = State.default_current_playlist.duplicate()
+	var cur_link := str(Player.get_current_video_info().get(\"link\", \"\"))
+	for i in Player.playlist.size():
+		if str(Player.playlist[i].get(\"link\", \"\")) == cur_link:
+			Player.current_index = i
+			break
+	if Player.current_mode == Player.PlayMode.SHUFFLE:
+		Player._init_shuffle_order()
+
+func _playlist_styleboxes() -> void:
+	if _playlist_sb_normal == null:
+		_playlist_sb_normal = StyleBoxFlat.new()
+		_playlist_sb_normal.bg_color = Color(0, 0, 0, 0)
+		_playlist_sb_normal.set_corner_radius_all(6)
+		_playlist_sb_current = StyleBoxFlat.new()
+		_playlist_sb_current.bg_color = Color(0.55, 0.55, 0.6, 0.3)
+		_playlist_sb_current.set_corner_radius_all(6)
+		_playlist_sb_current.content_margin_left = 8.0
+		_playlist_sb_current.content_margin_top = 4.0
+		_playlist_sb_current.content_margin_right = 8.0
+		_playlist_sb_current.content_margin_bottom = 4.0
+		_playlist_sb_trash = StyleBoxFlat.new()
+		_playlist_sb_trash.bg_color = Color(0.75, 0.2, 0.2, 0.5)
+		_playlist_sb_trash.set_corner_radius_all(8)
+		_playlist_sb_trash_hot = StyleBoxFlat.new()
+		_playlist_sb_trash_hot.bg_color = Color(0.9, 0.25, 0.25, 0.75)
+		_playlist_sb_trash_hot.set_corner_radius_all(8)
+
+func _playlist_current_stylebox() -> StyleBoxFlat:
+	_playlist_styleboxes()
+	return _playlist_sb_current
+
+func _playlist_set_trash_hot(hot: bool) -> void:
+	_playlist_styleboxes()
+	playlist_trash.add_theme_stylebox_override(\"panel\", _playlist_sb_trash_hot if hot else _playlist_sb_trash)
+
+func _apply_playlist_row_visual(row: PanelContainer) -> void:
+	_playlist_styleboxes()
+	var info: Dictionary = row.get_meta(\"video_info\")
+	var link := str(info.get(\"link\", \"\"))
+	var is_current: bool = link == str(Player.get_current_video_info().get(\"link\", \"\"))
+	row.add_theme_stylebox_override(\"panel\", _playlist_sb_current if is_current else _playlist_sb_normal)
+	var hbox: HBoxContainer = row.get_child(0)
+	hbox.get_child(1).visible = is_current
+	row.modulate = Color(1, 1, 1, 0.45) if State.playlist_disabled.has(link) else Color(1, 1, 1, 1)
+
+func _refresh_playlist_highlight() -> void:
+	for row in _playlist_row_boxes:
+		_apply_playlist_row_visual(row)
+	_update_playlist_status()
+
+func _rebuild_playlist_rows() -> void:
+	_playlist_row_boxes.clear()
+	for child in playlist_rows.get_children():
+		child.queue_free()
+	_update_playlist_restrict_button_text()
+	if State.default_current_playlist.is_empty():
+		var empty_label := Label.new()
+		empty_label.text = tr(\"暂无播放记录\")
+		empty_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		empty_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		empty_label.add_theme_font_size_override(\"font_size\", 24)
+		empty_label.add_to_group(\"color_default_color\")
+		empty_label.custom_minimum_size = Vector2(0, 64)
+		playlist_rows.add_child(empty_label)
+		_apply_playlist_row_skin(empty_label)
+		playlist_status_label.text = \"\"
+		return
+	var current_link := str(Player.get_current_video_info().get(\"link\", \"\"))
+	for video_info in State.default_current_playlist:
+		var row := PanelContainer.new()
+		row.custom_minimum_size = Vector2(0, 44)
+		row.mouse_filter = Control.MOUSE_FILTER_STOP
+		row.set_meta(\"video_info\", video_info)
+		var hbox := HBoxContainer.new()
+		hbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hbox.add_theme_constant_override(\"separation\", 10)
+		var restrict_btn := Button.new()
+		var link := str(video_info.get(\"link\", \"\"))
+		restrict_btn.toggle_mode = true
+		restrict_btn.flat = true
+		restrict_btn.focus_mode = Control.FOCUS_NONE
+		restrict_btn.custom_minimum_size = Vector2(28, 28)
+		restrict_btn.tooltip_text = tr(\"暂时限制该曲目播放\")
+		restrict_btn.button_pressed = State.playlist_disabled.has(link)
+		restrict_btn.icon = RESTRICT_ICON
+		# 缩放图标到合适大小（限制最大宽度，图标等比缩放）
+		restrict_btn.add_theme_constant_override(\"icon_max_width\", 40)
+		restrict_btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		restrict_btn.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
+		restrict_btn.expand_icon = false
+		restrict_btn.add_to_group(\"color_icon_normal_color\")
+		restrict_btn.toggled.connect(_on_playlist_restrict_toggled.bind(row))
+		hbox.add_child(restrict_btn)
+		call_deferred(\"_apply_restrict_button_color\",restrict_btn)
+		var icon := TextureRect.new()
+		icon.texture = PLAYLIST_PLAY_ICON
+		icon.custom_minimum_size = Vector2(24, 24)
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hbox.add_child(icon)
+		var playlist_title := Label.new()
+		playlist_title.text = str(video_info.get(\"title\", tr(\"无题\")))
+		playlist_title.tooltip_text = playlist_title.text
+		playlist_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		playlist_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		playlist_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		playlist_title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		playlist_title.add_theme_font_size_override(\"font_size\", 24)
+		playlist_title.add_to_group(\"color_font_color\")
+		hbox.add_child(playlist_title)
+		row.add_child(hbox)
+		row.gui_input.connect(_on_playlist_row_gui_input.bind(row))
+		playlist_rows.add_child(row)
+		_playlist_row_boxes.append(row)
+		_apply_playlist_row_skin(row)
+		_apply_playlist_row_visual(row)
+	_update_playlist_status()
+
+func _update_playlist_status() -> void:
+	var total := State.default_current_playlist.size()
+	if total == 0:
+		playlist_status_label.text = \"\"
+		return
+	var restricted := 0
+	for item in State.default_current_playlist:
+		if State.playlist_disabled.has(str(item.get(\"link\", \"\"))):
+			restricted += 1
+	playlist_status_label.text = tr(\"%d 首 · 受限 %d\") % [total, restricted]
+
+func _update_playlist_restrict_button_text() -> void:
+	var any_free := false
+	for item in State.default_current_playlist:
+		if not State.playlist_disabled.has(str(item.get(\"link\", \"\"))):
+			any_free = true
+			break
+	if playlist_restrict_all_button != null:
+		playlist_restrict_all_button.text = tr(\"全选限制\") if any_free else tr(\"清除限制\")
+
+func _apply_playlist_row_skin(node: Node) -> void:
+	if GdScriptFunc.current_skin_name != \"\":
+		GdScriptFunc._apply_special_styles_recursive(
+			node,
+			GdScriptFunc._load_special_styles_config(\"res://Skin/\" + GdScriptFunc.current_skin_name + \"/\")
+		)
+
+
 func init_ui()->void:
 	volume_progress_bar.value = GdScriptFunc.get_data(\"PlayerData\", \"Volume\", 73)
 	volume = volume_progress_bar.value
@@ -446,6 +981,7 @@ func _ready():
 	# 连接中枢信号
 	Player.mode_changed.connect(_update_mode_ui)
 	Player.song_changed.connect(update_callback)
+	Player.media_started.connect(_on_playlist_media_started)
 	Player.stop_audio.connect(pause)
 	Player.play_audio.connect(resume)
 func _on_next_pressed() -> void:
@@ -545,6 +1081,20 @@ corner_radius_bottom_left = 5
 corner_detail = 3
 expand_margin_left = 3.0
 expand_margin_right = 3.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_plview"]
+bg_color = Color(0, 0, 0, 0.42352942)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_trash"]
+bg_color = Color(0.75, 0.2, 0.2, 0.5)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_iab34"]
 
@@ -684,8 +1234,7 @@ expand_icon = true
 libraries/ = SubResource("AnimationLibrary_aan6j")
 autoplay = &"start"
 
-[node name="BottomMenu" type="Panel" parent="." unique_id=1456727291 node_paths=PackedStringArray("cover_node", "title_label", "author_label", "play_button", "volume_button", "progress_bar", "volume_progress_bar", "volume_background", "volume_exit_timer", "play_mode_button") groups=["style_panel"]]
-visible = false
+[node name="BottomMenu" type="Panel" parent="." unique_id=1456727291 node_paths=PackedStringArray("cover_node", "title_label", "author_label", "play_button", "volume_button", "progress_bar", "volume_progress_bar", "volume_background", "volume_exit_timer", "play_mode_button", "playlist_button", "playlist_panel", "playlist_rows", "playlist_trash", "playlist_restrict_all_button", "playlist_status_label") groups=["style_panel"]]
 layout_mode = 1
 anchors_preset = 12
 anchor_top = 1.0
@@ -713,6 +1262,12 @@ play_once_icon = ExtResource("10_gclda")
 repeat_one_icon = ExtResource("12_mr7am")
 list_loop_icon = ExtResource("12_4w0o7")
 shuffle_icon = ExtResource("12_kp1vv")
+playlist_button = NodePath("PlaylistList")
+playlist_panel = NodePath("PlaylistList/Background")
+playlist_rows = NodePath("PlaylistList/Background/Margin/VBox/Scroll/Rows")
+playlist_trash = NodePath("PlaylistList/Background/TrashZone")
+playlist_restrict_all_button = NodePath("PlaylistList/Background/Margin/VBox/ActionBar/RestrictAll")
+playlist_status_label = NodePath("PlaylistList/Background/Margin/VBox/ActionBar/Status")
 
 [node name="Cover" type="TextureRect" parent="BottomMenu" unique_id=837129774]
 layout_mode = 1
@@ -832,9 +1387,9 @@ anchor_left = 1.0
 anchor_top = 0.5
 anchor_right = 1.0
 anchor_bottom = 0.5
-offset_left = -142.0
+offset_left = -141.0
 offset_top = -2.5
-offset_right = -102.0
+offset_right = -101.0
 offset_bottom = 42.5
 grow_horizontal = 0
 grow_vertical = 2
@@ -851,10 +1406,10 @@ anchor_left = 1.0
 anchor_top = 0.5
 anchor_right = 1.0
 anchor_bottom = 0.5
-offset_left = -91.0
-offset_top = -4.5
-offset_right = -51.0
-offset_bottom = 40.5
+offset_left = -92.0
+offset_top = -2.5
+offset_right = -52.0
+offset_bottom = 42.5
 grow_horizontal = 0
 grow_vertical = 2
 focus_mode = 1
@@ -871,10 +1426,10 @@ anchor_left = 1.0
 anchor_top = 0.5
 anchor_right = 1.0
 anchor_bottom = 0.5
-offset_left = -44.0
-offset_top = -4.5
-offset_right = -4.0
-offset_bottom = 40.5
+offset_left = -45.0
+offset_top = -2.5
+offset_right = -5.0
+offset_bottom = 42.5
 grow_horizontal = 0
 grow_vertical = 2
 focus_mode = 1
@@ -892,7 +1447,7 @@ anchor_right = 1.0
 anchor_bottom = 0.5
 offset_left = -491.32404
 offset_top = 9.5
-offset_right = -213.0
+offset_right = -241.0
 offset_bottom = 29.5
 grow_horizontal = 2
 grow_vertical = 2
@@ -909,10 +1464,10 @@ anchor_left = 1.0
 anchor_top = 0.5
 anchor_right = 1.0
 anchor_bottom = 0.5
-offset_left = -193.0
-offset_top = -2.5
-offset_right = -153.0
-offset_bottom = 37.5
+offset_left = -192.0
+offset_top = 0.5
+offset_right = -152.0
+offset_bottom = 40.5
 grow_horizontal = 0
 grow_vertical = 2
 focus_mode = 1
@@ -959,6 +1514,120 @@ rounded = true
 wait_time = 0.35
 one_shot = true
 
+[node name="PlaylistList" type="Button" parent="BottomMenu" unique_id=951352340 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
+custom_minimum_size = Vector2(40, 40)
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -241.0
+offset_top = -2.5
+offset_right = -201.0
+offset_bottom = 42.5
+grow_horizontal = 0
+grow_vertical = 2
+focus_mode = 1
+toggle_mode = true
+icon = ExtResource("21_plview")
+flat = true
+expand_icon = true
+
+[node name="Background" type="Panel" parent="BottomMenu/PlaylistList" unique_id=993782903]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -472.0
+offset_top = -560.0
+offset_right = -12.0
+offset_bottom = -50.0
+grow_horizontal = 0
+grow_vertical = 2
+scale = Vector2(1e-05, 1e-05)
+pivot_offset_ratio = Vector2(1, 1)
+mouse_filter = 1
+theme_override_styles/panel = SubResource("StyleBoxFlat_plview")
+
+[node name="TrashZone" type="Panel" parent="BottomMenu/PlaylistList/Background" unique_id=991827465]
+visible = false
+z_index = 5
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = -132.0
+offset_right = -8.0
+offset_bottom = -8.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_trash")
+
+[node name="TrashLabel" type="Label" parent="BottomMenu/PlaylistList/Background/TrashZone" unique_id=665536863]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.9)
+theme_override_font_sizes/font_size = 24
+text = "拖到此处删除"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Margin" type="MarginContainer" parent="BottomMenu/PlaylistList/Background" unique_id=699520834]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="VBox" type="VBoxContainer" parent="BottomMenu/PlaylistList/Background/Margin" unique_id=752882550]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="Scroll" type="ScrollContainer" parent="BottomMenu/PlaylistList/Background/Margin/VBox" unique_id=662857318]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="Rows" type="VBoxContainer" parent="BottomMenu/PlaylistList/Background/Margin/VBox/Scroll" unique_id=945014182]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="ActionBar" type="HBoxContainer" parent="BottomMenu/PlaylistList/Background/Margin/VBox" unique_id=259488139]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="RestrictAll" type="Button" parent="BottomMenu/PlaylistList/Background/Margin/VBox/ActionBar" unique_id=258764193]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+focus_mode = 1
+theme_override_font_sizes/font_size = 24
+text = "全选限制"
+
+[node name="Status" type="Label" parent="BottomMenu/PlaylistList/Background/Margin/VBox/ActionBar" unique_id=181323542 groups=["color_default_color"]]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+size_flags_horizontal = 10
+theme_override_font_sizes/font_size = 16
+vertical_alignment = 1
+
 [node name="AudioStreamPlayer" type="AudioStreamPlayer" parent="." unique_id=690380417]
 
 [node name="ProgressBar" type="Panel" parent="." unique_id=1430990919 groups=["style_panel"]]
@@ -995,3 +1664,5 @@ theme_override_styles/panel = SubResource("StyleBoxFlat_iab34")
 [connection signal="mouse_exited" from="BottomMenu/Volume/Background/VolumeSlider" to="BottomMenu/Volume/Timer" method="start"]
 [connection signal="value_changed" from="BottomMenu/Volume/Background/VolumeSlider" to="BottomMenu" method="_on_volume_slider_value_changed"]
 [connection signal="timeout" from="BottomMenu/Volume/Timer" to="BottomMenu" method="_on_volume_mouse_exit_timer_timeout"]
+[connection signal="toggled" from="BottomMenu/PlaylistList" to="BottomMenu" method="_on_playlist_list_toggled"]
+[connection signal="pressed" from="BottomMenu/PlaylistList/Background/Margin/VBox/ActionBar/RestrictAll" to="BottomMenu" method="_on_playlist_restrict_all_pressed"]
