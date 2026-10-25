@@ -1,43 +1,91 @@
 [gd_scene format=3 uid="uid://h8qr8p6khg63"]
 
+[ext_resource type="Texture2D" uid="uid://bq8p42egv625x" path="res://UI/Icon/add.svg" id="1_6vwaf"]
+
 [sub_resource type="GDScript" id="GDScript_61i7r"]
 script/source = "extends Control
 
 @export var list_box: VBoxContainer
 @export var scroll_container: ScrollContainer
-
 @export var ups: Array[String] = []
+@export var add_button: Button
 
 var up_nodes: Array[Label] = []
 var up_preview_visible_id := 0
 
+const DRAG_THRESHOLD := 10.0
+
+var _press_node: Control = null
+var _press_pos := Vector2.ZERO
+var _dragging := false
+var _drag_preview: Control = null
+var _suppress_next_click := false
+var _hint_label: Label
+var _insert_line: ColorRect
+
+@export var time_cd: Timer
+var is_vertical_sliding := false:
+	set(value):
+		if value == is_vertical_sliding:
+			return
+		is_vertical_sliding = value
+		for node in up_nodes:
+			var inner_scroll := node.get_node_or_null(\"ScrollContainer\")
+			if inner_scroll:
+				inner_scroll.mouse_filter = Control.MOUSE_FILTER_IGNORE if value else Control.MOUSE_FILTER_STOP
+var is_on_vertical_scroll := false
+
 
 func _ready() -> void:
+	var saved: Variant = GdScriptFunc.get_data(\"DiscoverPage\", \"ups\", null)
+	if saved is Array and not saved.is_empty():
+		var cleaned: Array[String] = []
+		for item in saved:
+			if item is String and not item.is_empty() and item.is_valid_utf8() if item is PackedByteArray else (item is String and not item.is_empty()):
+				cleaned.append(item)
+		if not cleaned.is_empty():
+			ups = cleaned
+
 	for mid in ups:
 		_setup_up_node(mid)
+
+	_build_edit_ui()
+
+	if add_button:
+		add_button.pressed.connect(_prompt_up_dialog)
 
 	list_box.transform_changed.connect(on_list_rolling)
 	on_list_rolling()
 	full_refresh()
 
 
-## 建立一个 UP 主预览节点。
-## 关键点：BilibiliApi.fetch_user_info_by_mid 不 await 直接调用，
-## 8 个请求会同时进入 RateLimiter 队列，约 2 秒内全部发出。
-func _setup_up_node(mid: String) -> void:
+func _up_mid(node: Control) -> String:
+	if node.has_meta(\"mid\"):
+		return String(node.get_meta(\"mid\"))
+	return String(node.name)
+
+
+func _setup_up_node(mid: String) -> Control:
 	var node := preload(\"res://Scene/UpPpreview.tscn\").instantiate()
-	node.name = mid
+	node.set_meta(\"mid\", mid)
+	node.name = \"UpNode\" + str(up_nodes.size())
+	node.set_meta(\"name_ready\", false)
 	up_nodes.append(node)
 	list_box.add_child(node)
 	GdScriptFunc.apply_theme_and_styles_to_node(node)
 
-	# --- 通用按钮信号 ---
+	node.gui_input.connect(_on_up_node_gui_input.bind(node))
+
 	var link_node: Button = node.get_node(\"Link\")
+	link_node.gui_input.connect(_on_up_node_gui_input.bind(node))
 	link_node.pressed.connect(func():
+		if _suppress_next_click:
+			_suppress_next_click = false
+			return
 		if GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\") != null:
-			get_node(\"/root/Main\")._on_search_text_submitted(\"UID:\" + node.name)
+			get_node(\"/root/Main\")._on_search_text_submitted(\"UID:\" + _up_mid(node))
 		else:
-			get_node(\"/root/Main\")._on_search_text_submitted(\"UP主:\" + node.name + \":\" + node.text)
+			get_node(\"/root/Main\")._on_search_text_submitted(\"UP主:\" + node.text + \":\" + _up_mid(node))
 	)
 	link_node.mouse_entered.connect(func():
 		node.get_node(\"Link/Panel\").hide()
@@ -46,38 +94,33 @@ func _setup_up_node(mid: String) -> void:
 		node.get_node(\"Link/Panel\").show()
 	)
 
-	# --- 音乐周榜：无需拉取用户信息 ---
 	if mid == \"bilibili音乐周榜\":
-		node.text = node.name
+		node.text = mid
 		node.set_meta(\"name_ready\", true)
-		return
+		return node
 
-	# --- 普通 UP 主：发起请求（不 await，立刻返回，8 个并发） ---
 	var icon: TextureRect = node.get_node(\"Link/Panel/Icon\")
 	BilibiliApi.fetch_user_info_by_mid(mid, _on_user_info_received.bind(node, icon))
+	return node
 
 
-## 用户信息回调
 func _on_user_info_received(info, node: Control, icon: TextureRect) -> void:
 	if not is_instance_valid(node):
 		return
 	if not info:
-		print(\"获取用户信息失败:\", node.name)
-		GdScriptFunc.show_toast(\"获取用户信息失败: \" + node.name)
+		print(\"获取用户信息失败:\", _up_mid(node))
+		GdScriptFunc.show_toast(\"获取用户信息失败: \" + node.text)
 		return
-
 	var font: Font = get_theme_font(\"font\", \"Label\")
 	node.tooltip_text = GdScriptFunc.format_for_tooltip(info.sign, 1000, font, 30, 30, 8)
 	node.text = info.name
 	node.set_meta(\"name_ready\", true)
 	_try_load_up_videos(node)
 
-	# 头像并发拉取，不阻塞用户信息回调
 	if info.face != \"\":
 		_load_avatar(info.face, icon)
 
 
-## 拉取头像
 func _load_avatar(face_url: String, icon: TextureRect) -> void:
 	var img_request := HTTPRequest.new()
 	add_child(img_request)
@@ -88,7 +131,6 @@ func _load_avatar(face_url: String, icon: TextureRect) -> void:
 		var img := Image.new()
 		if img.load_jpg_from_buffer(img_body) == OK or img.load_png_from_buffer(img_body) == OK:
 			icon.texture = ImageTexture.create_from_image(img)
-			# 头像到了轻轻浮出来，别啪一下砸上去
 			icon.modulate.a = 0.0
 			var tw = icon.create_tween()
 			tw.tween_property(icon, \"modulate:a\", 1.0, 0.3).set_trans(Tween.TRANS_CUBIC)
@@ -98,8 +140,6 @@ func _load_avatar(face_url: String, icon: TextureRect) -> void:
 	)
 	img_request.request(face_url, BilibiliApi._get_image_headers(), HTTPClient.METHOD_GET)
 
-
-# ---------------- 以下为原有逻辑，保持不变 ----------------
 
 func full_refresh() -> void:
 	if GdScriptFunc.get_data(\"Options\", \"DiscoverPageLazyUpdate\", true):
@@ -121,7 +161,6 @@ func on_list_rolling() -> void:
 	var bottom := -list_box.position.y + scroll_container.size.y
 	var target_idx := maxi((bottom - 169) / 350, 0)
 	target_idx = mini(target_idx, up_nodes.size() - 1)
-
 	while up_preview_visible_id <= target_idx and up_preview_visible_id < up_nodes.size():
 		var current_up_node := up_nodes[up_preview_visible_id]
 		if current_up_node.get_meta(\"name_ready\", false):
@@ -131,7 +170,8 @@ func on_list_rolling() -> void:
 
 func _try_load_up_videos(up_node: Control) -> void:
 	var idx = up_nodes.find(up_node)
-	if idx == -1: return
+	if idx == -1:
+		return
 	var lazy = GdScriptFunc.get_data(\"Options\", \"DiscoverPageLazyUpdate\", true)
 	if not lazy or idx < up_preview_visible_id:
 		_load_videos_for_up(up_node)
@@ -141,19 +181,17 @@ func _load_videos_for_up(up_node: Control) -> void:
 	var hbox = up_node.get_node_or_null(\"ScrollContainer/HBoxContainer\")
 	if not hbox or hbox.get_child_count() > 0:
 		return
-
-	# 视频还没回来，先垫几张骨架
 	for i in 5:
 		var s = preload(\"res://Scene/Skeleton.tscn\").instantiate()
 		s.kind = \"thumb\"
 		hbox.add_child(s)
-
-	if up_node.name == \"bilibili音乐周榜\":
+	var mid := _up_mid(up_node)
+	if mid == \"bilibili音乐周榜\":
 		BilibiliApi.search_bilibili(load_cards_callback.bind(hbox), up_node.text, 10, 0, 1, up_node.text)
 	elif GdScriptFunc.get_data(\"AccountData\", \"SESSDATA\") == null:
-		BilibiliApi.fetch_user_videos_medialist(up_node.name, up_node.text, load_cards_callback.bind(hbox))
+		BilibiliApi.fetch_user_videos_medialist(mid, up_node.text, load_cards_callback.bind(hbox))
 	else:
-		BilibiliApi.fetch_user_videos(up_node.name, load_cards_callback.bind(hbox))
+		BilibiliApi.fetch_user_videos(mid, load_cards_callback.bind(hbox))
 
 
 func _dismiss_row_skeletons(list_node: BoxContainer) -> void:
@@ -165,7 +203,6 @@ func _dismiss_row_skeletons(list_node: BoxContainer) -> void:
 func load_cards_callback(videos, list_node: BoxContainer) -> void:
 	if not is_instance_valid(list_node):
 		return
-	# 不管成没成，先撤骨架，失败就空着，别一直闪
 	_dismiss_row_skeletons(list_node)
 	if videos == null:
 		return
@@ -176,8 +213,8 @@ func load_cards_callback(videos, list_node: BoxContainer) -> void:
 		video_list = videos
 	else:
 		return
-	if video_list.is_empty(): return
-
+	if video_list.is_empty():
+		return
 	var spawn_tween := create_tween()
 	for i in video_list.size():
 		var video = video_list[i]
@@ -186,7 +223,8 @@ func load_cards_callback(videos, list_node: BoxContainer) -> void:
 
 
 func _instantiate_and_setup_card(video: Dictionary, list_node: BoxContainer) -> void:
-	if video.is_empty(): return
+	if video.is_empty():
+		return
 	var video_card := preload(\"res://Scene/VideoCard.tscn\").instantiate()
 	list_node.add_child(video_card)
 	GdScriptFunc.apply_theme_and_styles_to_node(video_card)
@@ -207,8 +245,10 @@ func _instantiate_and_setup_card(video: Dictionary, list_node: BoxContainer) -> 
 
 
 func _on_video_card_gui_input(event: InputEvent, video_card: Control, video_data: Dictionary) -> void:
-	if not (event is InputEventMouseButton): return
-	if event.button_index != MOUSE_BUTTON_RIGHT or not event.pressed: return
+	if not (event is InputEventMouseButton):
+		return
+	if event.button_index != MOUSE_BUTTON_RIGHT or not event.pressed:
+		return
 	var link = video_data.get(\"link\", video_data.get(\"bvid\", video_data.get(\"BV\", \"\")))
 	var is_collected = _is_video_collected(link)
 	var menu: Array[Dictionary] = []
@@ -219,7 +259,6 @@ func _on_video_card_gui_input(event: InputEvent, video_card: Control, video_data
 	GdScriptFunc.open_right_click_menu_window(DisplayServer.mouse_get_position(), menu)
 
 
-# ⭐ 改成走 FavoritesIndex 索引（前提是你已经建好该 autoload）
 func _is_video_collected(link: String) -> bool:
 	return FavoritesIndex.is_collected(link)
 
@@ -230,7 +269,8 @@ func _on_collect(video_data: Dictionary) -> void:
 
 func _do_collect(video_data: Dictionary) -> void:
 	var selected_favs = await GdScriptFunc.open_select_favorites_window()
-	if selected_favs == null or selected_favs.is_empty(): return
+	if selected_favs == null or selected_favs.is_empty():
+		return
 	var link = video_data.get(\"link\", video_data.get(\"bvid\", video_data.get(\"BV\", \"\")))
 	for dir_name in selected_favs:
 		var list = GdScriptFunc.get_data(\"Favorites\", dir_name, [])
@@ -239,10 +279,11 @@ func _do_collect(video_data: Dictionary) -> void:
 			if item.get(\"link\") == link:
 				repeated = true
 				break
-		if repeated: continue
+		if repeated:
+			continue
 		list.append({\"link\": link, \"title\": video_data.get(\"title\", \"\"), \"author\": video_data.get(\"author\", \"\"), \"description\": video_data.get(\"description\", \"\"), \"is_network\": true})
 		GdScriptFunc.set_data(\"Favorites\", dir_name, list)
-	GdScriptFunc.flush()
+		GdScriptFunc.flush()
 
 
 func _on_cancel_collect(link: String) -> void:
@@ -254,20 +295,246 @@ func _set_cover(texture: Texture2D, video_card: Control) -> void:
 
 
 func set_cover(_bvid: String, texture: Texture2D, video_card: Control) -> void:
-	if is_instance_valid(video_card): video_card.cover = texture
+	if is_instance_valid(video_card):
+		video_card.cover = texture
 
 
-@export var time_cd: Timer
-var is_vertical_sliding := false:
-	set(value):
-		if value == is_vertical_sliding: return
-		is_vertical_sliding = value
-		for node in up_nodes:
-			var inner_scroll := node.get_node_or_null(\"ScrollContainer\")
-			if inner_scroll:
-				inner_scroll.mouse_filter = Control.MOUSE_FILTER_IGNORE if value else Control.MOUSE_FILTER_STOP
+func _build_edit_ui() -> void:
+	_hint_label = Label.new()
+	_hint_label.text = tr(\"松手删除该 UP 主\")
+	_hint_label.add_theme_font_size_override(\"font_size\", 32)
+	_hint_label.add_theme_color_override(\"font_color\", Color(1, 0.35, 0.35))
+	_hint_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hint_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_hint_label.z_index = 100
+	_hint_label.visible = false
+	add_child(_hint_label)
+	GdScriptFunc.apply_theme_and_styles_to_node(_hint_label)
 
-var is_on_vertical_scroll := false
+	_insert_line = ColorRect.new()
+	_insert_line.color = Color(0.3, 0.7, 1.0, 0.9)
+	_insert_line.z_index = 100
+	_insert_line.visible = false
+	add_child(_insert_line)
+
+
+func _on_up_node_gui_input(event: InputEvent, node: Control) -> void:
+	if event is InputEventMouseButton:
+		if event.button_index == MOUSE_BUTTON_LEFT:
+			if event.pressed:
+				_press_node = node
+				_press_pos = event.global_position
+			else:
+				_press_node = null
+		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+			_show_up_menu(node)
+	elif event is InputEventMouseMotion:
+		if _press_node == node and not _dragging \\
+				and event.button_mask & MOUSE_BUTTON_MASK_LEFT \\
+				and event.global_position.distance_to(_press_pos) > DRAG_THRESHOLD:
+			_start_drag()
+
+
+func _start_drag() -> void:
+	_dragging = true
+	_suppress_next_click = true
+	_press_node.modulate.a = 0.45
+	_drag_preview = _make_drag_preview(_press_node)
+	add_child(_drag_preview)
+
+
+func _make_drag_preview(node: Control) -> Control:
+	var preview := Label.new()
+	preview.text = node.text if node.text != \"\" else _up_mid(node)
+	preview.add_theme_font_size_override(\"font_size\", 28)
+	preview.add_theme_color_override(\"font_outline_color\", Color(0, 0, 0, 0.8))
+	preview.add_theme_constant_override(\"outline_size\", 8)
+	preview.z_index = 101
+	return preview
+
+
+func _input(event: InputEvent) -> void:
+	if not _dragging:
+		return
+	if event is InputEventMouseButton \\
+			and (event.button_index == MOUSE_BUTTON_WHEEL_DOWN or event.button_index == MOUSE_BUTTON_WHEEL_UP):
+		get_viewport().set_input_as_handled()
+		return
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		_finish_drag()
+		get_viewport().set_input_as_handled()
+		return
+	if event is InputEventMouseMotion:
+		scroll_container.scroll_vertical += int(event.relative.y)
+
+
+func _process(_delta: float) -> void:
+	if not _dragging:
+		return
+	if is_instance_valid(_drag_preview):
+		_drag_preview.global_position = get_global_mouse_position() + Vector2(14, 14)
+	_update_drag_hint()
+	if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		_finish_drag()
+
+
+func _update_drag_hint() -> void:
+	var mouse := get_global_mouse_position()
+	var in_list := list_box.get_global_rect().has_point(mouse)
+	_hint_label.visible = not in_list
+	if in_list:
+		_insert_line.visible = true
+		_position_insert_line(_calc_insert_index(mouse.y))
+	else:
+		_insert_line.visible = false
+
+
+func _finish_drag() -> void:
+	if not _dragging:
+		return
+	_dragging = false
+	var node := _press_node
+	_press_node = null
+	if is_instance_valid(_drag_preview):
+		_drag_preview.queue_free()
+	_drag_preview = null
+	_hint_label.visible = false
+	_insert_line.visible = false
+	if not is_instance_valid(node):
+		return
+	node.modulate.a = 1.0
+	var mouse := get_global_mouse_position()
+	if list_box.get_global_rect().has_point(mouse):
+		_move_up_node(node, _calc_insert_index(mouse.y))
+	else:
+		var shown_name: String = node.text if node.text != \"\" else _up_mid(node)
+		_remove_up(node)
+		GdScriptFunc.show_toast(tr(\"已删除：\") + shown_name)
+
+
+func _calc_insert_index(global_y: float) -> int:
+	for i in up_nodes.size():
+		var r := up_nodes[i].get_global_rect()
+		if global_y < r.position.y + r.size.y * 0.5:
+			return i
+	return up_nodes.size()
+
+
+func _position_insert_line(idx: int) -> void:
+	var y: float
+	if idx < up_nodes.size():
+		y = up_nodes[idx].get_global_rect().position.y
+	elif not up_nodes.is_empty():
+		y = up_nodes[up_nodes.size() - 1].get_global_rect().end.y
+	else:
+		y = list_box.get_global_rect().position.y
+	_insert_line.global_position = Vector2(list_box.global_position.x, y - 2.0)
+	_insert_line.size = Vector2(list_box.size.x, 4.0)
+
+
+func _apply_order() -> void:
+	for i in up_nodes.size():
+		list_box.move_child(up_nodes[i], i + 1)
+
+
+func _move_up_node(node: Control, target_idx: int) -> void:
+	var from_idx := up_nodes.find(node)
+	if from_idx == -1:
+		return
+	target_idx = clampi(target_idx, 0, up_nodes.size() - 1)
+	if target_idx == from_idx:
+		return
+	up_nodes.remove_at(from_idx)
+	up_nodes.insert(target_idx, node)
+	_apply_order()
+	_save_ups()
+	up_preview_visible_id = 0
+	on_list_rolling()
+
+
+func _remove_up(node: Control) -> void:
+	var idx := up_nodes.find(node)
+	if idx == -1:
+		return
+	up_nodes.remove_at(idx)
+	if idx < up_preview_visible_id:
+		up_preview_visible_id -= 1
+	node.queue_free()
+	_save_ups()
+
+
+func _add_up(mid: String) -> void:
+	for n in up_nodes:
+		if _up_mid(n) == mid:
+			GdScriptFunc.show_toast(tr(\"该 UP 主已在列表中\"))
+			return
+	ups.append(mid)
+	_setup_up_node(mid)
+	_apply_order()
+	_save_ups()
+
+
+func _replace_up(old_mid: String, new_mid: String) -> void:
+	var idx := -1
+	for i in up_nodes.size():
+		if _up_mid(up_nodes[i]) == old_mid:
+			idx = i
+			break
+	if idx == -1:
+		return
+	up_nodes[idx].queue_free()
+	up_nodes.remove_at(idx)
+	ups[idx] = new_mid
+	var new_node := _setup_up_node(new_mid)
+	up_nodes.remove_at(up_nodes.size() - 1)
+	up_nodes.insert(idx, new_node)
+	_apply_order()
+	_save_ups()
+
+
+func _prompt_up_dialog(prefill := \"\") -> void:
+	var is_new := prefill.is_empty()
+	var dialog := AcceptDialog.new()
+	dialog.title = tr(\"添加 UP 主\") if is_new else tr(\"编辑 UP 主\")
+	var le := LineEdit.new()
+	le.text = prefill
+	le.placeholder_text = tr(\"输入 UID / MID（如 946974），或 bilibili音乐周榜\")
+	le.custom_minimum_size = Vector2(420, 40)
+	dialog.add_child(le)
+	add_child(dialog)
+	GdScriptFunc.apply_theme_and_styles_to_node(dialog)
+	dialog.confirmed.connect(func():
+		var mid := le.text.strip_edges().trim_prefix(\"UID:\").trim_prefix(\"uid:\").trim_prefix(\"空间:\")
+		if mid.is_empty():
+			dialog.queue_free()
+			return
+		if is_new:
+			_add_up(mid)
+		else:
+			_replace_up(prefill, mid)
+		dialog.queue_free()
+	)
+	dialog.popup_centered()
+
+
+func _show_up_menu(node: Control) -> void:
+	var menu: Array[Dictionary] = [
+		{\"label\": tr(\"编辑\"), \"action\": func(_d): _prompt_up_dialog(_up_mid(node)), \"enabled\": true},
+		{\"label\": tr(\"删除\"), \"action\": func(_d): _remove_up(node), \"enabled\": true},
+		{\"label\": tr(\"上移\"), \"action\": func(_d): _move_up_node(node, up_nodes.find(node) - 1), \"enabled\": true},
+		{\"label\": tr(\"下移\"), \"action\": func(_d): _move_up_node(node, up_nodes.find(node) + 1), \"enabled\": true},
+	]
+	GdScriptFunc.open_right_click_menu_window(DisplayServer.mouse_get_position(), menu)
+
+
+func _save_ups() -> void:
+	ups.clear()
+	for n in up_nodes:
+		ups.append(_up_mid(n))
+	GdScriptFunc.set_data(\"DiscoverPage\", \"ups\", Array(ups))
+	GdScriptFunc.flush()
+
 
 func _on_scroll_container_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
@@ -278,11 +545,14 @@ func _on_scroll_container_gui_input(event: InputEvent) -> void:
 		is_vertical_sliding = false
 		time_cd.stop()
 
+
 func _on_cd_timer_timeout() -> void:
 	is_vertical_sliding = false
 
+
 func _on_scroll_container_mouse_entered() -> void:
 	is_on_vertical_scroll = true
+
 
 func _on_scroll_container_mouse_exited() -> void:
 	is_on_vertical_scroll = false
@@ -299,7 +569,7 @@ func _notification(what):
 		transform_changed.emit()
 "
 
-[node name="Page2" type="Control" unique_id=585043204 node_paths=PackedStringArray("list_box", "scroll_container", "time_cd")]
+[node name="Page2" type="Control" unique_id=585043204 node_paths=PackedStringArray("list_box", "scroll_container", "add_button", "time_cd")]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -313,6 +583,7 @@ script = SubResource("GDScript_61i7r")
 list_box = NodePath("ScrollContainer/VBoxContainer")
 scroll_container = NodePath("ScrollContainer")
 ups = Array[String](["3493093607213343", "496958358", "399267210", "401234815", "1395786030", "86111379", "bilibili音乐周榜", "23340150"])
+add_button = NodePath("AddButton")
 time_cd = NodePath("ScrollContainer/CDTimer")
 
 [node name="ScrollContainer" type="ScrollContainer" parent="." unique_id=352955920]
@@ -350,6 +621,22 @@ one_shot = true
 autostart = true
 
 [node name="PopupMenu" type="PopupMenu" parent="." unique_id=1050700338]
+
+[node name="AddButton" type="Button" parent="." unique_id=149532550 groups=["color_icon_hover_color", "color_icon_normal_color", "color_icon_pressed_color"]]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -95.0
+offset_top = -80.0
+offset_right = -15.0
+grow_horizontal = 0
+grow_vertical = 0
+tooltip_text = "添加UP视频列表"
+icon = ExtResource("1_6vwaf")
+expand_icon = true
 
 [connection signal="gui_input" from="ScrollContainer" to="." method="_on_scroll_container_gui_input"]
 [connection signal="mouse_entered" from="ScrollContainer" to="." method="_on_scroll_container_mouse_entered"]

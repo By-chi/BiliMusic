@@ -1246,6 +1246,7 @@ grow_horizontal = 2
 grow_vertical = 0
 offset_transform_enabled = true
 offset_transform_position = Vector2(0, 99)
+offset_transform_visual_only = false
 theme_override_styles/panel = SubResource("StyleBoxFlat_aa3qu")
 script = SubResource("GDScript_6a8me")
 cover_node = NodePath("Cover")
