@@ -342,10 +342,18 @@ func _load_lyrics(video_info: Dictionary) -> void:
 		var new_times: Array[float] = []
 		var new_texts: Array[String] = []
 		_parse_subtitle_data(subtitles, new_times, new_texts)
+		# 下载条目 sidecar 歌词丢失时,按 BV 从歌词缓存恢复
+		if new_texts.is_empty():
+			var cached: String = BilibiliApi.get_lyrics_cache_path(video_info)
+			if not cached.is_empty():
+				var f := FileAccess.open(cached, FileAccess.READ)
+				if f:
+					_parse_lrc(f.get_as_text(), new_times, new_texts)
+					f.close()
 		_apply_lyrics(new_times, new_texts)
 		return
 
-	if video_info.get(\"is_network\", true) and GdScriptFunc.get_data(\"Options\", \"Automatically_obtain_subtitles\", false):
+	if (video_info.get(\"is_network\", true) or str(video_info.get(\"BV\", \"\")).begins_with(\"BV\")) and GdScriptFunc.get_data(\"Options\", \"Automatically_obtain_subtitles\", false):
 		var requested_bvid = video_info.get(\"BV\", video_info.get(\"link\"))
 		BilibiliApi.fetch_subtitle_auto(requested_bvid, func(subtitle_data: Dictionary):
 			var current_info := Player.get_current_video_info()

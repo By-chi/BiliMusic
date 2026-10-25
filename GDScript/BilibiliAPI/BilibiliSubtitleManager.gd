@@ -22,7 +22,14 @@ func _init(api_request_func: Callable, download_request_func: Callable, subtitle
 	_subtitle_correction = subtitle_correction
 	_m4s_audio_player = m4s_audio_player
 
-func fetch_subtitle_auto(bvid: String, info: Dictionary, callback: Callable, save_path: String = "") -> void:
+func fetch_subtitle_auto(bvid: String, info: Dictionary, callback: Callable, save_path: String = "", audio_path: String = "") -> void:
+	# ── 入口缓存优先（网络曲目）：命中直接回调，下载流程同时落盘到 save_path ──
+	if bvid.begins_with("BV"):
+		var entry_cached := _get_cached_lrc(bvid)
+		if not entry_cached.is_empty():
+			print("歌词缓存命中(入口): " + bvid)
+			_reply_cached(entry_cached, save_path, callback)
+			return
 	var cid = info.get("cid", 0)
 	if cid == 0:
 		push_error("无有效 cid")
@@ -30,9 +37,9 @@ func fetch_subtitle_auto(bvid: String, info: Dictionary, callback: Callable, sav
 		return
 	_fetch_subtitle_list(bvid, cid, info, callback, save_path)
 
-func _fetch_subtitle_list(bvid: String, cid: int, info: Dictionary, callback: Callable, save_path: String) -> void:
+func _fetch_subtitle_list(bvid: String, cid: int, info: Dictionary, callback: Callable, save_path: String, audio_path: String = "") -> void:
 	var url = "https://api.bilibili.com/x/player/wbi/v2?bvid=%s&cid=%d" % [bvid, cid]
-	_api_request_func.call(url, _on_list_received, [bvid, info, callback, save_path])
+	_api_request_func.call(url, _on_list_received, [bvid, info, callback, save_path, audio_path])
 
 func _on_list_received(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray, extra: Variant) -> void:
 	var arr: Array = extra
@@ -40,6 +47,7 @@ func _on_list_received(result: int, response_code: int, _headers: PackedStringAr
 	var info: Dictionary = arr[1]
 	var callback: Callable = arr[2]
 	var save_path: String = arr[3]
+	var audio_path: String = arr[4] if arr.size() > 4 else ""
 
 	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
 		push_error("字幕列表获取失败 (%s)" % bvid)
@@ -69,7 +77,7 @@ func _on_list_received(result: int, response_code: int, _headers: PackedStringAr
 
 	if subtitles.is_empty():
 		push_warning("无可用字幕 (%s)" % bvid)
-		_fallback_external(info, callback, save_path)
+		_fallback_external(info, callback, save_path, audio_path)
 		return
 
 	var video_lang: String = si.get("video_lang", "zh-CN")
@@ -96,18 +104,18 @@ func _on_list_received(result: int, response_code: int, _headers: PackedStringAr
 
 	if not non_ai.is_empty():
 		non_ai.sort_custom(sort_by_lang)
-		_try_download(0, non_ai, bvid, info, callback, false, save_path)
+		_try_download(0, non_ai, bvid, info, callback, false, save_path, audio_path)
 		return
 	if not ai_list.is_empty():
 		ai_list.sort_custom(sort_by_lang)
-		_try_download(0, ai_list, bvid, info, callback, false, save_path)
+		_try_download(0, ai_list, bvid, info, callback, false, save_path, audio_path)
 		return
-	_fallback_external(info, callback, save_path)
+	_fallback_external(info, callback, save_path, audio_path)
 
-func _try_download(index: int, candidates: Array, bvid: String, info: Dictionary, callback: Callable, skip_correction: bool, save_path: String) -> void:
+func _try_download(index: int, candidates: Array, bvid: String, info: Dictionary, callback: Callable, skip_correction: bool, save_path: String, audio_path: String = "") -> void:
 	if index >= candidates.size():
 		push_warning("所有候选字幕失败 (%s)，尝试外部字幕" % bvid)
-		_fallback_external(info, callback, save_path)
+		_fallback_external(info, callback, save_path, audio_path)
 		return
 
 	var c = candidates[index]
@@ -124,27 +132,27 @@ func _try_download(index: int, candidates: Array, bvid: String, info: Dictionary
 		if code != 200:
 			push_warning("字幕下载失败 (%s) HTTP %d" % [bvid, code])
 			GdScriptFunc.show_toast("字幕下载失败: " + bvid)
-			_try_download(index + 1, candidates, bvid, info, callback, skip_correction, save_path)
+			_try_download(index + 1, candidates, bvid, info, callback, skip_correction, save_path, audio_path)
 			return
 
 		var json = JSON.new()
 		if json.parse(body.get_string_from_utf8()) != OK:
 			push_warning("字幕JSON解析失败 (%s)" % bvid)
 			GdScriptFunc.show_toast("字幕JSON解析失败: " + bvid)
-			_try_download(index + 1, candidates, bvid, info, callback, skip_correction, save_path)
+			_try_download(index + 1, candidates, bvid, info, callback, skip_correction, save_path, audio_path)
 			return
 
 		var content = json.get_data()
 		if typeof(content) != TYPE_DICTIONARY:
 			push_warning("字幕结构异常 (%s)" % bvid)
 			GdScriptFunc.show_toast("字幕结构异常: " + bvid)
-			_try_download(index + 1, candidates, bvid, info, callback, skip_correction, save_path)
+			_try_download(index + 1, candidates, bvid, info, callback, skip_correction, save_path, audio_path)
 			return
 
 		# 纯音乐占比过高则跳过当前候选，继续尝试下一个
 		if _check_music_ratio(content):
 			push_warning("纯音乐占比过高 (%s)" % bvid)
-			_try_download(index + 1, candidates, bvid, info, callback, skip_correction, save_path)
+			_try_download(index + 1, candidates, bvid, info, callback, skip_correction, save_path, audio_path)
 			return
 
 		var final_skip = true
@@ -154,7 +162,7 @@ func _try_download(index: int, candidates: Array, bvid: String, info: Dictionary
 		if final_skip:
 			_generate_lrc(content, bvid, callback, save_path)
 		else:
-			_perform_correction(content, bvid, info, callback, save_path)
+			_perform_correction(content, bvid, info, callback, save_path, audio_path)
 
 	, [bvid, info, callback, save_path, candidates, index, skip_correction], HTTPClient.METHOD_GET, headers)
 
@@ -206,12 +214,13 @@ func _generate_lrc(content: Dictionary, bvid: String, callback: Callable, save_p
 		push_error("无法写入LRC: " + lrc_path)
 		callback.call({})
 
-func _perform_correction(content: Dictionary, bvid: String, info: Dictionary, callback: Callable, save_path: String) -> void:
+func _perform_correction(content: Dictionary, bvid: String, info: Dictionary, callback: Callable, save_path: String, audio_path: String = "") -> void:
 	if not is_instance_valid(_subtitle_correction):
 		push_error("LyricsPipeline 不可用")
 		_generate_lrc(content, bvid, callback, save_path)
 		return
-	var audio = _get_current_audio_path()
+	# 下载流程显式传入音频路径(播放流程沿用当前正在播放的音频)
+	var audio = audio_path if not audio_path.is_empty() else _get_current_audio_path()
 	if audio.is_empty():
 		_generate_lrc(content, bvid, callback, save_path)
 		return
@@ -221,7 +230,7 @@ func _perform_correction(content: Dictionary, bvid: String, info: Dictionary, ca
 	var cached := _get_cached_lrc(cache_key)
 	if not cached.is_empty():
 		print("歌词缓存命中 (%s): %s" % [cache_key, cached])
-		callback.call({"type": "aligned_lrc", "path": cached})
+		_reply_cached(cached, save_path, callback)
 		return
 
 	var desc: String = info.get("desc", info.get("description", ""))
@@ -231,11 +240,11 @@ func _perform_correction(content: Dictionary, bvid: String, info: Dictionary, ca
 	# 参数顺序：subtitleContent, m4sPath, trackName, outputDir, isAiSubtitle, videoTitle, requestId, videoDesc
 	_subtitle_correction.ProcessSubtitleAsync(content, audio, track_name, BilibiliConstants.LYRICS_CACHE_DIR, true, info.get("title", ""), rid, desc)
 
-func _fallback_external(info: Dictionary, callback: Callable, save_path: String) -> void:
+func _fallback_external(info: Dictionary, callback: Callable, save_path: String, audio_path: String = "") -> void:
 	if not is_instance_valid(_subtitle_correction):
 		callback.call({})
 		return
-	var audio = _get_current_audio_path()
+	var audio = audio_path if not audio_path.is_empty() else _get_current_audio_path()
 	if audio.is_empty():
 		callback.call({})
 		return
@@ -245,7 +254,7 @@ func _fallback_external(info: Dictionary, callback: Callable, save_path: String)
 	var cached := _get_cached_lrc(cache_key)
 	if not cached.is_empty():
 		print("歌词缓存命中 (%s): %s" % [cache_key, cached])
-		callback.call({"type": "aligned_lrc", "path": cached})
+		_reply_cached(cached, save_path, callback)
 		return
 
 	var desc: String = info.get("desc", info.get("description", ""))
@@ -275,7 +284,13 @@ func handle_correction_result(request_id: String, lrc_path: String) -> void:
 	# ── 成功产物写入缓存（供下次播放同曲直接命中） ──
 	_store_cache_copy(ctx.get("cache_key", ""), lrc_path)
 
-	callback.call({"type": "aligned_lrc", "path": lrc_path})
+	# 下载流程指定了 save_path 时，把结果同步落到音频旁边的歌词文件
+	var dest: String = ctx.save_path
+	if not dest.is_empty() and dest != lrc_path:
+		copy_lrc_to(lrc_path, dest)
+		callback.call({"type": "aligned_lrc", "path": dest})
+	else:
+		callback.call({"type": "aligned_lrc", "path": lrc_path})
 
 # ---------- 歌词缓存 ----------
 
@@ -313,6 +328,34 @@ func _store_cache_copy(cache_key: String, lrc_path: String) -> void:
 		dst.store_string(src.get_as_text())
 		dst.close()
 	src.close()
+
+## 缓存命中后的统一回复：有 save_path 就落盘并回 save_path，否则回缓存路径
+func _reply_cached(cached: String, save_path: String, callback: Callable) -> void:
+	if not save_path.is_empty():
+		copy_lrc_to(cached, save_path)
+		callback.call({"type": "aligned_lrc", "path": save_path})
+	else:
+		callback.call({"type": "aligned_lrc", "path": cached})
+
+## 公共：按缓存键查缓存歌词文件（存在才返回）
+func get_cached_lrc_path(cache_key: String) -> String:
+	return _get_cached_lrc(cache_key)
+
+## 公共：把歌词文件复制到目标路径（已存在则跳过）
+func copy_lrc_to(src: String, dest_path: String) -> void:
+	if src.is_empty() or dest_path.is_empty() or not FileAccess.file_exists(src):
+		return
+	if FileAccess.file_exists(dest_path):
+		return
+	DirAccess.make_dir_recursive_absolute(dest_path.get_base_dir())
+	var s := FileAccess.open(src, FileAccess.READ)
+	if s == null:
+		return
+	var d := FileAccess.open(dest_path, FileAccess.WRITE)
+	if d:
+		d.store_string(s.get_as_text())
+		d.close()
+	s.close()
 
 func _get_current_audio_path() -> String:
 	if not is_instance_valid(_m4s_audio_player):

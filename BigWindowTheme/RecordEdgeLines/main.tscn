@@ -150,10 +150,10 @@ func update() -> void:
 					file.close()
 					init_lyrics_from_data(lrc_text)
 				else:
-					Subtitle.hide()
+					_init_cached_or_hide(video_info)
 			else:
 				Subtitle.hide()
-	elif video_info.get(\"is_network\", true) && GdScriptFunc.get_data(\"Options\", \"Automatically_obtain_subtitles\", false):
+	elif (video_info.get(\"is_network\", true) or str(video_info.get(\"BV\", \"\")).begins_with(\"BV\")) && GdScriptFunc.get_data(\"Options\", \"Automatically_obtain_subtitles\", false):
 		var requested_bvid = video_info.get(\"BV\", video_info.get(\"link\"))
 		BilibiliApi.fetch_subtitle_auto(requested_bvid, func(subtitle_data: Dictionary):
 			var current_info := Player.get_current_video_info()
@@ -270,6 +270,18 @@ func _parse_lrc(lrc_text: String) -> void:
 
 var last_highlight_index: int = -1
 var _last_subtitle_data: Variant = null
+
+func _init_cached_or_hide(video_info: Dictionary) -> void:
+	# 下载条目 sidecar 歌词丢失时,按 BV 从歌词缓存恢复(下载流程落过缓存)
+	var cached: String = BilibiliApi.get_lyrics_cache_path(video_info)
+	if not cached.is_empty():
+		var file := FileAccess.open(cached, FileAccess.READ)
+		if file:
+			var lrc_text := file.get_as_text()
+			file.close()
+			init_lyrics_from_data(lrc_text)
+			return
+	Subtitle.hide()
 
 func init_lyrics_from_data(data: Variant) -> void:
 	if typeof(data) == typeof(_last_subtitle_data) and data == _last_subtitle_data:

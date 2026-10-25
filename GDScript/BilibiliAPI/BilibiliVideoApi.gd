@@ -69,16 +69,26 @@ func _on_video_info_response(_r, code, _h, body, extra):
 
 # ---------------- 字幕 ----------------
 
-func fetch_subtitle_auto(bvid: String, callback: Callable, save_path: String = "") -> void:
+func fetch_subtitle_auto(bvid: String, callback: Callable, save_path: String = "", audio_path: String = "") -> void:
+	# ── 缓存优先：之前拿过歌词（含下载流程落过缓存）的曲目直接命中，免网络请求 ──
+	if bvid.begins_with("BV"):
+		var cached: String = _subtitle.get_cached_lrc_path(bvid)
+		if not cached.is_empty():
+			if not save_path.is_empty():
+				_subtitle.copy_lrc_to(cached, save_path)
+				callback.call({"type": "aligned_lrc", "path": save_path})
+			else:
+				callback.call({"type": "aligned_lrc", "path": cached})
+			return
 	fetch_info(bvid, func(info: Dictionary):
 		if info.is_empty():
 			callback.call({})
 			return
 		_video_info_cache[bvid] = info
-		_subtitle.fetch_subtitle_auto(bvid, info, callback, save_path)
+		_subtitle.fetch_subtitle_auto(bvid, info, callback, save_path, audio_path)
 	)
 
-func fetch_subtitle_with_info(info: Dictionary, callback: Callable, save_path: String = "") -> void:
+func fetch_subtitle_with_info(info: Dictionary, callback: Callable, save_path: String = "", audio_path: String = "") -> void:
 	var bvid = info.get("link", "")
 	if bvid.is_empty() or info.get("cid", 0) == 0:
 		callback.call({})

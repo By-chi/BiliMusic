@@ -140,12 +140,24 @@ func fetch_video_info(bvid: String, callback: Callable) -> void:
 	_video.fetch_info(bvid, callback)
 
 
-func fetch_subtitle_auto(bvid: String, callback: Callable, save_path: String = "") -> void:
-	_video.fetch_subtitle_auto(bvid, callback, save_path)
+func fetch_subtitle_auto(bvid: String, callback: Callable, save_path: String = "", audio_path: String = "") -> void:
+	_video.fetch_subtitle_auto(bvid, callback, save_path, audio_path)
 
 
-func fetch_subtitle_with_info(info: Dictionary, callback: Callable, save_path: String = "") -> void:
-	_video.fetch_subtitle_with_info(info, callback, save_path)
+## 查询某曲目已缓存的歌词文件路径（本地下载条目可用 BV 恢复歌词），无则返回 ""
+func get_lyrics_cache_path(video_info: Dictionary) -> String:
+	var bv := str(video_info.get("BV", ""))
+	if bv.is_empty():
+		var link := str(video_info.get("link", ""))
+		if link.begins_with("BV"):
+			bv = link
+	if bv.is_empty():
+		return ""
+	return subtitle_manager.get_cached_lrc_path(bv)
+
+
+func fetch_subtitle_with_info(info: Dictionary, callback: Callable, save_path: String = "", audio_path: String = "") -> void:
+	_video.fetch_subtitle_with_info(info, callback, save_path, audio_path)
 
 
 func start_qr_login(login_callback: Callable) -> void:
