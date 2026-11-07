@@ -192,12 +192,9 @@ func hide_search_bar()->void:
 var is_switching := false
 
 func change_page(page_name: String) -> void:
-	if page_name == current_page_name:
-		return
-	if is_switching:
-		return
-	if not PAGE_SCENES.has(page_name):
-		return
+	if page_name == current_page_name: return
+	if is_switching: return
+	if not PAGE_SCENES.has(page_name): return
 	is_switching = true
 
 	var page_numbers := {
@@ -253,6 +250,17 @@ func _on_search_text_submitted(new_text: String) -> void:
 	node.search_bar.text=new_text
 	node.update_page(new_text)
 	change_page(\"Results\")
+
+func _on_search_text_changed(new_text: String) -> void:
+	if len(new_text) < 5: return
+	# 切换页面
+	_on_search_text_submitted(new_text)
+	# 获取文本框
+	var _search_line_edit = current_page.get_node(\"Search\")
+	# 获取焦点
+	_search_line_edit.grab_focus()
+	# 移动光标
+	_search_line_edit.caret_column = _search_line_edit.text.length()
 "
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_bf81u"]
@@ -1647,6 +1655,7 @@ offset_transform_scale = Vector2(0, 1)
 offset_transform_pivot_ratio = Vector2(0, 0.5)
 theme_override_styles/panel = SubResource("StyleBoxFlat_iab34")
 
+[connection signal="text_changed" from="LeftMenu/Search" to="." method="_on_search_text_changed"]
 [connection signal="text_submitted" from="LeftMenu/Search" to="." method="_on_search_text_submitted"]
 [connection signal="toggled" from="BottomMenu/Play" to="BottomMenu" method="_on_play_toggled"]
 [connection signal="pressed" from="BottomMenu/Play/Next" to="BottomMenu" method="_on_next_pressed"]
