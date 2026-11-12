@@ -31,6 +31,8 @@ func _ready() -> void:
 
 			if option.name == \"Account\":
 				_setup_account(option, control)
+			elif option.name == \"Initial_Page\":
+				_setup_initial_page(control as OptionButton)
 			elif option.name == \"Skin\":
 				_setup_skin(control as OptionButton)
 			elif option.name == \"Custom_Big_Window_Theme\":
@@ -177,7 +179,15 @@ func _log_in_out(option: Control) -> void:
 					)
 		)
 
-
+func _setup_initial_page(option_button: OptionButton) -> void:
+	var option_popup = option_button.get_popup()
+	option_popup.add_theme_font_size_override(\"font_size\", 35)
+	for i in State.page_numbers:
+		option_button.add_item(i,State.page_numbers[i])
+	option_button.selected=State.page_numbers[GdScriptFunc.get_data(\"Options\", \"Initial_Page\", \"Discover\")]
+	option_button.item_selected.connect(func(index: int):
+		GdScriptFunc.set_data(\"Options\", \"Initial_Page\", option_button.get_item_text(index), true)
+	)
 
 func _setup_skin(option_button: OptionButton) -> void:
 	# 设置OptionButton字体大小
@@ -621,6 +631,24 @@ metadata/_tab_index = 2
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
+
+[node name="Initial_Page" type="Label" parent="TabContainer/外观/VBoxContainer" unique_id=1103761123]
+layout_mode = 2
+theme_override_font_sizes/font_size = 35
+text = "初始页面"
+
+[node name="Initial_Page" type="OptionButton" parent="TabContainer/外观/VBoxContainer/Initial_Page" unique_id=1899520599]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -54.0
+offset_top = -24.0
+offset_bottom = 24.0
+grow_horizontal = 0
+grow_vertical = 2
 
 [node name="Skin" type="Label" parent="TabContainer/外观/VBoxContainer" unique_id=446818005]
 layout_mode = 2

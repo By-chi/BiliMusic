@@ -151,6 +151,7 @@ func _update_cover_and_background() -> void:
 		Background.modulate.a = 0.0
 
 func _create_combined_cover_impl(images: Array) -> Image:
+	if is_queued_for_deletion():return
 	if images.is_empty():
 		return null
 
@@ -200,6 +201,7 @@ func _create_combined_cover_impl(images: Array) -> Image:
 
 	return final_img
 func _create_combined_cover_async(images: Array, session_id: int) -> void:
+	if is_queued_for_deletion():return
 	var images_copy: Array = []
 	for img in images:
 		if img is Image and not img.is_empty():

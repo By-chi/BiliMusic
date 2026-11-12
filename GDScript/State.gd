@@ -7,6 +7,13 @@ var play_ui_mode := 0:
 var default_current_playlist: Array = []
 var playlist_disabled: Dictionary = {}   # 默认播放列表:link -> true(暂时限制播放)
 var main:Panel
+var page_numbers := {
+		"Discover": 0,
+		"Results": 1,
+		"Favorites": 2,
+		"Import": 3,
+		"Options": 4,
+	}
 func _ready() -> void:
 	get_window().size=GdScriptFunc.get_data("Window","Size",Vector2i(1600,1000))
 	if GdScriptFunc.get_data("Options","RememberWindow",true):
