@@ -237,18 +237,19 @@ func change_page(page_name: String) -> void:
 	).set_trans(Tween.TRANS_CUBIC)
 	current_page_tween.finished.connect(func(): is_switching = false)
 
-func _on_search_text_submitted(new_text: String) -> void:
+func _on_search_text_submitted(new_text: String,search:=true) -> void:
 	var node:Control=_ensure_page(\"Results\")
 	if node == null:
 		return
 	node.search_bar.text=new_text
-	node.update_page(new_text)
+	if search:
+		node.update_page(new_text)
 	change_page(\"Results\")
 
 func _on_search_text_changed(new_text: String) -> void:
 	if len(new_text) < 5: return
-	# 切换页面
-	_on_search_text_submitted(new_text)
+	# 切换页面但不搜索
+	_on_search_text_submitted(new_text,false)
 	# 获取文本框
 	var _search_line_edit = current_page.get_node(\"Search\")
 	# 获取焦点
