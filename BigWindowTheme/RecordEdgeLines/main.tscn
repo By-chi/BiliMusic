@@ -44,12 +44,10 @@ var _enter_tween: Tween
 var _saved_index: int = 0
 
 var tween_music_name: Tween
-var _music_name_initial_pos: Vector2
 
 var line_nodes: Array[MeshInstance2D]
 
 func _ready() -> void:
-	_music_name_initial_pos = musicNameLabel.position
 	tween_music_name = musicNameLabel.create_tween()
 	tween_music_name.set_loops()
 	tween_music_name.tween_method(music_name_update_offset, 0.0, TAU, music_name_cycle_duration) \\
@@ -63,10 +61,11 @@ func _ready() -> void:
 		Lyric.clear()
 		index = 0
 		last_highlight_index = -1
-		# 重新触发字幕加载
-		update()
-		# 最后设置进度
-		set_stream_position(0.01)
+		_last_subtitle_data = null
+		for lbl in _label_pool:
+			if is_instance_valid(lbl):
+				lbl.visible = false
+				_label_line_map[lbl] = -1
 	)
 
 	generate_lines()
@@ -89,7 +88,7 @@ func generate_lines() -> void:
 		line_nodes.append(line)
 
 func music_name_update_offset(angle: float) -> void:
-	musicNameLabel.position = _music_name_initial_pos + Vector2(
+	musicNameLabel.offset_transform_position = Vector2(
 		sin(angle * music_name_freq_x) * 18.0,
 		sin(angle * music_name_freq_y) * 4.0
 	)
@@ -104,7 +103,7 @@ func _process(delta: float) -> void:
 	if Player.sonance:
 		coverNode.rotation += delta * coverTextureRectRotateSpeed
 		edgeNode.rotation = coverNode.rotation
-		if not tween_music_name.is_running():
+		if not _is_animating and not tween_music_name.is_running():
 			tween_music_name.play()
 	else:
 		if tween_music_name.is_running():
@@ -126,10 +125,9 @@ func update() -> void:
 		_set_cover(ImageTexture.create_from_image(image))
 	else:
 		GdScriptFunc.generate_label_texture(Color.WHITE, video_info.get(\"title\", tr(\"本地文件\")), _set_cover, null, 10, Color.BLACK, Vector2i(70, 70))
-
 	if video_info.has(\"subtitles\"):
 		var subtitles = video_info[\"subtitles\"]
-		if subtitles == null or subtitles.is_empty():
+		if subtitles == null or subtitles.is_empty() or video_info.get(\"lyrics_disabled\", false):
 			Subtitle.hide()
 		else:
 			Subtitle.show()
@@ -398,8 +396,7 @@ func _refresh_lyrics() -> void:
 		return
 
 	var pos := Player.get_current_time_sec()
-	while index < LyricTime.size() and pos + LyricOffset > LyricTime[index]:
-		index += 1
+	index = find_index_greater_than(LyricTime, pos + LyricOffset - _get_custom_lyrics_offset())
 
 	var new_hl := index - 1
 	# 高亮切换
@@ -510,9 +507,8 @@ func Start() -> void:
 			.from(Vector2.ZERO).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 	if musicNameLabel:
-		var initial_pos = musicNameLabel.position
-		_enter_tween.tween_property(musicNameLabel, \"position:y\", initial_pos.y, 0.4) \\
-			.from(initial_pos.y - 100).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		_enter_tween.tween_property(musicNameLabel, \"offset_transform_position:y\", 0.0, 0.4) \\
+			.from(-100.0).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 		_enter_tween.tween_property(musicNameLabel, \"modulate:a\", 1.0, 0.3) \\
 			.from(0.0)
 
@@ -535,9 +531,12 @@ func set_stream_position(value: float) -> void:
 	# 歌词数组为空时直接返回，避免无数据刷新
 	if LyricTime.size() == 0 or Lyric.size() == 0:
 		return
-	index = find_index_greater_than(LyricTime, value * Player.get_duration())
+	index = find_index_greater_than(LyricTime, value * Player.get_duration() + LyricOffset - _get_custom_lyrics_offset())
 	if Subtitle.visible:
 		_refresh_lyrics()
+
+func _get_custom_lyrics_offset() -> float:
+	return float(Player.get_current_video_info().get(\"lyrics_offset\", 0.0))
 
 func capitalize_line(text: String) -> String:
 	if text.is_empty():
@@ -717,11 +716,13 @@ stretch_mode = 6
 custom_maximum_size = Vector2(400, 122)
 layout_mode = 1
 anchors_preset = -1
+anchor_left = 0.17500001
 anchor_top = 0.5
+anchor_right = 0.17500001
 anchor_bottom = 0.5
-offset_left = 368.0
+offset_left = 87.99997
 offset_top = 260.0
-offset_right = 768.0
+offset_right = 487.99997
 offset_bottom = 382.0
 grow_vertical = 2
 offset_transform_enabled = true

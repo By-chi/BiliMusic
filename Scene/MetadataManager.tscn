@@ -30,15 +30,15 @@ extends Window
 @export var lyrics_text_edit: TextEdit
 @export var lyrics_download_button: Button
 @export var lyrics_import_button: Button
-@export var lyrics_save_button: Button
 @export var lyrics_disabled_check: CheckButton
+@export var lyrics_offset_spin: SpinBox
 
 var bv := \"\"                     # 用户无法修改，单项下载时要用到
 var directory_name := \"\"
 var is_network := true
 var previous_link := \"\"
 var _dirty := false
-var _lyrics_dirty := false
+var _loading_lyrics := false
 
 func _lyrics_target_path() -> String:
 	var link := link_line_edit.text
@@ -50,6 +50,7 @@ func _lyrics_target_path() -> String:
 	return \"user://lyrics/managed_%s.lrc\" % key
 
 func _load_lyrics(item: Dictionary) -> void:
+	_loading_lyrics = true
 	lyrics_text_edit.text = \"\"
 	var subtitles: Variant = item.get(\"subtitles\", {})
 	var path := \"\"
@@ -62,7 +63,7 @@ func _load_lyrics(item: Dictionary) -> void:
 		if file:
 			lyrics_text_edit.text = file.get_as_text()
 			file.close()
-			_lyrics_dirty = false
+			_loading_lyrics = false
 			return
 	var cached := BilibiliApi.get_lyrics_cache_path(item)
 	if not cached.is_empty():
@@ -70,7 +71,7 @@ func _load_lyrics(item: Dictionary) -> void:
 		if file:
 			lyrics_text_edit.text = file.get_as_text()
 			file.close()
-	_lyrics_dirty = false
+	_loading_lyrics = false
 
 func _write_lyrics(path: String, text: String) -> bool:
 	if path.is_empty():
@@ -86,15 +87,16 @@ func _write_lyrics(path: String, text: String) -> bool:
 	file.close()
 	return true
 
-func _persist_lyrics(path: String, disabled: bool) -> bool:
+func _persist_lyrics(path: String, disabled: bool, offset: float) -> bool:
 	var deck: Array = GdScriptFunc.get_data(\"Favorites\", directory_name, [])
 	for item in deck:
 		if str(item.get(\"link\", \"\")) == previous_link:
 			item[\"subtitles\"] = {\"path\": path}
 			item[\"lyrics_disabled\"] = disabled
+			item[\"lyrics_offset\"] = offset
 			GdScriptFunc.set_data(\"Favorites\", directory_name, deck)
 			lyrics_disabled_check.set_pressed_no_signal(disabled)
-			_lyrics_dirty = false
+			lyrics_offset_spin.set_value_no_signal(offset)
 			_update_current_player_lyrics(item)
 			return true
 	push_error(\"[MetadataWindow] 保存歌词失败，未找到收藏条目: \" + previous_link)
@@ -114,6 +116,7 @@ func _update_current_player_lyrics(item: Dictionary) -> void:
 		return
 	current[\"subtitles\"] = item.get(\"subtitles\", {})
 	current[\"lyrics_disabled\"] = bool(item.get(\"lyrics_disabled\", false))
+	current[\"lyrics_offset\"] = float(item.get(\"lyrics_offset\", 0.0))
 	player.set(\"_current_video_info_cache\", current)
 	player.emit_signal(\"song_changed\", current)
 
@@ -131,6 +134,7 @@ func update(_directory_name: String, link: String) -> void:
 			link_line_edit.text = link
 			bv_label.text = bv
 			lyrics_disabled_check.set_pressed_no_signal(bool(i.get(\"lyrics_disabled\", false)))
+			lyrics_offset_spin.set_value_no_signal(float(i.get(\"lyrics_offset\", 0.0)))
 			_load_lyrics(i)
 			_dirty = false
 			_refresh_field_states()
@@ -158,7 +162,6 @@ func _refresh_field_states() -> void:
 	copy_bv_button.disabled = not has_bv
 	open_folder_button.visible = local_file_exists
 	lyrics_download_button.disabled = not has_bv
-	lyrics_save_button.disabled = _lyrics_target_path().is_empty()
 
 func _cover_path_for(link: String) -> String:
 	if link.is_empty():
@@ -174,7 +177,7 @@ func _load_cover_for_link(link: String) -> void:
 			return
 	cover_texture_rect.texture = null
 
-func _set_dirty() -> void:
+func _set_dirty(_new_text: String = \"\") -> void:
 	_dirty = true
 
 # ---------- 编辑框信号 ----------
@@ -359,9 +362,11 @@ func _on_lyrics_download_pressed() -> void:
 			return
 		if FileAccess.file_exists(temp_path):
 			DirAccess.remove_absolute(ProjectSettings.globalize_path(temp_path))
+		_loading_lyrics = true
 		lyrics_text_edit.text = text
+		_loading_lyrics = false
 		lyrics_disabled_check.set_pressed_no_signal(false)
-		if _persist_lyrics(target, false):
+		if _persist_lyrics(target, false, lyrics_offset_spin.value):
 			GdScriptFunc.set_progress_bar_value(100, tr(\"完成\"), tr(\"歌词已下载\"))
 	, temp_path, audio_path)
 
@@ -384,26 +389,30 @@ func _on_lyrics_import_pressed() -> void:
 		var target := _lyrics_target_path()
 		if not _write_lyrics(target, text):
 			return
+		_loading_lyrics = true
 		lyrics_text_edit.text = text
+		_loading_lyrics = false
 		lyrics_disabled_check.set_pressed_no_signal(false)
-		if _persist_lyrics(target, false):
+		if _persist_lyrics(target, false, lyrics_offset_spin.value):
 			GdScriptFunc.set_progress_bar_value(100, tr(\"完成\"), tr(\"歌词已导入\"))
 	)
 	dialog.popup_centered(Vector2i(900, 600))
 
-func _on_lyrics_save_pressed() -> void:
+func _on_lyrics_disabled_toggled(disabled: bool) -> void:
+	var target := _lyrics_target_path()
+	if not _persist_lyrics(target, disabled, lyrics_offset_spin.value):
+		lyrics_disabled_check.set_pressed_no_signal(not disabled)
+
+func _on_lyrics_offset_changed(value: float) -> void:
+	_persist_lyrics(_lyrics_target_path(), lyrics_disabled_check.button_pressed, value)
+
+func _on_lyrics_text_changed() -> void:
+	if _loading_lyrics:
+		return
 	var target := _lyrics_target_path()
 	if not _write_lyrics(target, lyrics_text_edit.text):
 		return
-	if _persist_lyrics(target, lyrics_disabled_check.button_pressed):
-		GdScriptFunc.set_progress_bar_value(100, tr(\"完成\"), tr(\"歌词已保存\"))
-
-func _on_lyrics_disabled_toggled(disabled: bool) -> void:
-	_set_dirty()
-
-func _on_lyrics_text_changed() -> void:
-	_lyrics_dirty = true
-	_set_dirty()
+	_persist_lyrics(target, lyrics_disabled_check.button_pressed, lyrics_offset_spin.value)
 
 # ---------- 异步音频下载（局部实现，与主界面一致）----------
 const TARGET_DIR := \"user://local_music/\"
@@ -480,16 +489,10 @@ func _save_changes() -> bool:
 	var deck: Array = GdScriptFunc.get_data(\"Favorites\", directory_name, [])
 	for i in deck:
 		if str(i.get(\"link\", \"\")) == previous_link:
-			if _lyrics_dirty:
-				var lyrics_path := _lyrics_target_path()
-				if not _write_lyrics(lyrics_path, lyrics_text_edit.text):
-					return false
-				i[\"subtitles\"] = {\"path\": lyrics_path}
 			i[\"title\"] = title_line_edit.text
 			i[\"author\"] = author_line_edit.text
 			i[\"link\"] = link_line_edit.text
 			i[\"description\"] = description_line_edit.text
-			i[\"lyrics_disabled\"] = lyrics_disabled_check.button_pressed
 			GdScriptFunc.set_data(\"Favorites\", directory_name, deck)
 			_update_current_player_lyrics(i)
 			return true
@@ -519,7 +522,7 @@ func _on_confirm_dialog_canceled() -> void:
 	queue_free()
 "
 
-[node name="Window" type="Window" unique_id=1556730992 node_paths=PackedStringArray("cover_texture_rect", "title_line_edit", "author_line_edit", "link_line_edit", "description_line_edit", "bv_label", "bv_row", "type_label", "cover_download_button", "cover_pick_button", "cover_reset_button", "audio_download_button", "description_download_button", "copy_link_button", "copy_bv_button", "open_folder_button", "confirm_dialog", "lyrics_text_edit", "lyrics_download_button", "lyrics_import_button", "lyrics_save_button", "lyrics_disabled_check")]
+[node name="Window" type="Window" unique_id=1556730992 node_paths=PackedStringArray("cover_texture_rect", "title_line_edit", "author_line_edit", "link_line_edit", "description_line_edit", "bv_label", "bv_row", "type_label", "cover_download_button", "cover_pick_button", "cover_reset_button", "audio_download_button", "description_download_button", "copy_link_button", "copy_bv_button", "open_folder_button", "confirm_dialog", "lyrics_text_edit", "lyrics_download_button", "lyrics_import_button", "lyrics_disabled_check", "lyrics_offset_spin")]
 oversampling_override = 1.0
 title = "管理音乐元数据"
 initial_position = 2
@@ -547,8 +550,8 @@ confirm_dialog = NodePath("ConfirmDialog")
 lyrics_text_edit = NodePath("ScrollContainer/MarginContainer/VBoxContainer/Lyrics")
 lyrics_download_button = NodePath("ScrollContainer/MarginContainer/VBoxContainer/LyricsHead/LyricsDownload")
 lyrics_import_button = NodePath("ScrollContainer/MarginContainer/VBoxContainer/LyricsHead/LyricsImport")
-lyrics_save_button = NodePath("ScrollContainer/MarginContainer/VBoxContainer/LyricsHead/LyricsSave")
 lyrics_disabled_check = NodePath("ScrollContainer/MarginContainer/VBoxContainer/LyricsHead/LyricsDisabled")
+lyrics_offset_spin = NodePath("ScrollContainer/MarginContainer/VBoxContainer/LyricsHead/LyricsOffset")
 
 [node name="Panel" type="Panel" parent="." unique_id=2078073054 groups=["style_panel"]]
 anchors_preset = 15
@@ -750,43 +753,49 @@ size_flags_horizontal = 3
 size_flags_vertical = 3
 theme_override_font_sizes/font_size = 30
 
-[node name="LyricsHead" type="HBoxContainer" parent="ScrollContainer/MarginContainer/VBoxContainer"]
+[node name="LyricsHead" type="HBoxContainer" parent="ScrollContainer/MarginContainer/VBoxContainer" unique_id=779741460]
 layout_mode = 2
 theme_override_constants/separation = 10
 
-[node name="LyricsLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/LyricsHead" groups=["color_font_color"]]
+[node name="LyricsLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/LyricsHead" unique_id=1485581024 groups=["color_font_color"]]
 custom_minimum_size = Vector2(150, 0)
 layout_mode = 2
 theme_override_font_sizes/font_size = 35
 text = "歌词"
 
-[node name="LyricsDownload" type="Button" parent="ScrollContainer/MarginContainer/VBoxContainer/LyricsHead"]
+[node name="LyricsDownload" type="Button" parent="ScrollContainer/MarginContainer/VBoxContainer/LyricsHead" unique_id=774772535]
 custom_minimum_size = Vector2(49, 49)
 layout_mode = 2
 tooltip_text = "从B站获取歌词"
 icon = ExtResource("1_gptc6")
 expand_icon = true
 
-[node name="LyricsImport" type="Button" parent="ScrollContainer/MarginContainer/VBoxContainer/LyricsHead"]
+[node name="LyricsImport" type="Button" parent="ScrollContainer/MarginContainer/VBoxContainer/LyricsHead" unique_id=1211164098]
 custom_minimum_size = Vector2(49, 49)
 layout_mode = 2
 tooltip_text = "导入本地 LRC/TXT 歌词"
 icon = ExtResource("3_import")
 expand_icon = true
 
-[node name="LyricsSave" type="Button" parent="ScrollContainer/MarginContainer/VBoxContainer/LyricsHead"]
-custom_minimum_size = Vector2(49, 49)
-layout_mode = 2
-tooltip_text = "保存修改后的歌词"
-icon = ExtResource("2_copy")
-expand_icon = true
-
-[node name="LyricsDisabled" type="CheckButton" parent="ScrollContainer/MarginContainer/VBoxContainer/LyricsHead"]
+[node name="LyricsDisabled" type="CheckButton" parent="ScrollContainer/MarginContainer/VBoxContainer/LyricsHead" unique_id=359801015]
 layout_mode = 2
 theme_override_font_sizes/font_size = 25
 text = "禁用歌词"
 
-[node name="Lyrics" type="TextEdit" parent="ScrollContainer/MarginContainer/VBoxContainer"]
+[node name="LyricsOffsetLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/LyricsHead" unique_id=748855515 groups=["color_font_color"]]
+layout_mode = 2
+theme_override_font_sizes/font_size = 25
+text = "整体偏移(秒)"
+
+[node name="LyricsOffset" type="SpinBox" parent="ScrollContainer/MarginContainer/VBoxContainer/LyricsHead" unique_id=854757553]
+custom_minimum_size = Vector2(130, 49)
+layout_mode = 2
+tooltip_text = "正值让歌词延后，负值让歌词提前"
+min_value = -120.0
+max_value = 120.0
+step = 0.05
+
+[node name="Lyrics" type="TextEdit" parent="ScrollContainer/MarginContainer/VBoxContainer" unique_id=192918668]
 custom_minimum_size = Vector2(0, 220)
 layout_mode = 2
 size_flags_horizontal = 3
@@ -842,8 +851,8 @@ cancel_button_text = "放弃"
 [connection signal="pressed" from="ScrollContainer/MarginContainer/VBoxContainer/DescriptionHead/DescriptionDownload" to="." method="_on_description_download_pressed"]
 [connection signal="pressed" from="ScrollContainer/MarginContainer/VBoxContainer/LyricsHead/LyricsDownload" to="." method="_on_lyrics_download_pressed"]
 [connection signal="pressed" from="ScrollContainer/MarginContainer/VBoxContainer/LyricsHead/LyricsImport" to="." method="_on_lyrics_import_pressed"]
-[connection signal="pressed" from="ScrollContainer/MarginContainer/VBoxContainer/LyricsHead/LyricsSave" to="." method="_on_lyrics_save_pressed"]
 [connection signal="toggled" from="ScrollContainer/MarginContainer/VBoxContainer/LyricsHead/LyricsDisabled" to="." method="_on_lyrics_disabled_toggled"]
+[connection signal="value_changed" from="ScrollContainer/MarginContainer/VBoxContainer/LyricsHead/LyricsOffset" to="." method="_on_lyrics_offset_changed"]
 [connection signal="text_changed" from="ScrollContainer/MarginContainer/VBoxContainer/Lyrics" to="." method="_on_lyrics_text_changed"]
 [connection signal="pressed" from="OK" to="." method="_on_ok_pressed"]
 [connection signal="pressed" from="Cancel" to="." method="_on_cancel_pressed"]

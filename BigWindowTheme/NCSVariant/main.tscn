@@ -368,7 +368,6 @@ func _on_song_changed(_video_info: Dictionary) -> void:
 	_spec_front.fill(Color(0, 0, 0, 1))
 	_spec_back.fill(Color(0, 0, 0, 1))
 	_smooth.fill(0.0)
-	update()
 
 
 func _load_lyrics(video_info: Dictionary) -> void:
@@ -518,7 +517,7 @@ func _update_lyric() -> void:
 			lyric_label.text = \"\"
 			lyric_label.visible = false
 		return
-	var pos := Player.get_current_time_sec()
+	var pos := Player.get_current_time_sec() - float(Player.get_current_video_info().get(\"lyrics_offset\", 0.0))
 	var idx := -1
 	for i in _lyric_times.size():
 		if _lyric_times[i] <= pos:

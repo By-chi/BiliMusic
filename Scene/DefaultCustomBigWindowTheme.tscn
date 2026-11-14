@@ -48,11 +48,9 @@ func update() -> void:
 	else:
 		GdScriptFunc.generate_label_texture(Color.WHITE, video_info.get(\"title\", \"本地文件\"), _set_cover, null, 10, Color.BLACK, Vector2i(70, 70))
 
-	if video_info.get(\"lyrics_disabled\", false):
-		Subtitle.hide()
 	elif video_info.has(\"subtitles\"):
 		var subtitles = video_info[\"subtitles\"]
-		if subtitles == null or subtitles.is_empty():
+		if subtitles == null or subtitles.is_empty() or video_info.get(\"lyrics_disabled\", false):
 			Subtitle.hide()
 		else:
 			Subtitle.show()
@@ -114,15 +112,25 @@ var _music_name_initial_pos: Vector2
 
 func _ready() -> void:
 	Player.seeked.connect(set_stream_position)
-	Player.song_changed.connect(func(_video_info: Dictionary):
-		set_stream_position(0.01)
-	)
+	Player.song_changed.connect(_on_song_changed)
 	# 保存初始位置用于浮动计算
 	_music_name_initial_pos = musicNameLabel.position
 	tween_music_name = musicNameLabel.create_tween()
 	tween_music_name.set_loops()
 	tween_music_name.tween_method(music_name_update_offset, 0.0, TAU, music_name_cycle_duration) \\
 		.set_trans(Tween.TRANS_LINEAR)
+
+func _on_song_changed(_video_info: Dictionary) -> void:
+	Subtitle.hide()
+	LyricTime.clear()
+	Lyric.clear()
+	index = 0
+	last_highlight_index = -1
+	_last_subtitle_data = null
+	for child in Subtitle.get_children():
+		if child is Label:
+			child.hide()
+			child.queue_free()
 
 func music_name_update_offset(angle: float) -> void:
 	musicNameLabel.position = _music_name_initial_pos + Vector2(
@@ -155,8 +163,7 @@ func _refresh_lyrics() -> void:
 		return
 
 	var pos := Player.get_current_time_sec()
-	while index < LyricTime.size() and pos + LyricOffset > LyricTime[index]:
-		index += 1
+	index = find_index_greater_than(LyricTime, pos + LyricOffset - _get_custom_lyrics_offset())
 
 	# 高亮更新（不变）
 	var new_hl := index - 1
@@ -399,9 +406,12 @@ func init_lyrics_from_data(data: Variant) -> void:
 			lyric_labels.append(child)
 
 func set_stream_position(value: float) -> void:
-	index = find_index_greater_than(LyricTime, value * Player.get_duration())
+	index = find_index_greater_than(LyricTime, value * Player.get_duration() + LyricOffset - _get_custom_lyrics_offset())
 	if Subtitle.visible:
 		_refresh_lyrics()
+
+func _get_custom_lyrics_offset() -> float:
+	return float(Player.get_current_video_info().get(\"lyrics_offset\", 0.0))
 
 func capitalize_line(text: String) -> String:
 	if text.is_empty():

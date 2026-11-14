@@ -72,7 +72,6 @@ func _ready() -> void:
 		if lyric_label:
 			lyric_label.text = \"\"          # 清空文本，杜绝残留
 			lyric_label.visible = false
-		update()
 	)
 
 
@@ -518,7 +517,7 @@ func _update_lyric() -> void:
 			lyric_label.visible = false
 		return
 
-	var pos = Player.get_current_time_sec()
+	var pos = Player.get_current_time_sec() - float(Player.get_current_video_info().get(\"lyrics_offset\", 0.0))
 	var idx = -1
 	for i in _lyric_times.size():
 		if _lyric_times[i] <= pos:
