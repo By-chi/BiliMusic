@@ -1293,7 +1293,7 @@ func _download_video(video_card: Control, on_finished: Callable = Callable()) ->
 						GdScriptFunc.set_progress_bar_value(100, title, tr(\"下载完成\"))
 						if on_finished.is_valid(): on_finished.call()
 						update.call_deferred()
-					, audio_path)
+					, lrc_path, audio_path)
 				else:
 					GdScriptFunc.set_progress_bar_value(100, title, tr(\"下载完成\"))
 					GdScriptFunc.set_data(\"Favorites\", _current_fav_dir, fav_list)

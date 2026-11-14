@@ -144,6 +144,25 @@ func fetch_subtitle_auto(bvid: String, callback: Callable, save_path: String = "
 	_video.fetch_subtitle_auto(bvid, callback, save_path, audio_path)
 
 
+func fetch_subtitle_for_video_info(video_info: Dictionary, callback: Callable) -> void:
+	var bvid := str(video_info.get("BV", ""))
+	if bvid.is_empty():
+		var link := str(video_info.get("link", ""))
+		if link.begins_with("BV"):
+			bvid = link
+	if not bvid.begins_with("BV"):
+		callback.call({})
+		return
+
+	var save_path := ""
+	var audio_path := ""
+	if not video_info.get("is_network", true):
+		audio_path = str(video_info.get("link", ""))
+		if not audio_path.is_empty():
+			save_path = audio_path.get_basename() + ".lrc"
+	fetch_subtitle_auto(bvid, callback, save_path, audio_path)
+
+
 ## 查询某曲目已缓存的歌词文件路径（本地下载条目可用 BV 恢复歌词），无则返回 ""
 func get_lyrics_cache_path(video_info: Dictionary) -> String:
 	var bv := str(video_info.get("BV", ""))

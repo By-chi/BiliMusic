@@ -35,7 +35,7 @@ func fetch_subtitle_auto(bvid: String, info: Dictionary, callback: Callable, sav
 		push_error("无有效 cid")
 		callback.call({})
 		return
-	_fetch_subtitle_list(bvid, cid, info, callback, save_path)
+	_fetch_subtitle_list(bvid, cid, info, callback, save_path, audio_path)
 
 func _fetch_subtitle_list(bvid: String, cid: int, info: Dictionary, callback: Callable, save_path: String, audio_path: String = "") -> void:
 	var url = "https://api.bilibili.com/x/player/wbi/v2?bvid=%s&cid=%d" % [bvid, cid]

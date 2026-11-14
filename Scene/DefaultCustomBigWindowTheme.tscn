@@ -48,7 +48,9 @@ func update() -> void:
 	else:
 		GdScriptFunc.generate_label_texture(Color.WHITE, video_info.get(\"title\", \"本地文件\"), _set_cover, null, 10, Color.BLACK, Vector2i(70, 70))
 
-	if video_info.has(\"subtitles\"):
+	if video_info.get(\"lyrics_disabled\", false):
+		Subtitle.hide()
+	elif video_info.has(\"subtitles\"):
 		var subtitles = video_info[\"subtitles\"]
 		if subtitles == null or subtitles.is_empty():
 			Subtitle.hide()
@@ -76,7 +78,7 @@ func update() -> void:
 				Subtitle.hide()
 	elif (video_info.get(\"is_network\", true) or str(video_info.get(\"BV\", \"\")).begins_with(\"BV\")) && GdScriptFunc.get_data(\"Options\", \"Automatically_obtain_subtitles\", false):
 		var requested_bvid = video_info.get(\"BV\", video_info.get(\"link\"))
-		BilibiliApi.fetch_subtitle_auto(requested_bvid, func(subtitle_data: Dictionary):
+		BilibiliApi.fetch_subtitle_for_video_info(video_info, func(subtitle_data: Dictionary):
 			var current_info := Player.get_current_video_info()
 			if current_info.is_empty() or current_info.get(\"BV\", current_info.get(\"link\")) != requested_bvid:
 				return
@@ -296,6 +298,26 @@ func _init_cached_or_hide(video_info: Dictionary) -> void:
 			file.close()
 			init_lyrics_from_data(lrc_text)
 			return
+	if str(video_info.get(\"BV\", \"\")).begins_with(\"BV\") and GdScriptFunc.get_data(\"Options\", \"Automatically_obtain_subtitles\", false):
+		var requested_bvid := str(video_info.get(\"BV\", \"\"))
+		BilibiliApi.fetch_subtitle_for_video_info(video_info, func(result: Dictionary):
+			var current_info := Player.get_current_video_info()
+			if current_info.is_empty() or current_info.get(\"BV\", current_info.get(\"link\")) != requested_bvid:
+				return
+			var path := str(result.get(\"path\", \"\"))
+			if path.is_empty() or not FileAccess.file_exists(path):
+				Subtitle.hide()
+				return
+			var file := FileAccess.open(path, FileAccess.READ)
+			if file == null:
+				Subtitle.hide()
+				return
+			var lrc_text := file.get_as_text()
+			file.close()
+			Subtitle.show()
+			init_lyrics_from_data(lrc_text)
+		)
+		return
 	Subtitle.hide()
 
 func init_lyrics_from_data(data: Variant) -> void:

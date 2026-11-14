@@ -94,7 +94,7 @@ func fetch_subtitle_with_info(info: Dictionary, callback: Callable, save_path: S
 		callback.call({})
 		return
 	_video_info_cache[bvid] = info
-	_subtitle.fetch_subtitle_auto(bvid, info, callback, save_path)
+	_subtitle.fetch_subtitle_auto(bvid, info, callback, save_path, audio_path)
 
 # ==================== 音频播放地址 ====================
 # 说明：
