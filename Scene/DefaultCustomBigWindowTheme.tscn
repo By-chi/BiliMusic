@@ -32,7 +32,6 @@ script/source = "extends Control
 
 var bottomMenu: Panel
 var subject_color := Color.WHITE
-# lyric_labels 保留用于兼容，但不再作为显示逻辑的核心依赖
 var lyric_labels: Array[Label] = []
 
 func update() -> void:
@@ -48,7 +47,7 @@ func update() -> void:
 	else:
 		GdScriptFunc.generate_label_texture(Color.WHITE, video_info.get(\"title\", \"本地文件\"), _set_cover, null, 10, Color.BLACK, Vector2i(70, 70))
 
-	elif video_info.has(\"subtitles\"):
+	if video_info.has(\"subtitles\"):
 		var subtitles = video_info[\"subtitles\"]
 		if subtitles == null or subtitles.is_empty() or video_info.get(\"lyrics_disabled\", false):
 			Subtitle.hide()
@@ -113,7 +112,6 @@ var _music_name_initial_pos: Vector2
 func _ready() -> void:
 	Player.seeked.connect(set_stream_position)
 	Player.song_changed.connect(_on_song_changed)
-	# 保存初始位置用于浮动计算
 	_music_name_initial_pos = musicNameLabel.position
 	tween_music_name = musicNameLabel.create_tween()
 	tween_music_name.set_loops()
@@ -140,7 +138,6 @@ func music_name_update_offset(angle: float) -> void:
 	musicNameLabel.rotation = sin(angle * music_name_freq_rot) * deg_to_rad(2.0)
 
 func _process(delta: float) -> void:
-	# 封面旋转与标题浮动（仅播放时运行）
 	if Player.sonance:
 		coverNode.rotation += delta * coverTextureRectRotateSpeed
 		if not tween_music_name.is_running():
@@ -149,11 +146,9 @@ func _process(delta: float) -> void:
 		if tween_music_name.is_running():
 			tween_music_name.pause()
 
-	# 歌词刷新 —— 完全基于 Subtitle 的真实子节点
 	if Subtitle.visible:
 		_refresh_lyrics()
 
-# 核心：直接使用子节点，不再依赖 lyric_labels 数组
 func _refresh_lyrics() -> void:
 	var labels: Array[Label] = []
 	for child in Subtitle.get_children():
@@ -162,10 +157,9 @@ func _refresh_lyrics() -> void:
 	if labels.is_empty():
 		return
 
-	var pos := Player.get_current_time_sec()
+	var pos := Player.get_current_time_sec() * _get_custom_lyrics_playback_speed()
 	index = find_index_greater_than(LyricTime, pos + LyricOffset - _get_custom_lyrics_offset())
 
-	# 高亮更新（不变）
 	var new_hl := index - 1
 	if new_hl != last_highlight_index:
 		if last_highlight_index >= 0 and last_highlight_index < labels.size():
@@ -184,20 +178,17 @@ func _refresh_lyrics() -> void:
 	var hide_y := float(OnecShowLyricLineCount + 1) * LineSpacing + 2 * extra_spacing
 	const SETTLE_THRESHOLD := 0.5
 
-	# 遍历所有标签，决定是否在窗口内
 	for i in labels.size():
 		var lbl := labels[i]
 		if not is_instance_valid(lbl):
 			continue
 
 		if i < window_start or i > window_end:
-			# 不在窗口内 → 隐藏并移到 hide_y
 			if lbl.visible:
 				lbl.visible = false
 				lbl.position = Vector2(LyricPositionXOffset, hide_y)
 		else:
-			# 在窗口内，计算正确的显示位置
-			var rel_i := i - window_start   # 0～OnecShowLyricLineCount-1
+			var rel_i := i - window_start
 			var target_y := float(rel_i + 1) * LineSpacing
 			if rel_i > hl_idx:
 				target_y += 2 * extra_spacing
@@ -212,9 +203,9 @@ func _refresh_lyrics() -> void:
 					var new_y := lerpf(lbl.position.y, target_y, 0.15 + absi(rel_i - FocusLyricLinePosition + 1) / 20.0)
 					lbl.position = Vector2(lbl.position.x, new_y)
 
-			# 颜色与旋转
 			lbl.modulate = subject_color if rel_i == hl_idx else Color.DIM_GRAY
 			lbl.rotation = (lbl.position.y - float(FocusLyricLinePosition) * LineSpacing) / get_window().size.y * LyricRotationDegree
+
 func _set_cover(texture: Texture2D) -> void:
 	set_cover(\"\", texture)
 
@@ -296,7 +287,6 @@ func _parse_lrc(lrc_text: String) -> void:
 			Lyric.append(entry[\"text\"])
 
 func _init_cached_or_hide(video_info: Dictionary) -> void:
-	# 下载条目 sidecar 歌词丢失时,按 BV 从歌词缓存恢复(下载流程落过缓存)
 	var cached: String = BilibiliApi.get_lyrics_cache_path(video_info)
 	if not cached.is_empty():
 		var file := FileAccess.open(cached, FileAccess.READ)
@@ -328,7 +318,6 @@ func _init_cached_or_hide(video_info: Dictionary) -> void:
 	Subtitle.hide()
 
 func init_lyrics_from_data(data: Variant) -> void:
-	# 去重检查
 	if typeof(data) == typeof(_last_subtitle_data) and data == _last_subtitle_data:
 		return
 	if data is Array:
@@ -338,7 +327,6 @@ func init_lyrics_from_data(data: Variant) -> void:
 	else:
 		return
 
-	# 临时解析数据，避免无效数据清空旧歌词
 	var new_times: Array[float] = []
 	var new_texts: Array[String] = []
 
@@ -360,11 +348,9 @@ func init_lyrics_from_data(data: Variant) -> void:
 			new_times.append(time)
 			new_texts.append(content)
 
-	# 如果解析后无歌词，保留原有标签并退出
 	if new_texts.is_empty():
 		return
 
-	# 安全释放旧标签
 	var old_labels: Array[Label] = []
 	for child in Subtitle.get_children():
 		if child is Label and is_instance_valid(child):
@@ -372,13 +358,11 @@ func init_lyrics_from_data(data: Variant) -> void:
 	for lbl in old_labels:
 		lbl.queue_free()
 
-	# 更新数据
 	LyricTime = new_times
 	Lyric = new_texts
 	index = 0
 	last_highlight_index = -1
 
-	# 创建新标签
 	var hide_y := float(OnecShowLyricLineCount + 1) * LineSpacing + 2 * extra_spacing
 	var lyric_label_template := Label.new()
 	lyric_label_template.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -399,19 +383,25 @@ func init_lyrics_from_data(data: Variant) -> void:
 		lyric_label.visible = false
 		Subtitle.add_child(lyric_label)
 
-	# 同步 lyric_labels 数组（用于可能的其他用途，但刷新已不依赖它）
 	lyric_labels.clear()
 	for child in Subtitle.get_children():
 		if child is Label and is_instance_valid(child):
 			lyric_labels.append(child)
 
 func set_stream_position(value: float) -> void:
-	index = find_index_greater_than(LyricTime, value * Player.get_duration() + LyricOffset - _get_custom_lyrics_offset())
+	var pos := value * Player.get_duration() * _get_custom_lyrics_playback_speed()
+	index = find_index_greater_than(LyricTime, pos + LyricOffset - _get_custom_lyrics_offset())
 	if Subtitle.visible:
 		_refresh_lyrics()
 
 func _get_custom_lyrics_offset() -> float:
 	return float(Player.get_current_video_info().get(\"lyrics_offset\", 0.0))
+
+func _get_custom_lyrics_playback_speed() -> float:
+	var speed := float(Player.get_current_video_info().get(\"lyrics_playback_speed\", 1.0))
+	if speed <= 0.0:
+		speed = 1.0
+	return speed
 
 func capitalize_line(text: String) -> String:
 	if text.is_empty():
@@ -435,7 +425,9 @@ func find_index_greater_than(array: Array[float], target: float) -> int:
 		else:
 			right = mid - 1
 	return left
+
 var is_ECO_mode:=false
+
 func set_ECO_mode(value: bool) -> void:
 	if is_ECO_mode==value:
 		return

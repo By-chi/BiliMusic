@@ -34,10 +34,8 @@ script/source = "extends Control
 var bottomMenu: Panel
 var subject_color := Color.WHITE
 
-# 固定大小的标签池，数量 = OnecShowLyricLineCount + 4
 var _label_pool: Array[Label] = []
-# 记录每个标签当前绑定的行号，-1表示空闲
-var _label_line_map: Dictionary = {} # Label -> int
+var _label_line_map: Dictionary = {}
 
 var _is_animating: bool = false
 var _enter_tween: Tween
@@ -55,7 +53,6 @@ func _ready() -> void:
 
 	Player.seeked.connect(set_stream_position)
 	Player.song_changed.connect(func(_video_info: Dictionary):
-		# 切歌时立即清理旧歌词，避免残留
 		Subtitle.hide()
 		LyricTime.clear()
 		Lyric.clear()
@@ -270,7 +267,6 @@ var last_highlight_index: int = -1
 var _last_subtitle_data: Variant = null
 
 func _init_cached_or_hide(video_info: Dictionary) -> void:
-	# 下载条目 sidecar 歌词丢失时,按 BV 从歌词缓存恢复(下载流程落过缓存)
 	var cached: String = BilibiliApi.get_lyrics_cache_path(video_info)
 	if not cached.is_empty():
 		var file := FileAccess.open(cached, FileAccess.READ)
@@ -315,7 +311,6 @@ func init_lyrics_from_data(data: Variant) -> void:
 	if new_texts.is_empty():
 		return
 
-	# 清除旧的标签池（立即从父节点移除，杜绝残留帧）
 	for lbl in _label_pool:
 		if is_instance_valid(lbl):
 			lbl.get_parent().remove_child(lbl)
@@ -328,7 +323,6 @@ func init_lyrics_from_data(data: Variant) -> void:
 	index = 0
 	last_highlight_index = -1
 
-	# 创建固定大小的标签池（数量 = OnecShowLyricLineCount + 4）
 	var pool_size := OnecShowLyricLineCount + 4
 	var hide_y := float(OnecShowLyricLineCount + 1) * LineSpacing + 2 * extra_spacing
 	for i in pool_size:
@@ -355,14 +349,11 @@ func init_lyrics_from_data(data: Variant) -> void:
 func _get_current_window_start() -> int:
 	return index - FocusLyricLinePosition
 
-# 为指定行分配一个空闲标签，或复用最远的标签
 func _assign_label_to_line(line_idx: int) -> Label:
-	# 先检查是否已有标签分配给了这一行
 	for lbl in _label_pool:
 		if _label_line_map[lbl] == line_idx:
 			return lbl
 
-	# 寻找空闲标签（行号为-1）
 	for lbl in _label_pool:
 		if _label_line_map[lbl] == -1:
 			_label_line_map[lbl] = line_idx
@@ -370,7 +361,6 @@ func _assign_label_to_line(line_idx: int) -> Label:
 			lbl.visible = false
 			return lbl
 
-	# 所有标签都在使用，找出距离当前窗口最远的标签，释放它
 	var window_start := _get_current_window_start()
 	var max_dist := -1
 	var lbl_to_reuse: Label = null
@@ -388,26 +378,22 @@ func _assign_label_to_line(line_idx: int) -> Label:
 		lbl_to_reuse.visible = false
 		return lbl_to_reuse
 
-	# 保底返回最后一个标签（理论上不会执行）
 	return _label_pool[0]
 
 func _refresh_lyrics() -> void:
 	if _is_animating:
 		return
 
-	var pos := Player.get_current_time_sec()
+	var pos := Player.get_current_time_sec() * _get_custom_lyrics_playback_speed()
 	index = find_index_greater_than(LyricTime, pos + LyricOffset - _get_custom_lyrics_offset())
 
 	var new_hl := index - 1
-	# 高亮切换
 	if new_hl != last_highlight_index:
-		# 取消旧高亮
 		if last_highlight_index >= 0:
 			for lbl in _label_pool:
 				if _label_line_map[lbl] == last_highlight_index and lbl.visible:
 					lbl.modulate = Color.DIM_GRAY
 					lbl.offset_transform_scale = Vector2.ONE
-		# 设置新高亮
 		if new_hl >= 0:
 			for lbl in _label_pool:
 				if _label_line_map[lbl] == new_hl and lbl.visible:
@@ -420,7 +406,6 @@ func _refresh_lyrics() -> void:
 	var hide_y: float = float(OnecShowLyricLineCount + 1) * LineSpacing + 2 * extra_spacing
 	const SETTLE_THRESHOLD := 0.5
 
-	# 为当前窗口的每一行分配标签
 	var needed_lines: Array = []
 	for rel_i in range(-2, OnecShowLyricLineCount + 2):
 		var line_idx := window_start + rel_i
@@ -430,7 +415,6 @@ func _refresh_lyrics() -> void:
 	for line_idx in needed_lines:
 		_assign_label_to_line(line_idx)
 
-	# 处理所有标签：根据其绑定的行号计算位置和可见性
 	for lbl in _label_pool:
 		var line_idx: int = _label_line_map[lbl]
 		if line_idx < 0 or line_idx >= Lyric.size():
@@ -444,14 +428,12 @@ func _refresh_lyrics() -> void:
 				lbl.position = Vector2(LyricPositionXOffset, hide_y)
 			continue
 
-		# 更新文本（空行用空格）
 		var desired_text: String = Lyric[line_idx]
 		if desired_text.strip_edges() == \"\":
 			desired_text = \" \"
 		if lbl.text != desired_text:
 			lbl.text = desired_text
 
-		# 计算目标Y坐标
 		var target_y: float = float(rel_i + 1) * LineSpacing
 		if rel_i > hl_rel:
 			target_y += 2 * extra_spacing
@@ -528,15 +510,21 @@ func _on_enter_animation_finished() -> void:
 		_refresh_lyrics()
 
 func set_stream_position(value: float) -> void:
-	# 歌词数组为空时直接返回，避免无数据刷新
 	if LyricTime.size() == 0 or Lyric.size() == 0:
 		return
-	index = find_index_greater_than(LyricTime, value * Player.get_duration() + LyricOffset - _get_custom_lyrics_offset())
+	var pos := value * Player.get_duration() * _get_custom_lyrics_playback_speed()
+	index = find_index_greater_than(LyricTime, pos + LyricOffset - _get_custom_lyrics_offset())
 	if Subtitle.visible:
 		_refresh_lyrics()
 
 func _get_custom_lyrics_offset() -> float:
 	return float(Player.get_current_video_info().get(\"lyrics_offset\", 0.0))
+
+func _get_custom_lyrics_playback_speed() -> float:
+	var speed := float(Player.get_current_video_info().get(\"lyrics_playback_speed\", 1.0))
+	if speed <= 0.0:
+		speed = 1.0
+	return speed
 
 func capitalize_line(text: String) -> String:
 	if text.is_empty():

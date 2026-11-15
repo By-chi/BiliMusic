@@ -3,13 +3,10 @@
 [sub_resource type="GDScript" id="GDScript_snpjp"]
 script/source = "extends Control
 
-## NCSSpectrum —— 频谱瀑布图驱动 + 点阵匀速滑移 + 流体多色渐变 + 振幅缩放
-## 参数变化检测同步: 只有导出变量被修改的那一帧才写 shader, 平时零开销
-
 @export var background: ColorRect
 @export var name_label: Label
 @export var lyric_label: Label
-@export var glow_rect: ColorRect   # 不使用, 运行时隐藏
+@export var glow_rect: ColorRect
 
 @export var sphere_radius_base: float = 275.0
 @export var spectrum_mult_base: float = 230.0
@@ -18,19 +15,19 @@ script/source = "extends Control
 @export var light_dir: Vector3 = Vector3(0.25, 0.45, 1.0)
 @export var ambient: float = 0.25
 
-@export var amp_scale_amount: float = 0.18   # 音量满时整体膨胀比例 (0.18 = 最多胀 18%)
-@export var amp_scale_smooth: float = 8.0    # 缩放平滑度, 越大跟随越紧
+@export var amp_scale_amount: float = 0.18
+@export var amp_scale_smooth: float = 8.0
 
-@export var history_rows: int = 128      # 历史行数 (60行/秒 -> 约2秒历史)
+@export var history_rows: int = 128
 
-@export var spacing_px: float = 8.0      # 球面粒子间距 (投影像素)
-@export var dot_radius: float = 2.5      # 粒子半径 (像素)
-@export var opacity: float = 0.6         # 整体亮度
-@export var complexity: float = 3.0      # 噪声 octaves, 卡就降 2
+@export var spacing_px: float = 8.0
+@export var dot_radius: float = 2.5
+@export var opacity: float = 0.6
+@export var complexity: float = 3.0
 
-@export var spin_speed_deg: float = 8.0  # 度/秒, 正负控制方向
+@export var spin_speed_deg: float = 8.0
 
-@export var color_lat_mix: float = 0.25      # 纬度参与颜色场的比重
+@export var color_lat_mix: float = 0.25
 
 @export var default_color: Color = Color(0.0118, 0.1412, 0.3412, 1.0)
 @export var name_font_size: int = 30
@@ -218,7 +215,6 @@ func _process(delta: float) -> void:
 	if heights.size() != _bands:
 		heights = _resample(heights, _bands)
 
-	# attack 快 release 慢 (仅当前行, 历史行保留原始演化)
 	var a_up := 1.0 - exp(-delta * 30.0)
 	var a_dn := 1.0 - exp(-delta * 10.0)
 	var sum := 0.0
@@ -283,7 +279,6 @@ func _set_texture(_bvid: String, tex: Texture2D) -> void:
 		_apply_color(default_color)
 		return
 	var colors: Array = CSharpFunc.ExtractThemeColors(img, 3, true, 0.15, _current_link)
-	# 按亮度排序, 组装 4 色调色板, 不足用亮度变体补齐
 	var sorted: Array = colors.duplicate()
 	sorted.sort_custom(func(a, b):
 		var ca: Color = a
@@ -364,7 +359,6 @@ func _on_song_changed(_video_info: Dictionary) -> void:
 	_lyric_index = -1
 	lyric_label.text = \"\"
 	lyric_label.visible = false
-	# 清空瀑布历史与平滑
 	_spec_front.fill(Color(0, 0, 0, 1))
 	_spec_back.fill(Color(0, 0, 0, 1))
 	_smooth.fill(0.0)
@@ -380,7 +374,6 @@ func _load_lyrics(video_info: Dictionary) -> void:
 		var new_times: Array[float] = []
 		var new_texts: Array[String] = []
 		_parse_subtitle_data(subtitles, new_times, new_texts)
-		# 下载条目 sidecar 歌词丢失时,按 BV 从歌词缓存恢复
 		if new_texts.is_empty():
 			var cached: String = BilibiliApi.get_lyrics_cache_path(video_info)
 			if not cached.is_empty():
@@ -517,7 +510,7 @@ func _update_lyric() -> void:
 			lyric_label.text = \"\"
 			lyric_label.visible = false
 		return
-	var pos := Player.get_current_time_sec() - float(Player.get_current_video_info().get(\"lyrics_offset\", 0.0))
+	var pos := Player.get_current_time_sec() * _get_custom_lyrics_playback_speed() - float(Player.get_current_video_info().get(\"lyrics_offset\", 0.0))
 	var idx := -1
 	for i in _lyric_times.size():
 		if _lyric_times[i] <= pos:
@@ -533,6 +526,13 @@ func _update_lyric() -> void:
 		else:
 			lyric_label.text = \"\"
 			lyric_label.visible = false
+
+
+func _get_custom_lyrics_playback_speed() -> float:
+	var speed := float(Player.get_current_video_info().get(\"lyrics_playback_speed\", 1.0))
+	if speed <= 0.0:
+		speed = 1.0
+	return speed
 
 
 func _pulse_lyric() -> void:

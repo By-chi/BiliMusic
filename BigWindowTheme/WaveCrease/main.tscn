@@ -63,14 +63,13 @@ func _ready() -> void:
 
 	_setup_lyric_float_animation()
 
-	# 监听切歌信号：彻底清除残留
 	Player.song_changed.connect(func(_video_info: Dictionary):
 		_last_lyric_data = null
 		_lyric_times.clear()
 		_lyric_texts.clear()
 		_lyric_index = -1
 		if lyric_label:
-			lyric_label.text = \"\"          # 清空文本，杜绝残留
+			lyric_label.text = \"\"
 			lyric_label.visible = false
 	)
 
@@ -249,7 +248,6 @@ func set_ECO_mode(value: bool) -> void:
 
 func _enter_eco_mode() -> void:
 	_pause_all_tweens()
-	# 暂停时不再隐藏歌词
 
 
 func _exit_eco_mode() -> void:
@@ -344,7 +342,6 @@ func _load_lyrics(video_info: Dictionary) -> void:
 		var new_times: Array[float] = []
 		var new_texts: Array[String] = []
 		_parse_subtitle_data(subtitles, new_times, new_texts)
-		# 下载条目 sidecar 歌词丢失时,按 BV 从歌词缓存恢复
 		if new_texts.is_empty():
 			var cached: String = BilibiliApi.get_lyrics_cache_path(video_info)
 			if not cached.is_empty():
@@ -509,15 +506,21 @@ func _capitalize_line(text: String) -> String:
 	return result
 
 
+func _get_custom_lyrics_playback_speed() -> float:
+	var speed := float(Player.get_current_video_info().get(\"lyrics_playback_speed\", 1.0))
+	if speed <= 0.0:
+		speed = 1.0
+	return speed
+
+
 func _update_lyric() -> void:
 	if not lyric_label or _lyric_times.is_empty():
-		# 没有歌词时彻底清空
 		if lyric_label:
 			lyric_label.text = \"\"
 			lyric_label.visible = false
 		return
 
-	var pos = Player.get_current_time_sec() - float(Player.get_current_video_info().get(\"lyrics_offset\", 0.0))
+	var pos = Player.get_current_time_sec() * _get_custom_lyrics_playback_speed() - float(Player.get_current_video_info().get(\"lyrics_offset\", 0.0))
 	var idx = -1
 	for i in _lyric_times.size():
 		if _lyric_times[i] <= pos:
