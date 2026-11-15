@@ -448,14 +448,14 @@ func cancel_collection(link: String) -> void:
 
 # 安全回调，避免对象已释放
 func safe_callback(bvid: String, texture: ImageTexture, callback: Callable) -> void:
-	if (
-		callback == null
-		or not callback.is_valid()
-		or callback.get_object() == null
-		or callback.get_object().is_queued_for_deletion()
-		or callback.is_null()
-	):
+	if not callback.is_valid():
 		return
+	var target := callback.get_object()
+	if target != null:
+		if not is_instance_valid(target):
+			return
+		if target is Node and (target as Node).is_queued_for_deletion():
+			return
 	callback.call(bvid, texture)
 
 

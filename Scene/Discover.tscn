@@ -1,6 +1,8 @@
 [gd_scene format=3 uid="uid://h8qr8p6khg63"]
 
 [ext_resource type="Texture2D" uid="uid://bq8p42egv625x" path="res://UI/Icon/add.svg" id="1_6vwaf"]
+[ext_resource type="Texture2D" uid="uid://cukuuxdt3d351" path="res://UI/Icon/Windmill.svg" id="2_w1ald"]
+[ext_resource type="SpriteFrames" uid="uid://dbdlrepdaw65o" path="res://UI/Icon/loading_new.gif" id="3_loading"]
 
 [sub_resource type="GDScript" id="GDScript_61i7r"]
 script/source = "extends Control
@@ -24,6 +26,37 @@ var _hint_label: Label
 var _insert_line: ColorRect
 
 @export var time_cd: Timer
+@onready var favorites_scroll_container: ScrollContainer = $FavoritesScrollContainer
+@onready var favorites_grid_container: GridContainer = $FavoritesScrollContainer/VBoxContainer/GridContainer
+@onready var recommendation_status: Label = $FavoritesScrollContainer/VBoxContainer/RecommendationStatus
+@onready var ups_mode_button: Button = $Mode/Ups
+@onready var favorites_mode_button: Button = $Mode/Favorites
+@onready var recommendation_loading: Control = $RecommendationLoading
+
+const MAX_RECOMMENDATION_UPS := 8
+const MAX_RECOMMENDATION_CARDS := 20
+const RECOMMENDATION_CARD_WIDTH := 582.4
+const RECOMMENDATION_MIN_HORIZONTAL_GAP := 20.0
+const MAX_RECOMMENDATION_POOL := 400
+const INITIAL_RECOMMENDATION_PAGES_PER_UP := 3
+const REFILL_RECOMMENDATION_PAGES_PER_UP := 2
+const MAX_SEARCH_PAGES_PER_UP := 50
+const RECENT_RECOMMENDATION_HISTORY := 40
+
+var _showing_favorite_discovery := false
+var _recommendation_generation := 0
+var _favorite_recommendations_signature := \"\"
+var _recommendation_pool: Array = []
+var _recent_recommendation_links: Array[String] = []
+var _recommendation_authors: Array[String] = []
+var _recommendation_seen_links: Dictionary = {}
+var _recommendation_seen_pages: Dictionary = {}
+var _recommendation_jobs: Array[Dictionary] = []
+var _recommendation_job_index := 0
+var _recommendation_author_count := 0
+var _recommendation_fetching := false
+var _mode_tween: Tween
+var _recommendation_loading_tween: Tween
 var is_vertical_sliding := false:
 	set(value):
 		if value == is_vertical_sliding:
@@ -53,6 +86,8 @@ func _ready() -> void:
 
 	if add_button:
 		add_button.pressed.connect(_prompt_up_dialog)
+	favorites_scroll_container.resized.connect(_update_recommendation_columns)
+	_update_recommendation_columns()
 
 	list_box.transform_changed.connect(on_list_rolling)
 	on_list_rolling()
@@ -284,10 +319,316 @@ func _do_collect(video_data: Dictionary) -> void:
 		list.append({\"link\": link, \"title\": video_data.get(\"title\", \"\"), \"author\": video_data.get(\"author\", \"\"), \"description\": video_data.get(\"description\", \"\"), \"is_network\": true})
 		GdScriptFunc.set_data(\"Favorites\", dir_name, list)
 		GdScriptFunc.flush()
+	_favorite_recommendations_signature = \"\"
+	if _showing_favorite_discovery:
+		_refresh_favorite_recommendations()
 
 
 func _on_cancel_collect(link: String) -> void:
 	GdScriptFunc.cancel_collection(link)
+	_favorite_recommendations_signature = \"\"
+	if _showing_favorite_discovery:
+		_refresh_favorite_recommendations()
+
+
+func _show_up_discovery() -> void:
+	_switch_discovery_mode(false)
+
+
+func _show_favorite_discovery() -> void:
+	_switch_discovery_mode(true)
+
+
+func _switch_discovery_mode(show_favorites: bool) -> void:
+	if show_favorites == _showing_favorite_discovery:
+		ups_mode_button.set_pressed_no_signal(not show_favorites)
+		favorites_mode_button.set_pressed_no_signal(show_favorites)
+		if show_favorites:
+			_shuffle_favorite_recommendations()
+		return
+	if _mode_tween and _mode_tween.is_running():
+		ups_mode_button.set_pressed_no_signal(not _showing_favorite_discovery)
+		favorites_mode_button.set_pressed_no_signal(_showing_favorite_discovery)
+		return
+
+	var outgoing: Control = favorites_scroll_container if _showing_favorite_discovery else $UpsScrollContainer
+	var incoming: Control = favorites_scroll_container if show_favorites else $UpsScrollContainer
+	var direction := 1.0 if show_favorites else -1.0
+	var slide_distance := maxf(size.x, 1.0)
+
+	_showing_favorite_discovery = show_favorites
+	ups_mode_button.set_pressed_no_signal(not show_favorites)
+	favorites_mode_button.set_pressed_no_signal(show_favorites)
+	incoming.show()
+	incoming.modulate.a = 0.0
+	incoming.set(\"offset_transform_position\", Vector2(direction * slide_distance, 0))
+
+	_mode_tween = create_tween()
+	_mode_tween.tween_property(outgoing, \"offset_transform_position:x\", -direction * slide_distance, 0.25).set_trans(Tween.TRANS_CUBIC)
+	_mode_tween.parallel().tween_property(outgoing, \"modulate:a\", 0.0, 0.22).set_trans(Tween.TRANS_CUBIC)
+	var incoming_tween := create_tween()
+	incoming_tween.tween_property(incoming, \"offset_transform_position:x\", 0.0, 0.25).set_trans(Tween.TRANS_CUBIC)
+	incoming_tween.parallel().tween_property(incoming, \"modulate:a\", 1.0, 0.25).set_trans(Tween.TRANS_CUBIC)
+	_mode_tween.finished.connect(func():
+		outgoing.hide()
+		outgoing.modulate.a = 1.0
+		outgoing.set(\"offset_transform_position\", Vector2.ZERO)
+		incoming.set(\"offset_transform_position\", Vector2.ZERO)
+		_mode_tween = null
+	)
+	if show_favorites:
+		_refresh_favorite_recommendations()
+
+
+func _update_recommendation_columns() -> void:
+	if not is_instance_valid(favorites_grid_container) or not is_instance_valid(favorites_scroll_container):
+		return
+	var available_width := favorites_grid_container.size.x
+	if available_width <= 0.0:
+		available_width = favorites_scroll_container.size.x
+	var columns := maxi(
+		1,
+		int((available_width + RECOMMENDATION_MIN_HORIZONTAL_GAP) / (RECOMMENDATION_CARD_WIDTH + RECOMMENDATION_MIN_HORIZONTAL_GAP))
+	)
+	favorites_grid_container.columns = columns
+	var horizontal_gap := RECOMMENDATION_MIN_HORIZONTAL_GAP
+	if columns > 1:
+		horizontal_gap = maxf(
+			RECOMMENDATION_MIN_HORIZONTAL_GAP,
+			(available_width - columns * RECOMMENDATION_CARD_WIDTH) / (columns - 1)
+		)
+	favorites_grid_container.add_theme_constant_override(\"h_separation\", int(round(horizontal_gap)))
+
+
+func _refresh_favorite_recommendations() -> void:
+	_recommendation_generation += 1
+	var generation := _recommendation_generation
+	var favorite_links: Dictionary = {}
+	var authors: Array[String] = []
+	var signature_parts: Array[String] = []
+
+	for dir_name in GdScriptFunc.get_keys(\"Favorites\"):
+		var saved_videos: Variant = GdScriptFunc.get_data(\"Favorites\", dir_name, [])
+		if not saved_videos is Array:
+			continue
+		for video in saved_videos:
+			if not video is Dictionary or not video.get(\"is_network\", true):
+				continue
+			var link := str(video.get(\"link\", video.get(\"bvid\", video.get(\"BV\", \"\")))).strip_edges()
+			var author := str(video.get(\"author\", \"\")).strip_edges()
+			if not link.is_empty():
+				favorite_links[link] = true
+				signature_parts.append(link + \":\" + author)
+			if not author.is_empty() and not authors.has(author):
+				authors.append(author)
+
+	signature_parts.sort()
+	var signature := \"|\".join(signature_parts)
+	if signature == _favorite_recommendations_signature:
+		_recommendation_generation -= 1
+		return
+	_favorite_recommendations_signature = signature
+	_clear_recommendation_cards()
+	_recommendation_pool.clear()
+	_recent_recommendation_links.clear()
+	_recommendation_seen_pages.clear()
+	_recommendation_fetching = false
+
+	if authors.is_empty():
+		_recommendation_authors.clear()
+		_recommendation_seen_links.clear()
+		_hide_recommendation_loading()
+		recommendation_status.text = tr(\"收藏夹中没有可用于推荐的 UP 主\")
+		return
+
+	authors.shuffle()
+	if authors.size() > MAX_RECOMMENDATION_UPS:
+		authors.resize(MAX_RECOMMENDATION_UPS)
+	_recommendation_authors = authors
+	_recommendation_seen_links = favorite_links
+	_recommendation_author_count = authors.size()
+	recommendation_status.text = tr(\"正在从收藏的 UP 主中寻找视频…\")
+	_queue_recommendation_search_jobs(true, generation)
+
+
+func _shuffle_favorite_recommendations(allow_refill := true) -> void:
+	if _recommendation_pool.is_empty():
+		if not _recommendation_fetching and not _recommendation_authors.is_empty():
+			_queue_recommendation_search_jobs(false, _recommendation_generation)
+		return
+
+	var current_links: Dictionary = {}
+	for child in favorites_grid_container.get_children():
+		if is_instance_valid(child) and \"link\" in child:
+			current_links[str(child.link)] = true
+
+	var target_count := mini(_recommendation_pool.size(), MAX_RECOMMENDATION_CARDS)
+	var candidates := _get_unseen_recommendations(current_links)
+	if candidates.size() < target_count and allow_refill and _recommendation_pool.size() < MAX_RECOMMENDATION_POOL:
+		if _queue_recommendation_search_jobs(false, _recommendation_generation):
+			return
+	while candidates.size() < target_count and not _recent_recommendation_links.is_empty():
+		_recent_recommendation_links.pop_front()
+		candidates = _get_unseen_recommendations(current_links)
+
+	candidates.shuffle()
+	var selected: Array = []
+	var selected_count := mini(candidates.size(), target_count)
+	for index in selected_count:
+		selected.append(candidates[index])
+	_clear_recommendation_cards()
+	for video in selected:
+		_create_recommended_video_card(video)
+		var link := str(video.get(\"link\", video.get(\"bvid\", video.get(\"BV\", \"\"))))
+		if not link.is_empty():
+			_recent_recommendation_links.append(link)
+	while _recent_recommendation_links.size() > RECENT_RECOMMENDATION_HISTORY:
+		_recent_recommendation_links.pop_front()
+	var count := selected.size()
+	if count == 0:
+		recommendation_status.text = tr(\"没有更多未展示的视频，请收藏更多 UP 主或稍后重试\")
+	else:
+		recommendation_status.text = tr(\"从 %d 位收藏 UP 主中随机推荐 %d 个视频\") % [_recommendation_author_count, count]
+
+
+func _get_unseen_recommendations(current_links: Dictionary) -> Array:
+	var recent_links: Dictionary = {}
+	for link in _recent_recommendation_links:
+		recent_links[link] = true
+	var candidates: Array = []
+	for video in _recommendation_pool:
+		var link := str(video.get(\"link\", video.get(\"bvid\", video.get(\"BV\", \"\"))))
+		if link.is_empty() or current_links.has(link) or recent_links.has(link):
+			continue
+		candidates.append(video)
+	return candidates
+
+
+func _clear_recommendation_cards() -> void:
+	for child in favorites_grid_container.get_children():
+		child.queue_free()
+
+
+func _queue_recommendation_search_jobs(initial_load: bool, generation: int) -> bool:
+	if _recommendation_fetching or _recommendation_pool.size() >= MAX_RECOMMENDATION_POOL:
+		return false
+
+	_recommendation_jobs.clear()
+	_recommendation_job_index = 0
+	for author in _recommendation_authors:
+		var pages: Array[int] = []
+		if initial_load:
+			for page in range(1, INITIAL_RECOMMENDATION_PAGES_PER_UP + 1):
+				pages.append(page)
+		else:
+			var available_pages: Array[int] = []
+			var used_pages: Dictionary = _recommendation_seen_pages.get(author, {})
+			for page in range(1, MAX_SEARCH_PAGES_PER_UP + 1):
+				if not used_pages.has(page):
+					available_pages.append(page)
+			available_pages.shuffle()
+			for index in mini(REFILL_RECOMMENDATION_PAGES_PER_UP, available_pages.size()):
+				pages.append(available_pages[index])
+
+		for page in pages:
+			var used_pages: Dictionary = _recommendation_seen_pages.get(author, {})
+			used_pages[page] = true
+			_recommendation_seen_pages[author] = used_pages
+			_recommendation_jobs.append({\"author\": author, \"page\": page})
+
+	if _recommendation_jobs.is_empty():
+		return false
+
+	_recommendation_fetching = true
+	recommendation_status.text = tr(\"正在从收藏的 UP 主中寻找视频…\")
+	_show_recommendation_loading()
+	_run_recommendation_search_job(generation)
+	return true
+
+
+func _run_recommendation_search_job(generation: int) -> void:
+	if generation != _recommendation_generation or not is_inside_tree():
+		return
+	if _recommendation_job_index >= _recommendation_jobs.size() or _recommendation_pool.size() >= MAX_RECOMMENDATION_POOL:
+		_finish_recommendation_search(generation)
+		return
+
+	var job: Dictionary = _recommendation_jobs[_recommendation_job_index]
+	BilibiliApi.search_bilibili(
+		_on_recommendation_search_completed.bind(generation),
+		job.author,
+		20,
+		0,
+		job.page,
+		job.author
+	)
+
+
+func _on_recommendation_search_completed(videos: Variant, generation: int) -> void:
+	if generation != _recommendation_generation or not is_inside_tree():
+		return
+	if videos is Array:
+		for video in videos:
+			if not video is Dictionary:
+				continue
+			var link := str(video.get(\"link\", video.get(\"bvid\", video.get(\"BV\", \"\")))).strip_edges()
+			if link.is_empty() or _recommendation_seen_links.has(link):
+				continue
+			_recommendation_seen_links[link] = true
+			video[\"is_network\"] = true
+			_recommendation_pool.append(video)
+			if _recommendation_pool.size() >= MAX_RECOMMENDATION_POOL:
+				break
+	_recommendation_job_index += 1
+	_run_recommendation_search_job(generation)
+
+
+func _finish_recommendation_search(generation: int) -> void:
+	if generation != _recommendation_generation or not is_inside_tree():
+		return
+	_recommendation_fetching = false
+	_hide_recommendation_loading()
+	if _recommendation_pool.is_empty():
+		recommendation_status.text = tr(\"暂时没有找到这些 UP 主的相关视频\")
+		return
+	_shuffle_favorite_recommendations(false)
+
+
+func _show_recommendation_loading() -> void:
+	if _recommendation_loading_tween and _recommendation_loading_tween.is_running():
+		_recommendation_loading_tween.kill()
+	recommendation_loading.show()
+	recommendation_loading.modulate.a = 0.0
+	var sprite: AnimatedSprite2D = recommendation_loading.get_node(\"AnimatedSprite2D\")
+	sprite.play(\"gif\")
+	_recommendation_loading_tween = create_tween()
+	_recommendation_loading_tween.tween_property(recommendation_loading, \"modulate:a\", 1.0, 0.2)
+
+
+func _hide_recommendation_loading() -> void:
+	if _recommendation_loading_tween and _recommendation_loading_tween.is_running():
+		_recommendation_loading_tween.kill()
+	_recommendation_loading_tween = create_tween()
+	_recommendation_loading_tween.tween_property(recommendation_loading, \"modulate:a\", 0.0, 0.2)
+	_recommendation_loading_tween.tween_callback(func():
+		recommendation_loading.hide()
+		_recommendation_loading_tween = null
+	)
+
+
+func _create_recommended_video_card(video: Dictionary) -> void:
+	var video_card: Control = preload(\"res://Scene/VideoCard.tscn\").instantiate()
+	favorites_grid_container.add_child(video_card)
+	GdScriptFunc.apply_theme_and_styles_to_node(video_card)
+	video_card.video_info = video
+	video_card.title = video.get(\"title\", \"\")
+	video_card.author = video.get(\"author\", \"\")
+	video_card.description = video.get(\"description\", \"\")
+	video_card.link = str(video.get(\"link\", video.get(\"bvid\", video.get(\"BV\", \"\"))))
+	video_card.custom_minimum_size = Vector2(RECOMMENDATION_CARD_WIDTH, 364.0)
+	video_card.reset()
+	BilibiliApi.fetch_cover(video_card.link, set_cover.bind(video_card), 583, 364)
+	video_card.gui_input.connect(_on_video_card_gui_input.bind(video_card, video))
 
 
 func _set_cover(texture: Texture2D, video_card: Control) -> void:
@@ -330,9 +671,12 @@ func _on_up_node_gui_input(event: InputEvent, node: Control) -> void:
 		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 			_show_up_menu(node)
 	elif event is InputEventMouseMotion:
-		if _press_node == node and not _dragging \\
-				and event.button_mask & MOUSE_BUTTON_MASK_LEFT \\
-				and event.global_position.distance_to(_press_pos) > DRAG_THRESHOLD:
+		if (
+			_press_node == node
+			and not _dragging
+			and event.button_mask & MOUSE_BUTTON_MASK_LEFT
+			and event.global_position.distance_to(_press_pos) > DRAG_THRESHOLD
+		):
 			_start_drag()
 
 
@@ -357,8 +701,10 @@ func _make_drag_preview(node: Control) -> Control:
 func _input(event: InputEvent) -> void:
 	if not _dragging:
 		return
-	if event is InputEventMouseButton \\
-			and (event.button_index == MOUSE_BUTTON_WHEEL_DOWN or event.button_index == MOUSE_BUTTON_WHEEL_UP):
+	if (
+		event is InputEventMouseButton
+		and (event.button_index == MOUSE_BUTTON_WHEEL_DOWN or event.button_index == MOUSE_BUTTON_WHEEL_UP)
+	):
 		get_viewport().set_input_as_handled()
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
@@ -415,8 +761,8 @@ func _finish_drag() -> void:
 
 func _calc_insert_index(global_y: float) -> int:
 	for i in up_nodes.size():
-		var r := up_nodes[i].get_global_rect()
-		if global_y < r.position.y + r.size.y * 0.5:
+		var rect := up_nodes[i].get_global_rect()
+		if global_y < rect.position.y + rect.size.y * 0.5:
 			return i
 	return up_nodes.size()
 
@@ -465,8 +811,8 @@ func _remove_up(node: Control) -> void:
 
 
 func _add_up(mid: String) -> void:
-	for n in up_nodes:
-		if _up_mid(n) == mid:
+	for node in up_nodes:
+		if _up_mid(node) == mid:
 			GdScriptFunc.show_toast(tr(\"该 UP 主已在列表中\"))
 			return
 	ups.append(mid)
@@ -497,15 +843,15 @@ func _prompt_up_dialog(prefill := \"\") -> void:
 	var is_new := prefill.is_empty()
 	var dialog := AcceptDialog.new()
 	dialog.title = tr(\"添加 UP 主\") if is_new else tr(\"编辑 UP 主\")
-	var le := LineEdit.new()
-	le.text = prefill
-	le.placeholder_text = tr(\"输入 UID / MID（如 946974），或 bilibili音乐周榜\")
-	le.custom_minimum_size = Vector2(420, 40)
-	dialog.add_child(le)
+	var line_edit := LineEdit.new()
+	line_edit.text = prefill
+	line_edit.placeholder_text = tr(\"输入 UID / MID（如 946974），或 bilibili音乐周榜\")
+	line_edit.custom_minimum_size = Vector2(420, 40)
+	dialog.add_child(line_edit)
 	add_child(dialog)
 	GdScriptFunc.apply_theme_and_styles_to_node(dialog)
 	dialog.confirmed.connect(func():
-		var mid := le.text.strip_edges().trim_prefix(\"UID:\").trim_prefix(\"uid:\").trim_prefix(\"空间:\")
+		var mid := line_edit.text.strip_edges().trim_prefix(\"UID:\").trim_prefix(\"uid:\").trim_prefix(\"空间:\")
 		if mid.is_empty():
 			dialog.queue_free()
 			return
@@ -530,8 +876,8 @@ func _show_up_menu(node: Control) -> void:
 
 func _save_ups() -> void:
 	ups.clear()
-	for n in up_nodes:
-		ups.append(_up_mid(n))
+	for node in up_nodes:
+		ups.append(_up_mid(node))
 	GdScriptFunc.set_data(\"DiscoverPage\", \"ups\", Array(ups))
 	GdScriptFunc.flush()
 
@@ -569,6 +915,28 @@ func _notification(what):
 		transform_changed.emit()
 "
 
+[sub_resource type="GDScript" id="GDScript_aqxlu"]
+script/source = "extends VBoxContainer
+
+
+# Called when the node enters the scene tree for the first time.
+func _ready() -> void:
+	pass # Replace with function body.
+
+
+# Called every frame. 'delta' is the elapsed time since the previous frame.
+func _process(delta: float) -> void:
+	pass
+"
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_aqxlu"]
+
+[sub_resource type="DPITexture" id="DPITexture_aqxlu"]
+_source = "<?xml version=\"1.0\" standalone=\"no\"?><!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\"><svg t=\"1773544225542\" class=\"icon\" viewBox=\"0 0 1024 1024\" version=\"1.1\" xmlns=\"http://www.w3.org/2000/svg\" p-id=\"9342\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" width=\"200\" height=\"200\"><path d=\"M512 85.333333c235.637333 0 426.666667 191.029333 426.666667 426.666667S747.637333 938.666667 512 938.666667 85.333333 747.637333 85.333333 512 276.362667 85.333333 512 85.333333z m0 64c-200.298667 0-362.666667 162.368-362.666667 362.666667s162.368 362.666667 362.666667 362.666667 362.666667-162.368 362.666667-362.666667-162.368-362.666667-362.666667-362.666667z m149.162667 158.901334a42.666667 42.666667 0 0 1 54.602666 54.602666L637.642667 579.84a96 96 0 0 1-57.813334 57.802667l-216.992 78.122666a42.666667 42.666667 0 0 1-54.602666-54.602666l78.122666-217.002667a96 96 0 0 1 57.813334-57.802667z m-20.970667 75.573333l-174.346667 62.762667a32 32 0 0 0-19.274666 19.274666l-62.762667 174.346667 174.346667-62.762667a32 32 0 0 0 19.274666-19.274666l62.762667-174.346667z\" fill=\"#000000\" p-id=\"9343\"></path></svg>"
+color_map = {
+Color(0, 0, 0, 1): Color(0.07058824, 0.5882353, 0.85882354, 1)
+}
+
 [node name="Page2" type="Control" unique_id=585043204 node_paths=PackedStringArray("list_box", "scroll_container", "add_button", "time_cd")]
 layout_mode = 3
 anchors_preset = 15
@@ -580,13 +948,13 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 1
 script = SubResource("GDScript_61i7r")
-list_box = NodePath("ScrollContainer/VBoxContainer")
-scroll_container = NodePath("ScrollContainer")
+list_box = NodePath("UpsScrollContainer/VBoxContainer")
+scroll_container = NodePath("UpsScrollContainer")
 ups = Array[String](["3493093607213343", "496958358", "399267210", "401234815", "1395786030", "86111379", "bilibili音乐周榜", "23340150"])
 add_button = NodePath("AddButton")
-time_cd = NodePath("ScrollContainer/CDTimer")
+time_cd = NodePath("UpsScrollContainer/CDTimer")
 
-[node name="ScrollContainer" type="ScrollContainer" parent="." unique_id=352955920]
+[node name="UpsScrollContainer" type="ScrollContainer" parent="." unique_id=352955920]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -595,19 +963,19 @@ grow_horizontal = 2
 grow_vertical = 2
 horizontal_scroll_mode = 3
 
-[node name="VBoxContainer" type="VBoxContainer" parent="ScrollContainer" unique_id=1811422253]
+[node name="VBoxContainer" type="VBoxContainer" parent="UpsScrollContainer" unique_id=1811422253]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 60
 script = SubResource("GDScript_6vwaf")
 
-[node name="Label" type="Label" parent="ScrollContainer/VBoxContainer" unique_id=921580403]
+[node name="Label" type="Label" parent="UpsScrollContainer/VBoxContainer" unique_id=921580403]
 layout_mode = 2
 mouse_filter = 0
 theme_override_font_sizes/font_size = 50
 text = "发现音乐"
 
-[node name="SubLabel" type="Label" parent="ScrollContainer/VBoxContainer/Label" unique_id=345127570 groups=["color_font_color"]]
+[node name="SubLabel" type="Label" parent="UpsScrollContainer/VBoxContainer/Label" unique_id=345127570 groups=["color_font_color"]]
 layout_mode = 1
 offset_top = 78.0
 offset_right = 201.0
@@ -615,7 +983,53 @@ offset_bottom = 112.0
 theme_override_font_sizes/font_size = 24
 text = "从众多UP主中推荐"
 
-[node name="CDTimer" type="Timer" parent="ScrollContainer" unique_id=520375900]
+[node name="CDTimer" type="Timer" parent="UpsScrollContainer" unique_id=520375900]
+wait_time = 0.5
+one_shot = true
+autostart = true
+
+[node name="FavoritesScrollContainer" type="ScrollContainer" parent="." unique_id=222037532]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+horizontal_scroll_mode = 3
+
+[node name="VBoxContainer" type="VBoxContainer" parent="FavoritesScrollContainer" unique_id=792834313]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 60
+script = SubResource("GDScript_aqxlu")
+
+[node name="Label" type="Label" parent="FavoritesScrollContainer/VBoxContainer" unique_id=912479853]
+layout_mode = 2
+mouse_filter = 0
+theme_override_font_sizes/font_size = 50
+text = "发现音乐"
+
+[node name="SubLabel" type="Label" parent="FavoritesScrollContainer/VBoxContainer/Label" unique_id=1545955202 groups=["color_font_color"]]
+layout_mode = 1
+offset_top = 78.0
+offset_right = 201.0
+offset_bottom = 112.0
+theme_override_font_sizes/font_size = 24
+text = "从收藏音乐up中拓展"
+
+[node name="RecommendationStatus" type="Label" parent="FavoritesScrollContainer/VBoxContainer" unique_id=1000000001]
+layout_mode = 2
+text = "从收藏夹中的 UP 主发现更多视频"
+
+[node name="GridContainer" type="GridContainer" parent="FavoritesScrollContainer/VBoxContainer" unique_id=1000000002]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/h_separation = 20
+theme_override_constants/v_separation = 30
+columns = 2
+
+[node name="CDTimer" type="Timer" parent="FavoritesScrollContainer" unique_id=1386269102]
 wait_time = 0.5
 one_shot = true
 autostart = true
@@ -638,7 +1052,73 @@ tooltip_text = "添加UP视频列表"
 icon = ExtResource("1_6vwaf")
 expand_icon = true
 
-[connection signal="gui_input" from="ScrollContainer" to="." method="_on_scroll_container_gui_input"]
-[connection signal="mouse_entered" from="ScrollContainer" to="." method="_on_scroll_container_mouse_entered"]
-[connection signal="mouse_exited" from="ScrollContainer" to="." method="_on_scroll_container_mouse_exited"]
-[connection signal="timeout" from="ScrollContainer/CDTimer" to="." method="_on_cd_timer_timeout"]
+[node name="Mode" type="Panel" parent="." unique_id=1855925457 groups=["style_panel"]]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -177.0
+offset_top = 35.0
+offset_right = -39.0
+offset_bottom = 105.0
+grow_horizontal = 0
+theme_override_styles/panel = SubResource("StyleBoxFlat_aqxlu")
+
+[node name="Ups" type="Button" parent="Mode" unique_id=1160580485]
+layout_mode = 1
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_left = 3.0
+offset_top = 3.0
+offset_right = 68.0
+offset_bottom = -3.0
+grow_vertical = 2
+tooltip_text = "up列表"
+toggle_mode = true
+button_pressed = true
+icon = ExtResource("2_w1ald")
+expand_icon = true
+
+[node name="Favorites" type="Button" parent="Mode" unique_id=1035087779]
+layout_mode = 1
+anchors_preset = 11
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -67.0
+offset_top = 3.0
+offset_right = -3.0
+offset_bottom = -3.0
+grow_horizontal = 0
+grow_vertical = 2
+tooltip_text = "收藏发现"
+toggle_mode = true
+icon = SubResource("DPITexture_aqxlu")
+expand_icon = true
+
+[node name="RecommendationLoading" type="Control" parent="." unique_id=1000000003]
+visible = false
+z_index = 100
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="RecommendationLoading" unique_id=1000000004]
+sprite_frames = ExtResource("3_loading")
+animation = &"gif"
+autoplay = "gif"
+speed_scale = 2.0
+
+[connection signal="gui_input" from="UpsScrollContainer" to="." method="_on_scroll_container_gui_input"]
+[connection signal="mouse_entered" from="UpsScrollContainer" to="." method="_on_scroll_container_mouse_entered"]
+[connection signal="mouse_exited" from="UpsScrollContainer" to="." method="_on_scroll_container_mouse_exited"]
+[connection signal="timeout" from="UpsScrollContainer/CDTimer" to="." method="_on_cd_timer_timeout"]
+[connection signal="timeout" from="FavoritesScrollContainer/CDTimer" to="." method="_on_cd_timer_timeout"]
+[connection signal="pressed" from="Mode/Ups" to="." method="_show_up_discovery"]
+[connection signal="pressed" from="Mode/Favorites" to="." method="_show_favorite_discovery"]

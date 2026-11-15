@@ -105,6 +105,8 @@ var _local_item_h: float = 364.0
 var _local_row_h: float = 374.0
 var _local_gap: float = 10.0
 const LOCAL_CARD_HEIGHT_LIST: float = 90.0
+const THUMBNAIL_CARD_WIDTH: float = 582.4
+const THUMBNAIL_MIN_HORIZONTAL_GAP: float = 20.0
 # ---------------------------------
 
 # ===== 虚拟布局 resize 防抖 =====
@@ -239,11 +241,11 @@ func _populate_cloud_folder_items(items: Array, folder_title: String) -> void:
 		_cloud_item_w = 0.0   # 用容器宽
 	else:
 		_cloud_item_h = 364.0
-		_cloud_item_w = 582.4
+		_cloud_item_w = THUMBNAIL_CARD_WIDTH
 		_cloud_gap = 10.0
 		# 让 GridContainer 只排一列，虚拟根节点独占整行
 		grid_container.columns = 1
-		_cloud_cols = max(1, int(scroll.size.x / (_cloud_item_w + _cloud_gap)))
+		_cloud_cols = _thumbnail_column_count(_thumbnail_available_width(scroll))
 
 	_cloud_row_h = _cloud_item_h + _cloud_gap
 	var rows: int = int(ceil(float(items.size()) / _cloud_cols))
@@ -299,9 +301,7 @@ func _update_cloud_virtual_cards() -> void:
 		_cloud_active.erase(idx)
 
 	# 2) 为进入范围的索引创建卡片
-	var container_width: float = _cloud_virtual_root.size.x
-	if container_width <= 0.0:
-		container_width = scroll.size.x - 20.0
+	var container_width := _thumbnail_available_width(scroll)
 
 	for idx in range(first_idx, last_idx + 1):
 		if _cloud_active.has(idx):
@@ -318,9 +318,8 @@ func _position_cloud_card(card: Control, idx: int, container_width: float) -> vo
 	var w: float = container_width
 	if _cloud_cols > 1:
 		w = _cloud_item_w
-		var total_w: float = _cloud_cols * _cloud_item_w + (_cloud_cols - 1) * _cloud_gap
-		var start_x: float = max(0.0, (container_width - total_w) / 2.0)
-		pos_x = start_x + col * (_cloud_item_w + _cloud_gap)
+		var horizontal_gap := _thumbnail_horizontal_gap(container_width, _cloud_cols, _cloud_item_w)
+		pos_x = col * (_cloud_item_w + horizontal_gap)
 
 	var pos_y: float = row * _cloud_row_h
 
@@ -577,7 +576,41 @@ func _clear_active_container() -> void:
 	_local_items = []
 	# 恢复 GridContainer 列数（如果之前是虚拟模式）
 	if not list_view_mode and is_instance_valid(grid_container):
-		grid_container.columns = max(1, int(thumbnails_scroll_container.size.x / 600))
+		_update_thumbnail_grid_layout()
+
+
+func _thumbnail_available_width(scroll: ScrollContainer) -> float:
+	var width := scroll.size.x
+	var panel_style := scroll.get_theme_stylebox(\"panel\")
+	if panel_style:
+		width -= maxf(panel_style.get_content_margin(SIDE_LEFT), 0.0)
+		width -= maxf(panel_style.get_content_margin(SIDE_RIGHT), 0.0)
+	var vertical_scrollbar := scroll.get_v_scroll_bar()
+	if is_instance_valid(vertical_scrollbar) and scroll.vertical_scroll_mode != ScrollContainer.SCROLL_MODE_SHOW_NEVER:
+		width -= vertical_scrollbar.get_combined_minimum_size().x
+	return maxf(width, 0.0)
+
+
+func _thumbnail_column_count(container_width: float) -> int:
+	return maxi(1, int((container_width + THUMBNAIL_MIN_HORIZONTAL_GAP) / (THUMBNAIL_CARD_WIDTH + THUMBNAIL_MIN_HORIZONTAL_GAP)))
+
+
+func _thumbnail_horizontal_gap(container_width: float, columns: int, card_width: float) -> float:
+	if columns <= 1:
+		return THUMBNAIL_MIN_HORIZONTAL_GAP
+	return maxf(THUMBNAIL_MIN_HORIZONTAL_GAP, (container_width - columns * card_width) / (columns - 1))
+
+
+func _update_thumbnail_grid_layout() -> void:
+	if not is_instance_valid(grid_container) or not is_instance_valid(thumbnails_scroll_container):
+		return
+	var available_width := _thumbnail_available_width(thumbnails_scroll_container)
+	var columns := _thumbnail_column_count(available_width)
+	grid_container.columns = columns
+	grid_container.add_theme_constant_override(
+		\"h_separation\",
+		int(round(_thumbnail_horizontal_gap(available_width, columns, THUMBNAIL_CARD_WIDTH)))
+	)
 
 
 func _lazy_update_decks() -> void:
@@ -728,11 +761,11 @@ func _populate_local_virtual_view(items: Array, folder_title: String) -> void:
 		_local_item_w = 0.0   # 用容器宽
 	else:
 		_local_item_h = 364.0
-		_local_item_w = 582.4
+		_local_item_w = THUMBNAIL_CARD_WIDTH
 		_local_gap = 10.0
 		# 让 GridContainer 只排一列,虚拟根节点独占整行
 		grid_container.columns = 1
-		_local_cols = max(1, int(scroll.size.x / (_local_item_w + _local_gap)))
+		_local_cols = _thumbnail_column_count(_thumbnail_available_width(scroll))
 
 	_local_row_h = _local_item_h + _local_gap
 	var rows: int = int(ceil(float(items.size()) / _local_cols))
@@ -785,9 +818,7 @@ func _update_local_virtual_cards() -> void:
 		_local_active.erase(idx)
 
 	# 2) 为进入范围的索引创建卡片
-	var container_width: float = _local_virtual_root.size.x
-	if container_width <= 0.0:
-		container_width = scroll.size.x - 20.0
+	var container_width := _thumbnail_available_width(scroll)
 
 	for idx in range(first_idx, last_idx + 1):
 		if _local_active.has(idx):
@@ -806,9 +837,8 @@ func _position_local_card(card: Control, idx: int, container_width: float) -> vo
 		w = container_width
 		pos_x = 0.0
 	else:
-		var total_w: float = _local_cols * _local_item_w + (_local_cols - 1) * _local_gap
-		var start_x: float = max(0.0, (container_width - total_w) / 2.0)
-		pos_x = start_x + col * (_local_item_w + _local_gap)
+		var horizontal_gap := _thumbnail_horizontal_gap(container_width, _local_cols, _local_item_w)
+		pos_x = col * (_local_item_w + horizontal_gap)
 
 	var pos_y: float = row * _local_row_h
 
@@ -885,13 +915,11 @@ func _do_rebuild_local_virtual_layout() -> void:
 	if not is_instance_valid(scroll):
 		return
 
-	_local_cols = max(1, int(scroll.size.x / (_local_item_w + _local_gap)))
+	_local_cols = _thumbnail_column_count(_thumbnail_available_width(scroll))
 	var rows: int = int(ceil(float(_local_items.size()) / _local_cols))
 	_local_virtual_root.custom_minimum_size = Vector2(0, rows * _local_row_h)
 
-	var container_width: float = _local_virtual_root.size.x
-	if container_width <= 0.0:
-		container_width = scroll.size.x - 20.0
+	var container_width := _thumbnail_available_width(scroll)
 
 	# 可视范围（与 _update_local_virtual_cards 同一套逻辑）
 	var view_top: float = float(scroll.scroll_vertical)
@@ -944,13 +972,11 @@ func _do_rebuild_cloud_virtual_layout() -> void:
 	if not is_instance_valid(scroll):
 		return
 
-	_cloud_cols = max(1, int(scroll.size.x / (_cloud_item_w + _cloud_gap)))
+	_cloud_cols = _thumbnail_column_count(_thumbnail_available_width(scroll))
 	var rows: int = int(ceil(float(_cloud_items.size()) / _cloud_cols))
 	_cloud_virtual_root.custom_minimum_size = Vector2(0, rows * _cloud_row_h)
 
-	var container_width: float = _cloud_virtual_root.size.x
-	if container_width <= 0.0:
-		container_width = scroll.size.x - 20.0
+	var container_width := _thumbnail_available_width(scroll)
 
 	# 可视范围（与 _update_cloud_virtual_cards 同一套逻辑）
 	var view_top: float = float(scroll.scroll_vertical)
@@ -1501,7 +1527,7 @@ func _on_thumbnails_scroll_resized() -> void:
 	if not enable_cloud and not _is_showing_favorites and _local_virtual_root != null:
 		_rebuild_local_virtual_layout()
 		return
-	grid_container.columns = max(1, int(thumbnails_scroll_container.size.x / 600))
+	_update_thumbnail_grid_layout()
 
 
 func _on_ok_pressed() -> void:
@@ -2008,6 +2034,7 @@ grow_horizontal = 2
 grow_vertical = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_1siev")
 horizontal_scroll_mode = 3
+vertical_scroll_mode = 3
 
 [node name="GridContainer" type="GridContainer" parent="ThumbnailsView" unique_id=58795696]
 layout_mode = 2
