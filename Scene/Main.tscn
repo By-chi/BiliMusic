@@ -108,6 +108,7 @@ func _ensure_page(page_name: String) -> Control:
 	page.visible = false
 	page.offset_transform_enabled = true
 	add_child(page)
+	GdScriptFunc.apply_theme_and_styles_to_node(page)
 	move_child(page, get_node(\"BottomMenu\").get_index())
 	return get_node(page_name)
 
